@@ -41,13 +41,14 @@ const formatIndoDate = (dateStr) => {
 };
 
 const formatRupiah = (num) => {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num || 0);
+  const validNum = Number(num) || 0;
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(validNum);
 };
 
 // Fungsi pembersih imbuhan (x1) bawaan string agar tidak dobel
 const parseAndCleanItem = (rawName) => {
   if (!rawName) return '';
-  return rawName.replace(/\(x\d+\)/g, '').trim();
+  return String(rawName).replace(/\(x\s*\d+\)/gi, '').trim();
 };
 
 const INITIAL_TENANTS = [{ id: 't1', name: 'Stand Snack', owner: 'PIC', phone: '628123456789' }];
@@ -187,82 +188,83 @@ export default function App() {
         if (json.data.orders !== undefined) {
           const productsData = json.data.products || products;
           
-          const parsedOrders = json.data.orders.map(o => {
-            // Pemindai tangguh: Abaikan spasi dan huruf besar/kecil dari Google Sheets
-            const getVal = (possibleKeys) => {
-              const key = Object.keys(o).find(k => 
-                possibleKeys.some(pk => k.toLowerCase().replace(/[^a-z0-9]/g, '') === pk.toLowerCase().replace(/[^a-z0-9]/g, ''))
-              );
-              return key ? o[key] : undefined;
-            };
+          if (Array.isArray(json.data.orders)) {
+            const parsedOrders = json.data.orders.map(o => {
+              if (!o || typeof o !== 'object') return null;
 
-            const namaAnak = getVal(['Nama Anak', 'namaAnak', 'customer']) || 'Unknown';
-            const kelas = getVal(['Kelas', 'kelasAnak']) || '-';
-            const namaOrtu = getVal(['Nama Ortu', 'namaOrtu']) || '-';
-            const catatan = getVal(['Catatan', 'catatanPesanan']) || '-';
-            
-            let parsedCust = { namaAnak, kelas, namaOrtu, catatan };
-            let parsedItems = [];
-            
-            let orderId = getVal(['Order ID', 'orderId']) || '-';
-            let batchId = getVal(['Batch ID', 'batchId']) || '-';
-            let status = getVal(['Status', 'statusOrder']) || 'Unpaid';
-            let totalAmount = Number(getVal(['Total Tagihan', 'totalAmount', 'total'])) || 0;
+              const getVal = (possibleKeys) => {
+                const key = Object.keys(o).find(k => 
+                  possibleKeys.some(pk => String(k).toLowerCase().replace(/[^a-z0-9]/g, '') === String(pk).toLowerCase().replace(/[^a-z0-9]/g, ''))
+                );
+                return key ? o[key] : undefined;
+              };
 
-            // Pindai jika data lama tersimpan sebagai format JSON
-            Object.values(o).forEach(val => {
-              if (typeof val === 'string') {
-                if (val.startsWith('{') && val.includes('namaAnak')) {
-                  try { parsedCust = JSON.parse(val); } catch(e) {}
-                }
-                if (val.startsWith('[') && val.includes('"id":')) {
-                  try { parsedItems = JSON.parse(val); } catch(e) {}
-                }
-                if (['Paid', 'Unpaid', 'Selesai', 'Batal', 'Void'].includes(val)) {
-                  status = val;
-                }
-              }
-            });
+              const namaAnak = getVal(['Nama Anak', 'namaAnak', 'customer']) || 'Unknown';
+              const kelas = getVal(['Kelas', 'kelasAnak']) || '-';
+              const namaOrtu = getVal(['Nama Ortu', 'namaOrtu']) || '-';
+              const catatan = getVal(['Catatan', 'catatanPesanan']) || '-';
+              
+              let parsedCust = { namaAnak, kelas, namaOrtu, catatan };
+              let parsedItems = [];
+              
+              let orderId = getVal(['Order ID', 'orderId']) || '-';
+              let batchId = getVal(['Batch ID', 'batchId']) || '-';
+              let status = getVal(['Status', 'statusOrder']) || 'Unpaid';
+              let totalAmount = Number(getVal(['Total Tagihan', 'totalAmount', 'total'])) || 0;
 
-            // MEREKONSTRUKSI ITEM DARI TEKS BIASA JIKA JSON KOSONG
-            if (parsedItems.length === 0) {
-              const rincianText = String(getVal(['Rincian Items', 'items', 'formattedItemsText', 'Rincian']) || '');
-              if (rincianText && rincianText !== 'undefined' && rincianText !== '-') {
-                const itemStrings = rincianText.split(', ');
-                itemStrings.forEach(itemStr => {
-                  // Mencari pola "Sosis Ayam Keju (x3)"
-                  const match = itemStr.match(/^(.*?)\s*\(x(\d+)\)$/);
-                  if (match) {
-                    const name = match[1].trim();
-                    const qty = parseInt(match[2], 10);
-                    const product = productsData.find(p => p.name.toLowerCase() === name.toLowerCase());
-                    
-                    if (product) {
-                      parsedItems.push({
-                        id: product.id, name: product.name, tenantId: product.tenantId,
-                        priceOwner: Number(product.priceOwner), priceOrganizer: Number(product.priceOrganizer),
-                        qty: qty, subtotal: (Number(product.priceOwner) + Number(product.priceOrganizer)) * qty
-                      });
-                    } else {
-                      // Fallback jika produk sudah dihapus dari database
-                      parsedItems.push({
-                        id: 'p-unknown', name: name, tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: qty, subtotal: 0
-                      });
-                    }
-                  } else if (itemStr.trim()) {
-                     parsedItems.push({
-                        id: 'p-unknown', name: itemStr.trim(), tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: 1, subtotal: 0
-                      });
+              Object.values(o).forEach(val => {
+                if (typeof val === 'string') {
+                  const cleanVal = val.trim();
+                  if (cleanVal.startsWith('{') && cleanVal.includes('namaAnak')) {
+                    try { parsedCust = JSON.parse(cleanVal); } catch(e) {}
                   }
-                });
-              }
-            }
+                  if (cleanVal.startsWith('[') && cleanVal.includes('"id":')) {
+                    try { parsedItems = JSON.parse(cleanVal); } catch(e) {}
+                  }
+                  if (['Paid', 'Unpaid', 'Selesai', 'Batal', 'Void'].includes(cleanVal)) {
+                    status = cleanVal;
+                  }
+                }
+              });
 
-            return {
-              ...o, orderId, batchId, status, totalAmount, customer: parsedCust, items: parsedItems
-            };
-          });
-          setOrders(parsedOrders);
+              if (!Array.isArray(parsedItems) || parsedItems.length === 0) {
+                parsedItems = [];
+                const rincianText = String(getVal(['Rincian Items', 'items', 'formattedItemsText', 'Rincian']) || '');
+                if (rincianText && rincianText !== 'undefined' && rincianText !== '-') {
+                  const itemStrings = rincianText.split(',');
+                  itemStrings.forEach(itemStr => {
+                    const match = itemStr.trim().match(/^(.*?)\s*\(x(\d+)\)$/i);
+                    if (match) {
+                      const name = match[1].trim();
+                      const qty = parseInt(match[2], 10);
+                      const product = productsData.find(p => String(p.name || '').toLowerCase() === name.toLowerCase());
+                      
+                      if (product) {
+                        parsedItems.push({
+                          id: product.id, name: product.name, tenantId: product.tenantId,
+                          priceOwner: Number(product.priceOwner) || 0, priceOrganizer: Number(product.priceOrganizer) || 0,
+                          qty: qty, subtotal: (Number(product.priceOwner || 0) + Number(product.priceOrganizer || 0)) * qty
+                        });
+                      } else {
+                        parsedItems.push({
+                          id: 'p-unknown', name: name, tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: qty, subtotal: 0
+                        });
+                      }
+                    } else if (itemStr.trim()) {
+                       parsedItems.push({
+                          id: 'p-unknown', name: itemStr.trim(), tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: 1, subtotal: 0
+                        });
+                    }
+                  });
+                }
+              }
+
+              return {
+                ...o, orderId, batchId, status, totalAmount, customer: parsedCust, items: parsedItems
+              };
+            }).filter(Boolean);
+            setOrders(parsedOrders);
+          }
         }
         
         if (json.data.batches !== undefined) {
@@ -461,7 +463,7 @@ export default function App() {
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
       const matchTenant = selectedTenantFilter === 'all' || p.tenantId === selectedTenantFilter;
-      const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchSearch = String(p.name || '').toLowerCase().includes(searchQuery.toLowerCase());
       return matchTenant && matchSearch && p.available;
     });
   }, [products, selectedTenantFilter, searchQuery]);
@@ -469,6 +471,7 @@ export default function App() {
   const enrichOrderItems = (ord) => {
     if (!ord || !ord.items || !Array.isArray(ord.items)) return [];
     return ord.items.map(it => {
+      if (!it) return null;
       const dbProduct = products.find(p => p.id === it.id);
       if (dbProduct) {
         return {
@@ -875,14 +878,14 @@ export default function App() {
                       <span>Klik "Simpan Status" untuk memperbarui status pesanan ke cloud.</span>
                       <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded">Total: {orders.length}</span>
                     </div>
-                    {orders.map((ord) => {
+                    {orders.map((ord, idx) => {
                       const enrichedItems = enrichOrderItems(ord);
                       return (
-                        <div key={ord.orderId} className="bg-white p-4 rounded-xl border text-xs shadow-sm flex flex-col gap-3">
+                        <div key={ord.orderId || idx} className="bg-white p-4 rounded-xl border text-xs shadow-sm flex flex-col gap-3">
                           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 border-b pb-3">
                             <div>
-                              <span className="font-black text-indigo-700 text-sm">{ord.orderId}</span>
-                              <span className="font-bold block mt-0.5 text-slate-800">{ord.customer?.namaAnak} ({ord.customer?.kelas})</span>
+                              <span className="font-black text-indigo-700 text-sm">{ord.orderId || '-'}</span>
+                              <span className="font-bold block mt-0.5 text-slate-800">{ord.customer?.namaAnak || 'Unknown'} ({ord.customer?.kelas || '-'})</span>
                               <span className="text-[10px] text-slate-500 block">Ortu: {ord.customer?.namaOrtu || '-'}</span>
                             </div>
                             <div className="flex items-center gap-2 self-end sm:self-auto">
