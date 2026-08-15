@@ -41,6 +41,20 @@ import {
   Share2
 } from 'lucide-react';
 
+// Helper Format Tanggal Indonesia (Global Scope)
+const formatIndoDate = (dateStr) => {
+  if (!dateStr) return '-';
+  try {
+    return new Date(dateStr).toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
+  } catch (e) {
+    return dateStr;
+  }
+};
+
 const INITIAL_TENANTS = [
   { id: 't1', name: 'Stand Snack & Es Ceria', owner: 'Mama Budi (TK A1)', phone: '6281234567891' },
   { id: 't2', name: 'Stand Dapur Bu Guru', owner: 'Ibu Ningsih', phone: '6281234567892' },
