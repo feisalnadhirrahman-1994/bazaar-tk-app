@@ -27,7 +27,7 @@ import {
   Menu
 } from 'lucide-react';
 
-const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbx1ZJioErBWCOjzKAEjTJuD4TCaGk9k8mlSdz7aB0qx3SZFT76DKkJqPLLQVg9DwjuE/exec';
+const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxlNd5nsvlgfoXSj5xeNW9qhhZtauefW0x_1EGqKTYtJnij0ESwflbJRxT46zraBsXd/exec';
 
 const formatIndoDate = (dateStr) => {
   if (!dateStr) return '-';
@@ -257,8 +257,13 @@ export default function App() {
         }
         
         if (json.data.batches !== undefined) {
-          setBatches(json.data.batches);
-          const activeBatch = json.data.batches.find(b => b.isActive) || json.data.batches[0];
+          // Memastikan readyDate tetap terjaga meskipun tidak ada atau null
+          const mappedBatches = json.data.batches.map(b => ({
+            ...b,
+            readyDate: b.readyDate || b.readydate || '' 
+          }));
+          setBatches(mappedBatches);
+          const activeBatch = mappedBatches.find(b => b.isActive) || mappedBatches[0];
           if (activeBatch) setReportSelectedBatchId(activeBatch.id);
         }
         
@@ -294,10 +299,11 @@ export default function App() {
       settings: { adminAuth }
     };
 
+    // MENGGUNAKAN text/plain AGAR AMAN DI NO-CORS DAN TIDAK DI-STRIP OLEH BROWSER
     fetch(targetUrl, {
       method: 'POST',
       mode: 'no-cors',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     }).then(() => showToast('Disimpan ke Google Sheets!')).catch(err => console.warn(err));
   };
@@ -419,7 +425,6 @@ export default function App() {
 
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
 
-    // Sync Buka WA (Tanpa Delay)
     if (cleanPhone && cleanPhone.length > 5) {
       window.open(waUrl, '_blank');
     } else {
@@ -434,7 +439,7 @@ export default function App() {
       fetch(targetUrl, {
         method: 'POST',
         mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'checkout', ...orderPayload })
       }).catch(err => console.warn(err));
     }
@@ -474,7 +479,7 @@ export default function App() {
         priceOrganizer: Number(it.priceOrganizer) || 0,
         subtotal: (Number(it.priceOwner || 0) + Number(it.priceOrganizer || 0)) * (it.qty || 1)
       };
-    }).filter(Boolean); // Mencegah crash jika produk null
+    }).filter(Boolean);
   };
 
   const batchReportData = useMemo(() => {
@@ -493,7 +498,7 @@ export default function App() {
       filtered.forEach((ord) => {
         if (!ord) return;
         const enrichedItems = enrichOrderItems(ord);
-        const tenantItemsInOrder = enrichedItems.filter((it) => it.tenantId === tenant.id);
+        const tenantItemsInOrder = enrichedItems.filter((it) => it?.tenantId === tenant.id);
         
         if (tenantItemsInOrder.length > 0) {
           customerOrdersDetail.push({
@@ -544,7 +549,7 @@ export default function App() {
     fetch(targetUrl, {
       method: 'POST',
       mode: 'no-cors',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action: 'updateOrderStatus', orderId: orderId, status: newStatus })
     }).catch(e => console.warn(e));
   };
@@ -869,8 +874,8 @@ export default function App() {
                           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 border-b pb-3">
                             <div>
                               <span className="font-black text-indigo-700 text-sm">{ord.orderId || '-'}</span>
-                              <span className="font-bold block mt-0.5 text-slate-800">{ord.customer?.namaAnak || 'Unknown'} ({ord.customer?.kelas || '-'})</span>
-                              <span className="text-[10px] text-slate-500 block">Ortu: {ord.customer?.namaOrtu || '-'}</span>
+                              <span className="font-bold block mt-0.5 text-slate-800">{ord?.customer?.namaAnak || 'Unknown'} ({ord?.customer?.kelas || '-'})</span>
+                              <span className="text-[10px] text-slate-500 block">Ortu: {ord?.customer?.namaOrtu || '-'}</span>
                             </div>
                             <div className="flex items-center gap-2 self-end sm:self-auto">
                               <select
@@ -904,9 +909,9 @@ export default function App() {
                                     fetch(targetUrl, {
                                       method: 'POST',
                                       mode: 'no-cors',
-                                      headers: { 'Content-Type': 'application/json' },
+                                      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                                       body: JSON.stringify({ action: 'deleteOrder', orderId: ord.orderId })
-                                    });
+                                    }).catch(e => console.warn(e));
                                     showToast('Pesanan dihapus dari Cloud.');
                                   }
                                 }}
@@ -931,7 +936,7 @@ export default function App() {
                                 </div>
                               )
                             })}
-                            {ord.customer?.catatan && (
+                            {ord?.customer?.catatan && (
                               <p className="text-[10px] text-orange-600 font-medium italic mt-1 pt-1">Catatan: {ord.customer.catatan}</p>
                             )}
                             <div className="flex justify-between font-black text-slate-900 pt-2 mt-2">
@@ -1001,7 +1006,7 @@ export default function App() {
                           <div>
                             <h4 className="font-bold text-sm text-slate-900">{b.name} {b.isActive && <span className="bg-indigo-100 text-indigo-700 text-[9px] px-1.5 py-0.5 rounded ml-1 font-black">AKTIF</span>}</h4>
                             <p className="text-[10px] text-slate-500 mt-1">PO: {formatIndoDate(b.startDate)} s/d {formatIndoDate(b.endDate)}</p>
-                            <p className="text-[10px] text-emerald-700 font-bold mt-0.5">Ready: {formatIndoDate(b.readyDate)}</p>
+                            <p className="text-[10px] text-emerald-700 font-bold mt-0.5">Ready: {b.readyDate ? formatIndoDate(b.readyDate) : '-'}</p>
                           </div>
                           <div className="flex gap-2 text-xs">
                             <button onClick={() => setBatchModal({ isOpen: true, item: b })} className="text-blue-600 font-bold bg-blue-50 px-3 py-1.5 rounded-lg">Edit</button>
@@ -1085,7 +1090,7 @@ export default function App() {
           </main>
         )}
 
-        {}
+        {/* CART MOBILE / KANAN */}
         {isCartOpen && (
           <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm">
             <div className="w-full max-w-sm bg-white h-full flex flex-col shadow-2xl">
@@ -1121,6 +1126,7 @@ export default function App() {
           </div>
         )}
 
+        {/* MODAL CHECKOUT */}
         {isCheckoutModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <div className="bg-white rounded-2xl w-full max-w-sm p-5 relative shadow-2xl">
@@ -1216,7 +1222,7 @@ export default function App() {
         )}
       </div>
 
-      {}
+      {/* RENDER PDF KELUAR DARI FLOW BIASA */}
       {printData && (
         <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:static print:block print:w-full print:bg-white print:overflow-visible">
           <style>{`
