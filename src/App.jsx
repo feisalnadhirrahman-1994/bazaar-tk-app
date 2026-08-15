@@ -25,7 +25,8 @@ import {
   RefreshCw,
   Share2,
   Upload,
-  Loader2
+  Loader2,
+  Printer
 } from 'lucide-react';
 
 const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwmWBM_AsaxtOf8RcDwtbRBsZJcWM5Qd2xVMG7RkhWwoeh8fCoqC8XKSh0HWqRqonN_/exec';
@@ -420,7 +421,7 @@ export default function App() {
     // Format WhatsApp Message Text with Smile Emoji 😊
     const targetClassObj = classesList.find((c) => c.name === checkoutData.kelas);
     const picPhoneForClass = targetClassObj?.phone || adminPhone;
-    let cleanPhone = picPhoneForClass.replace(/[^0-9]/g, '');
+    let cleanPhone = (picPhoneForClass || '628123456780').replace(/[^0-9]/g, '');
     if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
 
     let waText = `*PEMESANAN BAZAAR DANUS PTA LITTLE DARBI (${activeBatch.name})*\n`;
@@ -445,7 +446,7 @@ export default function App() {
 
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
 
-    // Fire non-blocking fetch to Google Sheets
+    // Fire non-blocking fetch to Google Sheets Cloud
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
     if (targetUrl) {
       try {
@@ -470,6 +471,7 @@ export default function App() {
     setCheckoutData({ namaAnak: '', kelas: classesList[0]?.name || 'TK A1', namaOrtu: '', catatan: '' });
     setIsSubmitting(false);
 
+    // Open WhatsApp URL directly in event loop
     window.open(waUrl, '_blank');
   };
 
@@ -545,6 +547,94 @@ export default function App() {
     showToast(`Status Pesanan ${orderId} berhasil diubah ke ${newStatus}!`);
   };
 
+  const handlePrintTenantReport = (tenantRep) => {
+    const currentBatch = batches.find((b) => b.id === reportSelectedBatchId);
+    const itemNames = Object.keys(tenantRep.itemTotalsMap);
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      showToast('Pop-up terblokir oleh browser. Izinkan pop-up untuk mencetak PDF.');
+      return;
+    }
+
+    let itemsHtml = '';
+    tenantRep.customerOrdersDetail.forEach((cust, idx) => {
+      const itemsListStr = cust.items.map((it) => `${it.name} (x${it.qty})`).join(', ');
+      itemsHtml += `
+        <tr>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px;">${idx + 1}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px;"><strong>${cust.namaAnak}</strong></td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px;">${cust.kelas}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px;">${cust.namaOrtu}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px;">${itemsListStr}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px;">${cust.catatan || '-'}</td>
+        </tr>
+      `;
+    });
+
+    let summaryHtml = '';
+    itemNames.forEach((name) => {
+      summaryHtml += `<li style="margin-bottom: 4px;"><strong>${name}</strong>: ${tenantRep.itemTotalsMap[name]} Pcs</li>`;
+    });
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Rekap ${tenantRep.tenantName} - ${currentBatch?.name || 'Bazaar'}</title>
+        <style>
+          body { font-family: system-ui, -apple-system, sans-serif; padding: 24px; color: #1e293b; line-height: 1.4; }
+          h2 { color: #007A37; margin: 0 0 4px 0; }
+          .header { border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 16px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+          th { background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; }
+          .summary-box { margin-top: 20px; padding: 16px; background: #fffbe6; border: 1px solid #ffe58f; border-radius: 8px; }
+          .total { font-size: 16px; font-weight: bold; color: #047857; margin-top: 10px; }
+          @media print {
+            .no-print { display: none !important; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h2>Bazaar DANUS PTA Little Darbi</h2>
+          <h3 style="margin: 4px 0;">Rekapitulasi Dapur Stand: ${tenantRep.tenantName}</h3>
+          <p style="font-size: 13px; color: #64748b; margin: 2px 0;">Periode: ${currentBatch?.name || '-'} | PJ: ${tenantRep.tenantOwner} (${tenantRep.tenantPhone || '-'})</p>
+        </div>
+
+        <button class="no-print" onclick="window.print()" style="padding: 10px 18px; background: #007A37; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-bottom: 16px;">
+          🖨️ Cetak / Simpan PDF
+        </button>
+
+        <h4 style="margin: 0 0 8px 0;">Detail Pesanan Pembeli (${tenantRep.customerOrdersDetail.length} Pembeli)</h4>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 30px;">No</th>
+              <th>Nama Anak</th>
+              <th>Kelas</th>
+              <th>Nama Ortu</th>
+              <th>Detail Pesanan</th>
+              <th>Catatan</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsHtml || '<tr><td colspan="6" style="text-align: center; padding: 12px; color: #94a3b8;">Belum ada pesanan</td></tr>'}
+          </tbody>
+        </table>
+
+        <div class="summary-box">
+          <h4 style="margin: 0 0 8px 0; color: #78350f;">Ringkasan Item Dapur:</h4>
+          <ul style="margin: 0; padding-left: 20px;">
+            ${summaryHtml || '<li>Tidak ada item</li>'}
+          </ul>
+          <div class="total">Total Hak Vendor: ${formatRupiah(tenantRep.tenantTotalOwnerShare)}</div>
+        </div>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   const handleConfirmDelete = () => {
     if (deleteConfirmModal.type === 'product') {
       const updated = products.filter((item) => item.id !== deleteConfirmModal.id);
@@ -556,6 +646,11 @@ export default function App() {
       setBatches(updated);
       syncPushToCloud({ batches: updated });
       showToast(`Batch "${deleteConfirmModal.name}" berhasil dihapus.`);
+    } else if (deleteConfirmModal.type === 'order') {
+      const updated = orders.filter((item) => item.orderId !== deleteConfirmModal.id);
+      setOrders(updated);
+      syncPushToCloud({ orders: updated });
+      showToast(`Pesanan "${deleteConfirmModal.id}" berhasil dihapus.`);
     }
     setDeleteConfirmModal({ isOpen: false, type: '', id: '', name: '' });
   };
@@ -1069,20 +1164,7 @@ export default function App() {
                 >
                   <Users className="w-4 h-4" />
                   <span>Routing WA Kelas ({classesList.length})</span>
-                </button>
-
-                <button
-                  onClick={() => setAdminSubTab('settings')}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 whitespace-nowrap transition-all ${
-                    adminSubTab === 'settings' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  <Settings className="w-4 h-4" />
-                  <span>Integrasi Webhook & Sandi</span>
-                </button>
-              </div>
-
-              {}
+              {/* REKAP PER TENANT & BATCH TAB */}
               {adminSubTab === 'batch_reports' && (
                 <div className="space-y-6">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4 justify-between sm:items-center">
@@ -1140,16 +1222,29 @@ export default function App() {
 
                             <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
                               <button
+                                onClick={() => handlePrintTenantReport(tenantRep)}
+                                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm"
+                              >
+                                <Printer className="w-4 h-4" />
+                                <span>Cetak / Export PDF</span>
+                              </button>
+
+                              <button
                                 onClick={() => {
-                                  let cleanPhone = tenantRep.tenantPhone.replace(/[^0-9]/g, '');
+                                  const targetPhone = tenantRep.tenantPhone || adminPhone || '';
+                                  let cleanPhone = targetPhone.replace(/[^0-9]/g, '');
                                   if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
+                                  if (!cleanPhone) {
+                                    showToast('Nomor WA Stand belum diisi! Silakan isi di tab Kelola Stand.');
+                                    return;
+                                  }
                                   const currentBatch = batches.find((b) => b.id === reportSelectedBatchId);
                                   let text = `*REKAP PESANAN BAZAAR DANUS - ${tenantRep.tenantName.toUpperCase()}*\n`;
                                   text += `*Periode:* ${currentBatch?.name || '-'}\n\n`;
                                   itemNames.forEach((name) => {
                                     text += `• *${name}*: ${tenantRep.itemTotalsMap[name]} pcs\n`;
                                   });
-                                  text += `\n*TOTAL HAK VENDOR: ${formatRupiah(tenantRep.tenantTotalOwnerShare)}*`;
+                                  text += `\n*TOTAL HAK VENDOR: ${formatRupiah(tenantRep.tenantTotalOwnerShare)}*\n\nTerima kasih! 😊`;
                                   window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
                                 }}
                                 className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm"
@@ -1376,15 +1471,7 @@ export default function App() {
                                 </div>
                               </td>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {}
+              {/* ORDERS TAB */}
               {adminSubTab === 'orders' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1430,6 +1517,14 @@ export default function App() {
                                 >
                                   <Save className="w-3.5 h-3.5" />
                                   <span>Simpan Status</span>
+                                </button>
+
+                                <button
+                                  onClick={() => setDeleteConfirmModal({ isOpen: true, type: 'order', id: ord.orderId, name: `Pesanan ${ord.orderId} (${ord.customer.namaAnak})` })}
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded-xl transition-all"
+                                  title="Hapus Pesanan Ini"
+                                >
+                                  <Trash2 className="w-4 h-4" />
                                 </button>
                               </div>
                             </div>
