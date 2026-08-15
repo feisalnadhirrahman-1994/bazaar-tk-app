@@ -27,7 +27,7 @@ import {
   Menu
 } from 'lucide-react';
 
-const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycby1Fv6SFwA94rSlL44EaIH7jKf-ovVX4h1Dn8rHiEG45VbgrwkMR2mg8FkkpN2shWM/exec';
+const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbx1ZJioErBWCOjzKAEjTJuD4TCaGk9k8mlSdz7aB0qx3SZFT76DKkJqPLLQVg9DwjuE/exec';
 
 const formatIndoDate = (dateStr) => {
   if (!dateStr) return '-';
@@ -45,7 +45,6 @@ const formatRupiah = (num) => {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(validNum);
 };
 
-// Fungsi pembersih imbuhan (x1) bawaan string agar tidak dobel
 const parseAndCleanItem = (rawName) => {
   if (!rawName) return '';
   return String(rawName).replace(/\(x\s*\d+\)/gi, '').trim();
@@ -186,49 +185,36 @@ export default function App() {
         if (json.data.classes !== undefined) setClassesList(json.data.classes);
         
         if (json.data.orders !== undefined) {
-          const productsData = json.data.products || products;
+          const productsData = (json.data.products && json.data.products.length > 0) ? json.data.products : products;
           
           if (Array.isArray(json.data.orders)) {
             const parsedOrders = json.data.orders.map(o => {
-              if (!o || typeof o !== 'object') return null;
+              try {
+                if (!o || typeof o !== 'object') return null;
 
-              const getVal = (possibleKeys) => {
-                const key = Object.keys(o).find(k => 
-                  possibleKeys.some(pk => String(k).toLowerCase().replace(/[^a-z0-9]/g, '') === String(pk).toLowerCase().replace(/[^a-z0-9]/g, ''))
-                );
-                return key ? o[key] : undefined;
-              };
+                const getVal = (possibleKeys) => {
+                  const key = Object.keys(o).find(k => 
+                    possibleKeys.some(pk => String(k).toLowerCase().replace(/[^a-z0-9]/g, '') === String(pk).toLowerCase().replace(/[^a-z0-9]/g, ''))
+                  );
+                  return key ? o[key] : undefined;
+                };
 
-              const namaAnak = getVal(['Nama Anak', 'namaAnak', 'customer']) || 'Unknown';
-              const kelas = getVal(['Kelas', 'kelasAnak']) || '-';
-              const namaOrtu = getVal(['Nama Ortu', 'namaOrtu']) || '-';
-              const catatan = getVal(['Catatan', 'catatanPesanan']) || '-';
-              
-              let parsedCust = { namaAnak, kelas, namaOrtu, catatan };
-              let parsedItems = [];
-              
-              let orderId = getVal(['Order ID', 'orderId']) || '-';
-              let batchId = getVal(['Batch ID', 'batchId']) || '-';
-              let status = getVal(['Status', 'statusOrder']) || 'Unpaid';
-              let totalAmount = Number(getVal(['Total Tagihan', 'totalAmount', 'total'])) || 0;
+                let orderId = getVal(['Order ID', 'orderId']);
+                // PENCEGAHAN FATAL: Jika ID pesanan kosong, hiraukan data ini! (Menghindari render Blank Putih)
+                if (!orderId || String(orderId).trim() === '') return null;
 
-              Object.values(o).forEach(val => {
-                if (typeof val === 'string') {
-                  const cleanVal = val.trim();
-                  if (cleanVal.startsWith('{') && cleanVal.includes('namaAnak')) {
-                    try { parsedCust = JSON.parse(cleanVal); } catch(e) {}
-                  }
-                  if (cleanVal.startsWith('[') && cleanVal.includes('"id":')) {
-                    try { parsedItems = JSON.parse(cleanVal); } catch(e) {}
-                  }
-                  if (['Paid', 'Unpaid', 'Selesai', 'Batal', 'Void'].includes(cleanVal)) {
-                    status = cleanVal;
-                  }
-                }
-              });
+                const namaAnak = getVal(['Nama Anak', 'namaAnak', 'customer']) || 'Unknown';
+                const kelas = getVal(['Kelas', 'kelasAnak']) || '-';
+                const namaOrtu = getVal(['Nama Ortu', 'namaOrtu']) || '-';
+                const catatan = getVal(['Catatan', 'catatanPesanan']) || '-';
+                
+                let parsedCust = { namaAnak, kelas, namaOrtu, catatan };
+                let parsedItems = [];
+                
+                let batchId = getVal(['Batch ID', 'batchId']) || '-';
+                let status = getVal(['Status', 'statusOrder']) || 'Unpaid';
+                let totalAmount = Number(getVal(['Total Tagihan', 'totalAmount', 'total'])) || 0;
 
-              if (!Array.isArray(parsedItems) || parsedItems.length === 0) {
-                parsedItems = [];
                 const rincianText = String(getVal(['Rincian Items', 'items', 'formattedItemsText', 'Rincian']) || '');
                 if (rincianText && rincianText !== 'undefined' && rincianText !== '-') {
                   const itemStrings = rincianText.split(',');
@@ -257,11 +243,14 @@ export default function App() {
                     }
                   });
                 }
-              }
 
-              return {
-                ...o, orderId, batchId, status, totalAmount, customer: parsedCust, items: parsedItems
-              };
+                return {
+                  ...o, orderId, batchId, status, totalAmount, customer: parsedCust, items: parsedItems
+                };
+              } catch (parseError) {
+                console.warn('Skipping malformed row:', parseError);
+                return null;
+              }
             }).filter(Boolean);
             setOrders(parsedOrders);
           }
@@ -401,7 +390,6 @@ export default function App() {
     const targetClassObj = classesList.find((c) => c.name === checkoutData.kelas);
     const picPhoneRaw = targetClassObj?.phone || '';
     
-    // SAFE NUMBER PARSING - Teks wajib dilindungi String() agar tidak crash
     let cleanPhone = String(picPhoneRaw).replace(/[^0-9]/g, '');
     if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
 
@@ -431,18 +419,16 @@ export default function App() {
 
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
 
-    // Sync Buka WA (Tanpa Delay/Timeout agar tidak diblock Safari/Chrome)
+    // Sync Buka WA (Tanpa Delay)
     if (cleanPhone && cleanPhone.length > 5) {
       window.open(waUrl, '_blank');
     } else {
       alert("Pesanan berhasil dicatat, namun gagal membuka WhatsApp karena Nomor PIC Kelas belum diatur oleh admin.");
     }
 
-    // Update States
     const updatedOrders = [orderPayload, ...orders];
     setOrders(updatedOrders);
     
-    // Background Push
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
     if (targetUrl) {
       fetch(targetUrl, {
@@ -478,23 +464,23 @@ export default function App() {
           ...it,
           priceOwner: Number(dbProduct.priceOwner) || 0,
           priceOrganizer: Number(dbProduct.priceOrganizer) || 0,
-          subtotal: (Number(dbProduct.priceOwner || 0) + Number(dbProduct.priceOrganizer || 0)) * it.qty,
-          tenantId: dbProduct.tenantId
+          subtotal: (Number(dbProduct.priceOwner || 0) + Number(dbProduct.priceOrganizer || 0)) * (it.qty || 1),
+          tenantId: dbProduct.tenantId || it.tenantId
         };
       }
       return {
         ...it,
         priceOwner: Number(it.priceOwner) || 0,
         priceOrganizer: Number(it.priceOrganizer) || 0,
-        subtotal: (Number(it.priceOwner || 0) + Number(it.priceOrganizer || 0)) * it.qty
+        subtotal: (Number(it.priceOwner || 0) + Number(it.priceOrganizer || 0)) * (it.qty || 1)
       };
-    });
+    }).filter(Boolean); // Mencegah crash jika produk null
   };
 
   const batchReportData = useMemo(() => {
-    let filtered = orders.filter((o) => o.batchId === reportSelectedBatchId);
+    let filtered = orders.filter((o) => o?.batchId === reportSelectedBatchId);
     if (reportSelectedStatus !== 'ALL') {
-      filtered = filtered.filter((o) => o.status === reportSelectedStatus);
+      filtered = filtered.filter((o) => o?.status === reportSelectedStatus);
     }
 
     return tenants.map((tenant) => {
@@ -505,6 +491,7 @@ export default function App() {
       let tenantTotalMargin = 0;
 
       filtered.forEach((ord) => {
+        if (!ord) return;
         const enrichedItems = enrichOrderItems(ord);
         const tenantItemsInOrder = enrichedItems.filter((it) => it.tenantId === tenant.id);
         
@@ -523,14 +510,14 @@ export default function App() {
             if (!itemTotalsMap[cleanNameLocal]) {
               itemTotalsMap[cleanNameLocal] = {
                 qty: 0,
-                priceOwner: it.priceOwner,
-                priceOrganizer: it.priceOrganizer,
+                priceOwner: Number(it.priceOwner) || 0,
+                priceOrganizer: Number(it.priceOrganizer) || 0,
               };
             }
-            itemTotalsMap[cleanNameLocal].qty += it.qty;
-            tenantTotalOwnerShare += it.priceOwner * it.qty;
-            tenantTotalMargin += it.priceOrganizer * it.qty;
-            tenantTotalGross += it.subtotal;
+            itemTotalsMap[cleanNameLocal].qty += (Number(it.qty) || 1);
+            tenantTotalOwnerShare += (Number(it.priceOwner) || 0) * (Number(it.qty) || 1);
+            tenantTotalMargin += (Number(it.priceOrganizer) || 0) * (Number(it.qty) || 1);
+            tenantTotalGross += (Number(it.subtotal) || 0);
           });
         }
       });
@@ -564,10 +551,6 @@ export default function App() {
 
   return (
     <Fragment>
-      {/* 
-        MAIN APP WRAPPER 
-        Disembunyikan sepenuhnya jika printData aktif, agar PDF bisa menguasai 100% halaman
-      */}
       <div className={`min-h-screen bg-slate-50 text-slate-800 font-sans pb-24 ${printData ? 'hidden' : 'block'}`}>
         {toastMessage && (
           <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-2xl text-xs font-bold flex items-center space-x-2 animate-bounce">
@@ -831,7 +814,7 @@ export default function App() {
                                       
                                       const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
                                       if(cleanPhone.length > 5) {
-                                          setTimeout(() => window.open(waUrl, '_blank'), 100);
+                                          window.open(waUrl, '_blank');
                                       } else {
                                           alert("Nomor WA tenant tidak valid.");
                                       }
@@ -879,7 +862,8 @@ export default function App() {
                       <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded">Total: {orders.length}</span>
                     </div>
                     {orders.map((ord, idx) => {
-                      const enrichedItems = enrichOrderItems(ord);
+                      if (!ord) return null;
+                      const enrichedItems = enrichOrderItems(ord) || [];
                       return (
                         <div key={ord.orderId || idx} className="bg-white p-4 rounded-xl border text-xs shadow-sm flex flex-col gap-3">
                           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 border-b pb-3">
@@ -890,7 +874,7 @@ export default function App() {
                             </div>
                             <div className="flex items-center gap-2 self-end sm:self-auto">
                               <select
-                                value={ord.status}
+                                value={ord.status || 'Unpaid'}
                                 onChange={(e) => {
                                   const newOrders = orders.map(o => o.orderId === ord.orderId ? { ...o, status: e.target.value } : o);
                                   setOrders(newOrders);
@@ -934,16 +918,16 @@ export default function App() {
                             </div>
                           </div>
                           <div className="space-y-1 text-slate-700 pl-1">
-                            {enrichedItems.map((i, idx) => {
-                              const cName = parseAndCleanItem(i.name);
-                              const tName = tenants.find(t => t.id === i.tenantId)?.name || 'Stand';
+                            {enrichedItems.map((i, iIdx) => {
+                              const cName = parseAndCleanItem(i?.name);
+                              const tName = tenants.find(t => t.id === i?.tenantId)?.name || 'Stand';
                               return (
-                                <div key={idx} className="flex justify-between items-center text-[11px] border-b border-slate-50 pb-1">
+                                <div key={iIdx} className="flex justify-between items-center text-[11px] border-b border-slate-50 pb-1">
                                   <div>
-                                    <span className="font-bold">{cName} (x{i.qty})</span>
+                                    <span className="font-bold">{cName} (x{i?.qty || 1})</span>
                                     <span className="text-[9px] text-slate-400 ml-1">[{tName}]</span>
                                   </div>
-                                  <span className="font-medium text-slate-600">{formatRupiah(i.subtotal)}</span>
+                                  <span className="font-medium text-slate-600">{formatRupiah(i?.subtotal || 0)}</span>
                                 </div>
                               )
                             })}
@@ -952,7 +936,7 @@ export default function App() {
                             )}
                             <div className="flex justify-between font-black text-slate-900 pt-2 mt-2">
                               <span>Total Nominal Pesanan:</span>
-                              <span className="text-amber-600">{formatRupiah(ord.totalAmount)}</span>
+                              <span className="text-amber-600">{formatRupiah(ord.totalAmount || 0)}</span>
                             </div>
                           </div>
                         </div>
@@ -1101,6 +1085,7 @@ export default function App() {
           </main>
         )}
 
+        {}
         {isCartOpen && (
           <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm">
             <div className="w-full max-w-sm bg-white h-full flex flex-col shadow-2xl">
@@ -1176,7 +1161,7 @@ export default function App() {
           </div>
         )}
 
-        {/* MODAL LAINNYA */}
+        {/* MODAL ADMIN */}
         {productModal.isOpen && (
           <ModalProductForm
             item={productModal.item}
@@ -1231,18 +1216,17 @@ export default function App() {
         )}
       </div>
 
-      {/* 
-        PRINT / PDF WRAPPER
-        Hanya dirender (dan menutupi seluruh layar) ketika tombol Print PDF diklik
-      */}
+      {}
       {printData && (
-        <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:static print:block print:w-full print:h-auto print:bg-white print:overflow-visible">
+        <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:static print:block print:w-full print:bg-white print:overflow-visible">
           <style>{`
             @media print {
-              @page { size: portrait; margin: 10mm; }
-              html, body { height: auto !important; overflow: visible !important; background: white !important; }
+              @page { size: auto; margin: 0mm; }
+              body { margin: 10mm; }
+              html, body { height: max-content !important; overflow: visible !important; }
               .no-print { display: none !important; }
               * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .page-break-inside-avoid { break-inside: avoid; page-break-inside: avoid; }
             }
           `}</style>
           
@@ -1250,7 +1234,23 @@ export default function App() {
              <h2 className="font-bold text-sm">Mode Export PDF</h2>
              <div className="flex flex-wrap gap-2">
                <button onClick={() => window.print()} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-bold transition-colors">
-                 1. Simpan sbg PDF
+                 Simpan sbg PDF
+               </button>
+               <button 
+                 onClick={() => {
+                   let cleanPhone = printData.tenantRep.tenantPhone ? String(printData.tenantRep.tenantPhone).replace(/[^0-9]/g, '') : '';
+                   if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
+                   let text = `Halo Ibu/Bapak, berikut kami lampirkan dokumen PDF Rekapitulasi Pesanan Bazaar DANUS untuk Stand ${printData.tenantRep.tenantName}. Terima Kasih!`;
+                   const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+                   if(cleanPhone.length > 5) {
+                       window.open(waUrl, '_blank');
+                   } else {
+                       alert("Nomor WA tenant tidak valid.");
+                   }
+                 }} 
+                 className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-xs font-bold transition-colors"
+               >
+                 Buka WA (Kirim Manual)
                </button>
                <button onClick={() => setPrintData(null)} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 rounded-lg text-xs font-bold transition-colors">
                  Tutup
@@ -1258,15 +1258,15 @@ export default function App() {
              </div>
           </div>
           
-          <div className="p-8 max-w-4xl mx-auto bg-white text-black text-[10px] sm:text-[11px] print:p-0 print:m-0 print:w-full print:max-w-none shadow-xl print:shadow-none my-8 print:my-0">
+          <div className="p-6 max-w-4xl mx-auto bg-white text-black text-[10px] sm:text-[11px] print:p-0 print:m-0 print:w-full print:max-w-none shadow-xl print:shadow-none my-8 print:my-0 page-break-inside-avoid">
             <h1 className="text-lg font-black text-emerald-800 mb-0.5">Bazaar DANUS PTA Little Darbi</h1>
-            <h2 className="text-sm font-bold text-slate-900">Rekapitulasi Dapur Stand: {printData.tenantRep.tenantName}</h2>
+            <h2 className="text-sm font-bold text-slate-900">Rekapitulasi Dapur Stand: {printData.tenantRep?.tenantName || '-'}</h2>
             <p className="text-[10px] text-slate-500 mb-5 border-b border-slate-300 pb-2">
-              Periode: {printData.currentBatch?.name} | Ready: {formatIndoDate(printData.currentBatch?.readyDate)} | PJ: {printData.tenantRep.tenantOwner} ({printData.tenantRep.tenantPhone})
+              Periode: {printData.currentBatch?.name || '-'} | Ready: {printData.currentBatch?.readyDate ? formatIndoDate(printData.currentBatch.readyDate) : '-'} | PJ: {printData.tenantRep?.tenantOwner || '-'} ({printData.tenantRep?.tenantPhone || '-'})
             </p>
 
-            <h3 className="font-bold mt-5 mb-2 text-xs text-slate-800">1. Detail Pesanan Pembeli ({printData.tenantRep.customerOrdersDetail.length})</h3>
-            <table className="w-full border-collapse border border-slate-300 text-[10px] mb-8">
+            <h3 className="font-bold mt-5 mb-2 text-xs text-slate-800">1. Detail Pesanan Pembeli ({printData.tenantRep?.customerOrdersDetail?.length || 0})</h3>
+            <table className="w-full border-collapse border border-slate-300 text-[10px] mb-6">
                <thead className="bg-slate-50 font-bold text-slate-700">
                  <tr>
                    <th className="border border-slate-300 p-2 w-8 text-center">No</th>
@@ -1278,23 +1278,26 @@ export default function App() {
                  </tr>
                </thead>
                <tbody>
-                 {printData.tenantRep.customerOrdersDetail.map((cust, idx) => (
-                   <tr key={idx} className="hover:bg-slate-50">
-                     <td className="border border-slate-300 p-2 text-center">{idx + 1}</td>
-                     <td className="border border-slate-300 p-2 font-bold text-slate-800">{cust.namaAnak}</td>
-                     <td className="border border-slate-300 p-2">{cust.kelas}</td>
-                     <td className="border border-slate-300 p-2">{cust.namaOrtu}</td>
-                     <td className="border border-slate-300 p-2">
-                        {cust.items.map(it => `${parseAndCleanItem(it.name)} (x${it.qty})`).join(', ')}
+                 {printData.tenantRep?.customerOrdersDetail?.map((cust, idx) => (
+                   <tr key={idx}>
+                     <td className="border border-slate-300 p-1.5 text-center">{idx + 1}</td>
+                     <td className="border border-slate-300 p-1.5 font-bold text-slate-800">{cust.namaAnak}</td>
+                     <td className="border border-slate-300 p-1.5">{cust.kelas}</td>
+                     <td className="border border-slate-300 p-1.5">{cust.namaOrtu}</td>
+                     <td className="border border-slate-300 p-1.5">
+                        {cust.items?.map(it => `${parseAndCleanItem(it.name)} (x${it.qty || 1})`).join(', ')}
                      </td>
-                     <td className="border border-slate-300 p-2 italic text-slate-500">{cust.catatan}</td>
+                     <td className="border border-slate-300 p-1.5 italic text-slate-500">{cust.catatan}</td>
                    </tr>
                  ))}
+                 {(!printData.tenantRep?.customerOrdersDetail || printData.tenantRep.customerOrdersDetail.length === 0) && (
+                   <tr><td colSpan="6" className="border border-slate-300 p-2 text-center italic text-slate-400">Tidak ada pesanan.</td></tr>
+                 )}
                </tbody>
             </table>
 
-            <h3 className="font-bold mt-6 mb-2 text-xs text-slate-800">2. Ringkasan Pesanan (Dapur)</h3>
-            <table className="w-full border-collapse border border-slate-300 text-[11px]">
+            <h3 className="font-bold mt-4 mb-2 text-xs text-slate-800">2. Ringkasan Pesanan (Dapur)</h3>
+            <table className="w-full border-collapse border border-slate-300 text-[11px] page-break-inside-avoid">
                <thead className="bg-slate-50 font-bold text-slate-700">
                  <tr>
                    <th className="border border-slate-300 p-2 text-left">Produk</th>
@@ -1305,18 +1308,19 @@ export default function App() {
                  </tr>
                </thead>
                <tbody>
-                 {Object.keys(printData.tenantRep.itemTotalsMap).map(name => {
+                 {printData.tenantRep?.itemTotalsMap && Object.keys(printData.tenantRep.itemTotalsMap).map(name => {
                    const item = printData.tenantRep.itemTotalsMap[name];
-                   const ownerT = item.priceOwner * item.qty;
-                   const marginT = item.priceOrganizer * item.qty;
+                   if (!item) return null;
+                   const ownerT = (Number(item.priceOwner) || 0) * (Number(item.qty) || 1);
+                   const marginT = (Number(item.priceOrganizer) || 0) * (Number(item.qty) || 1);
                    const grossT = ownerT + marginT;
                    return (
                      <tr key={name}>
-                       <td className="border border-slate-300 p-2 font-bold text-slate-800">{parseAndCleanItem(name)}</td>
-                       <td className="border border-slate-300 p-2 text-center font-bold">{item.qty}</td>
-                       <td className="border border-slate-300 p-2 text-right">{formatRupiah(ownerT)}</td>
-                       <td className="border border-slate-300 p-2 text-right">{formatRupiah(marginT)}</td>
-                       <td className="border border-slate-300 p-2 text-right font-black text-slate-800">{formatRupiah(grossT)}</td>
+                       <td className="border border-slate-300 p-1.5 font-bold text-slate-800">{parseAndCleanItem(name)}</td>
+                       <td className="border border-slate-300 p-1.5 text-center font-bold">{item.qty}</td>
+                       <td className="border border-slate-300 p-1.5 text-right">{formatRupiah(ownerT)}</td>
+                       <td className="border border-slate-300 p-1.5 text-right">{formatRupiah(marginT)}</td>
+                       <td className="border border-slate-300 p-1.5 text-right font-black text-slate-800">{formatRupiah(grossT)}</td>
                      </tr>
                    )
                  })}
@@ -1324,9 +1328,9 @@ export default function App() {
                <tfoot className="bg-slate-100 font-black">
                  <tr>
                    <td colSpan={2} className="border border-slate-300 p-2.5 text-right text-emerald-800 uppercase">TOTAL KESELURUHAN:</td>
-                   <td className="border border-slate-300 p-2.5 text-right text-emerald-600">{formatRupiah(printData.tenantRep.tenantTotalOwnerShare)}</td>
-                   <td className="border border-slate-300 p-2.5 text-right text-orange-600">{formatRupiah(printData.tenantRep.tenantTotalMargin)}</td>
-                   <td className="border border-slate-300 p-2.5 text-right text-slate-900 text-xs">{formatRupiah(printData.tenantRep.tenantTotalGross)}</td>
+                   <td className="border border-slate-300 p-2.5 text-right text-emerald-600">{formatRupiah(printData.tenantRep?.tenantTotalOwnerShare || 0)}</td>
+                   <td className="border border-slate-300 p-2.5 text-right text-orange-600">{formatRupiah(printData.tenantRep?.tenantTotalMargin || 0)}</td>
+                   <td className="border border-slate-300 p-2.5 text-right text-slate-900 text-xs">{formatRupiah(printData.tenantRep?.tenantTotalGross || 0)}</td>
                  </tr>
                </tfoot>
             </table>
@@ -1336,8 +1340,6 @@ export default function App() {
     </Fragment>
   );
 }
-
-// === KOMPONEN MODAL (Tidak ada perubahan) ===
 
 function ModalClassForm({ item, onClose, onSave }) {
   const [name, setName] = useState(item?.name || '');
@@ -1379,7 +1381,11 @@ function ModalTenantForm({ item, onClose, onSave }) {
 
 function ModalBatchForm({ item, onClose, onSave }) {
   const [form, setForm] = useState({
-    name: item?.name || '', startDate: item?.startDate || '', endDate: item?.endDate || '', readyDate: item?.readyDate || ''
+    name: item?.name || '', 
+    startDate: item?.startDate || new Date().toISOString().slice(0, 10), 
+    endDate: item?.endDate || new Date().toISOString().slice(0, 10), 
+    readyDate: item?.readyDate || '',
+    description: item?.description || ''
   });
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
