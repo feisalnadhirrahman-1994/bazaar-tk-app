@@ -8,7 +8,6 @@ import {
   CheckCircle2, 
   MessageCircle, 
   Store, 
-  DollarSign, 
   Settings, 
   Search, 
   FileSpreadsheet, 
@@ -16,27 +15,14 @@ import {
   Send,
   User,
   School,
-  PieChart,
-  Calendar,
-  Clock,
   Lock,
-  Unlock,
   AlertCircle,
   Phone,
   Image as ImageIcon,
-  Upload,
-  Key,
-  ShieldCheck,
-  Ban,
-  Filter,
   Users,
   Layers,
-  Copy,
-  Printer,
   Save,
   RefreshCw,
-  Cloud,
-  CloudCheck,
   Share2
 } from 'lucide-react';
 
@@ -118,64 +104,48 @@ const INITIAL_CLASSES = [
 function LittleDarbiLogo({ className = "w-10 h-10" }) {
   return (
     <svg className={className} viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* Background Circle Soft Container */}
       <circle cx="200" cy="200" r="190" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="8"/>
       
-      {/* Green Leaf / Dome Curve */}
       <path d="M 200,108 C 240,150 260,200 230,240 C 200,250 200,250 170,240 C 140,200 160,150 200,108 Z" 
             fill="#FFFFFF" stroke="#007A37" strokeWidth="8" strokeLinejoin="round"/>
       
-      {/* Rising Sun */}
       <circle cx="200" cy="180" r="28" fill="#F58220" />
       <path d="M 160,210 Q 200,195 240,210 L 235,230 Q 200,218 165,230 Z" fill="#FFC20E" />
 
-      {/* Boy Character (Red Shirt) */}
       <g id="boy">
-        {/* Head & Hair */}
         <circle cx="125" cy="115" r="22" fill="#FCD3B1" />
         <path d="M 108,108 Q 125,85 140,110 Q 130,102 108,108 Z" fill="#231F20" />
-        {/* Arms Raised */}
         <path d="M 110,128 L 72,135 M 140,128 L 160,110" stroke="#231F20" strokeWidth="5" strokeLinecap="round" />
-        {/* Hands */}
         <circle cx="68" cy="136" r="6" fill="#FCD3B1" stroke="#231F20" strokeWidth="2"/>
         <circle cx="163" cy="108" r="6" fill="#FCD3B1" stroke="#231F20" strokeWidth="2"/>
-        {/* Torso / Shirt */}
         <path d="M 105,128 L 145,128 L 160,195 Q 125,215 90,190 Z" fill="#ED1C24" stroke="#231F20" strokeWidth="4" />
       </g>
 
-      {/* Girl Character (Yellow Top & Blue Hijab) */}
       <g id="girl">
-        {/* Face */}
         <circle cx="275" cy="118" r="20" fill="#FCD3B1" />
-        {/* Blue Hijab */}
         <path d="M 275,88 C 248,88 245,118 250,140 C 260,148 290,148 300,140 C 305,118 302,88 275,88 Z" fill="#00AEEF" stroke="#231F20" strokeWidth="4" />
         <ellipse cx="275" cy="115" rx="16" ry="18" fill="#FCD3B1" />
-        {/* Arms Raised */}
         <path d="M 260,140 L 220,108 M 290,140 L 328,135" stroke="#231F20" strokeWidth="5" strokeLinecap="round" />
         <circle cx="217" cy="106" r="6" fill="#FCD3B1" stroke="#231F20" strokeWidth="2"/>
         <circle cx="332" cy="136" r="6" fill="#FCD3B1" stroke="#231F20" strokeWidth="2"/>
-        {/* Yellow Shirt */}
         <path d="M 250,145 L 300,145 L 315,210 Q 275,225 235,210 Z" fill="#FFF200" stroke="#231F20" strokeWidth="4" />
       </g>
 
-      {/* Arch Bridge Line */}
       <path d="M 50,265 Q 200,200 350,265" fill="none" stroke="#231F20" strokeWidth="7" strokeLinecap="round"/>
 
-      {/* Text "little darbi" Curved Styling */}
-      <text x="75" y="240" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#3A3A3C" transform="rotate(-15, 75, 240)">l</text>
-      <text x="90" y="235" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#ED1C24" transform="rotate(-12, 90, 235)">i</text>
-      <text x="102" y="230" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#F58220" transform="rotate(-9, 102, 230)">t</text>
-      <text x="118" y="226" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#FFC20E" transform="rotate(-6, 118, 226)">t</text>
-      <text x="134" y="223" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#007A37" transform="rotate(-3, 134, 223)">l</text>
-      <text x="150" y="221" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#00AEEF" transform="rotate(-1, 150, 221)">e</text>
+      <text x="75" y="240" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#3A3A3C" transform="rotate(-15, 75, 240)">l</text>
+      <text x="90" y="235" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#ED1C24" transform="rotate(-12, 90, 235)">i</text>
+      <text x="102" y="230" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#F58220" transform="rotate(-9, 102, 230)">t</text>
+      <text x="118" y="226" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#FFC20E" transform="rotate(-6, 118, 226)">t</text>
+      <text x="134" y="223" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#007A37" transform="rotate(-3, 134, 223)">l</text>
+      <text x="150" y="221" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#00AEEF" transform="rotate(-1, 150, 221)">e</text>
 
-      <text x="195" y="221" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#007A37" transform="rotate(2, 195, 221)">d</text>
-      <text x="225" y="224" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#F58220" transform="rotate(5, 225, 224)">a</text>
-      <text x="252" y="228" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#2E3192" transform="rotate(8, 252, 228)">r</text>
-      <text x="274" y="233" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#ED1C24" transform="rotate(12, 274, 233)">b</text>
-      <text x="302" y="240" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#8C2685" transform="rotate(16, 302, 240)">i</text>
+      <text x="195" y="221" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#007A37" transform="rotate(2, 195, 221)">d</text>
+      <text x="225" y="224" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#F58220" transform="rotate(5, 225, 224)">a</text>
+      <text x="252" y="228" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#2E3192" transform="rotate(8, 252, 228)">r</text>
+      <text x="274" y="233" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#ED1C24" transform="rotate(12, 274, 233)">b</text>
+      <text x="302" y="240" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#8C2685" transform="rotate(16, 302, 240)">i</text>
 
-      {/* Subtitle "Parent Teacher Association" */}
       <text x="200" y="310" textAnchor="middle" fontSize="26" fontFamily="Georgia, serif" fontWeight="bold" fill="#000000">Parent Teacher</text>
       <text x="200" y="348" textAnchor="middle" fontSize="30" fontFamily="Georgia, serif" fontWeight="bold" fill="#000000">Association</text>
     </svg>
@@ -191,6 +161,7 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
   const [toastMessage, setToastMessage] = useState('');
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState({ isOpen: false, type: '', id: '', name: '' });
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -206,7 +177,7 @@ export default function App() {
     return localStorage.getItem('ld_bazaar_admin_phone') || '628123456780';
   });
 
-  // WEBHOOK URL - DEFAULT ALWAYS FALLBACK TO THE DEPLOYED ENDPOINT
+  // WEBHOOK URL - ALWAYS DEFAULTS TO THE SPECIFIED GOOGLE SHEETS ENDPOINT
   const [sheetWebhookUrl, setSheetWebhookUrl] = useState(() => {
     const saved = localStorage.getItem('ld_bazaar_sheet_webhook');
     return saved && saved.trim() !== '' ? saved : DEFAULT_WEBHOOK_URL;
@@ -237,7 +208,7 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // State Keranjang & Checkout
+  // Cart & Checkout State
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [selectedTenantFilter, setSelectedTenantFilter] = useState('all');
@@ -252,13 +223,13 @@ export default function App() {
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Modals Admin State
+  // Admin Modals
   const [productModal, setProductModal] = useState({ isOpen: false, item: null });
   const [tenantModal, setTenantModal] = useState({ isOpen: false, item: null });
   const [batchModal, setBatchModal] = useState({ isOpen: false, item: null });
   const [classModal, setClassModal] = useState({ isOpen: false, item: null });
 
-  // Laporan Filters
+  // Report Filters
   const [reportSelectedBatchId, setReportSelectedBatchId] = useState('b1');
   const [reportSelectedStatus, setReportSelectedStatus] = useState('Paid');
 
@@ -281,7 +252,6 @@ export default function App() {
     }
   }, []);
 
-  // AUTOMATIC 2-WAY FETCH FROM GOOGLE SHEETS ON LAUNCH
   const fetchCloudData = async (silent = false) => {
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
     if (!targetUrl) return;
@@ -307,7 +277,7 @@ export default function App() {
       }
     } catch (e) {
       console.warn('Google Sheets Fetch Error:', e);
-    } fontally {
+    } finally {
       setIsCloudSyncing(false);
     }
   };
@@ -316,7 +286,6 @@ export default function App() {
     fetchCloudData(true);
   }, []);
 
-  // PUSH ALL DATA TO GOOGLE SHEETS CLOUD
   const syncPushToCloud = async (overrideData = {}) => {
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
     if (!targetUrl) return;
@@ -426,7 +395,10 @@ export default function App() {
 
   const handleCheckoutSubmit = async (e) => {
     e.preventDefault();
-    if (!orderStatusInfo.isOpen || !activeBatch) return alert(orderStatusInfo.reason);
+    if (!orderStatusInfo.isOpen || !activeBatch) {
+      showToast(orderStatusInfo.reason);
+      return;
+    }
     if (!checkoutData.namaAnak.trim() || cart.length === 0) return;
 
     setIsSubmitting(true);
@@ -457,7 +429,6 @@ export default function App() {
 
     setOrders((prev) => [orderPayload, ...prev]);
 
-    // Send order to Google Sheets
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
     if (targetUrl) {
       try {
@@ -577,6 +548,16 @@ export default function App() {
         body: JSON.stringify({ action: 'updateOrderStatus', orderId, status: newStatus })
       }).catch(err => console.warn(err));
     }
+  };
+
+  const handleConfirmDelete = () => {
+    if (deleteConfirmModal.type === 'product') {
+      const updated = products.filter((item) => item.id !== deleteConfirmModal.id);
+      setProducts(updated);
+      syncPushToCloud({ products: updated });
+      showToast(`Produk "${deleteConfirmModal.name}" berhasil dihapus.`);
+    }
+    setDeleteConfirmModal({ isOpen: false, type: '', id: '', name: '' });
   };
 
   return (
@@ -1363,11 +1344,7 @@ export default function App() {
                                   </button>
                                   <button
                                     onClick={() => {
-                                      if (confirm(`Hapus produk ${p.name}?`)) {
-                                        const updated = products.filter((item) => item.id !== p.id);
-                                        setProducts(updated);
-                                        syncPushToCloud({ products: updated });
-                                      }
+                                      setDeleteConfirmModal({ isOpen: true, type: 'product', id: p.id, name: p.name });
                                     }}
                                     className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"
                                   >
@@ -1615,6 +1592,30 @@ export default function App() {
             setClassModal({ isOpen: false, item: null });
           }}
         />
+      )}
+
+      {}
+      {deleteConfirmModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl relative text-xs space-y-3">
+            <h3 className="text-sm font-bold text-slate-900">Konfirmasi Hapus</h3>
+            <p className="text-slate-600">Apakah Anda yakin ingin menghapus produk <strong>"{deleteConfirmModal.name}"</strong>?</p>
+            <div className="flex justify-end space-x-2 pt-2">
+              <button
+                onClick={() => setDeleteConfirmModal({ isOpen: false, type: '', id: '', name: '' })}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleConfirmDelete}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl"
+              >
+                Hapus
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
