@@ -3,13 +3,13 @@ import {
   ShoppingBag, ShoppingCart, Plus, Trash2, Edit3, CheckCircle2, 
   MessageCircle, Store, Settings, Search, FileSpreadsheet, X, 
   Send, User, School, Layers, Lock, AlertCircle, Phone, 
-  Image as ImageIcon, Share2, Save, RefreshCw, Printer, Upload
+  Image as ImageIcon, Share2, Save, RefreshCw, Printer, Upload,
+  ChevronDown
 } from 'lucide-react';
 
-// URL Webhook Baru sesuai deployment terakhir
 const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwMORs9RhRXNQhQf5s0NhxKkT-IDiyu4NcOSXpcHkU3175JdLo5E-l_9166sznyL9U/exec';
 
-const formatIndoDate = (dateStr) => {
+window.formatIndoDate = (dateStr) => {
   if (!dateStr) return '-';
   try {
     return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -26,7 +26,6 @@ const parseAndCleanItem = (rawItem, productsList = [], tenantsList = []) => {
   let rawName = String(rawItem.name || '');
   let qty = Number(rawItem.qty) || 1;
 
-  // Ekstrak quantity secara presisi untuk menghindari duplikasi (x3) (x1)
   const matches = rawName.match(/\(x(\d+)\)/g);
   if (matches && matches.length > 0) {
     const extractedNum = parseInt(matches[0].replace(/[^0-9]/g, ''), 10);
@@ -54,7 +53,7 @@ const parseAndCleanItem = (rawItem, productsList = [], tenantsList = []) => {
     priceOrganizer,
     unitSellingPrice,
     tenantId,
-    tenantName: tenantObj?.name || rawItem.tenantName || 'Stand Bazaar',
+    tenantName: tenantObj?.name || rawItem.tenantName || 'Stand',
     subtotal: unitSellingPrice * qty
   };
 };
@@ -106,6 +105,7 @@ export default function App() {
   const [adminSubTab, setAdminSubTab] = useState('batch_reports');
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [isNavDropdownOpen, setIsNavDropdownOpen] = useState(false); // Mobile Dropdown
   
   const [loginForm, setLoginForm] = useState({ username: '', password: '', webhookUrl: '' });
   const [loginError, setLoginError] = useState('');
@@ -182,7 +182,21 @@ export default function App() {
           setClassesList(json.data.classes);
           setCheckoutData(prev => ({ ...prev, kelas: json.data.classes[0]?.name || '' }));
         }
-        if (json.data.orders) setOrders(json.data.orders);
+        if (json.data.orders) {
+          // FIX: Parse strings back to objects to prevent crashes on mobile
+          const parsedOrders = json.data.orders.map(o => {
+            let parsedCust = o.customer;
+            let parsedItems = o.items;
+            if (typeof parsedCust === 'string') {
+              try { parsedCust = JSON.parse(parsedCust); } catch(e) {}
+            }
+            if (typeof parsedItems === 'string') {
+              try { parsedItems = JSON.parse(parsedItems); } catch(e) {}
+            }
+            return { ...o, customer: parsedCust, items: parsedItems };
+          });
+          setOrders(parsedOrders);
+        }
         
         if (json.data.settings) {
           if (json.data.settings.adminPhone) setAdminPhone(json.data.settings.adminPhone);
@@ -215,7 +229,7 @@ export default function App() {
         settings: { adminPhone, adminAuth }
       };
 
-      await fetch(targetUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      fetch(targetUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       showToast('Perubahan Tersimpan ke Cloud!');
     } catch (err) {
       console.warn('Sync Push Error:', err);
@@ -234,8 +248,8 @@ export default function App() {
   const orderStatusInfo = useMemo(() => {
     if (!activeBatch) return { isOpen: false, reason: 'Belum ada Periode Pemesanan yang dibuka.' };
     const todayStr = new Date().toISOString().slice(0, 10);
-    if (todayStr < activeBatch.startDate) return { isOpen: false, reason: `Pemesanan baru dibuka pada ${formatIndoDate(activeBatch.startDate)}.` };
-    if (todayStr > activeBatch.endDate) return { isOpen: false, reason: `Pemesanan telah berakhir pada ${formatIndoDate(activeBatch.endDate)}.` };
+    if (todayStr < activeBatch.startDate) return { isOpen: false, reason: `Pemesanan baru dibuka pada ${window.formatIndoDate(activeBatch.startDate)}.` };
+    if (todayStr > activeBatch.endDate) return { isOpen: false, reason: `Pemesanan telah berakhir pada ${window.formatIndoDate(activeBatch.endDate)}.` };
     return { isOpen: true, reason: `Sedang Dibuka: ${activeBatch.name}` };
   }, [activeBatch]);
 
@@ -312,7 +326,7 @@ export default function App() {
     setOrders((prev) => [orderPayload, ...prev]);
 
     let waText = `*PEMESANAN BAZAAR DANUS PTA LITTLE DARBI (${activeBatch.name})*\n`;
-    if (activeBatch.readyDate) waText += `*Tgl Distribusi/Ready:* ${formatIndoDate(activeBatch.readyDate)}\n`;
+    if (activeBatch.readyDate) waText += `*Tgl Distribusi/Ready:* ${window.formatIndoDate(activeBatch.readyDate)}\n`;
     waText += `-----------------------------------\n`;
     waText += `*No. Pesanan:* ${newOrderId}\n`;
     waText += `*Nama Anak:* ${checkoutData.namaAnak}\n`;
@@ -342,7 +356,7 @@ export default function App() {
     setIsCartOpen(false);
     setCheckoutData({ namaAnak: '', kelas: classesList[0]?.name || '', namaOrtu: '', catatan: '' });
     
-    // Redirect instantly
+    // NO AWAIT HERE -> Opens immediately avoiding pop-up blockers
     window.open(waUrl, '_blank');
   };
 
@@ -359,14 +373,16 @@ export default function App() {
       let tenantTotalOwnerShare = 0;
 
       filtered.forEach((ord) => {
-        const parsedItems = ord.items.map(it => parseAndCleanItem(it, products, tenants));
+        // Ensure items is an array (failsafe)
+        const itemsArr = Array.isArray(ord.items) ? ord.items : [];
+        const parsedItems = itemsArr.map(it => parseAndCleanItem(it, products, tenants));
         const tenantItemsInOrder = parsedItems.filter((it) => it.tenantId === tenant.id);
         
         if (tenantItemsInOrder.length > 0) {
           customerOrdersDetail.push({
             orderId: ord.orderId,
-            namaAnak: ord.customer?.namaAnak,
-            kelas: ord.customer?.kelas,
+            namaAnak: ord.customer?.namaAnak || 'Unknown',
+            kelas: ord.customer?.kelas || '-',
             namaOrtu: ord.customer?.namaOrtu || '-',
             catatan: ord.customer?.catatan || '',
             items: tenantItemsInOrder
@@ -426,7 +442,7 @@ export default function App() {
         <h2>Bazaar DANUS PTA Little Darbi</h2>
         <h3>Rekapitulasi Dapur Stand: ${tenantRep.tenantName}</h3>
         <div class="info">
-          Periode: ${currentBatch?.name || '-'} ${currentBatch?.readyDate ? `(Tgl Ready: ${formatIndoDate(currentBatch.readyDate)})` : ''} | PJ: ${tenantRep.tenantOwner} (${tenantRep.tenantPhone})
+          Periode: ${currentBatch?.name || '-'} ${currentBatch?.readyDate ? `(Tgl Ready: ${window.formatIndoDate(currentBatch.readyDate)})` : ''} | PJ: ${tenantRep.tenantOwner} (${tenantRep.tenantPhone})
         </div>
 
         <h4>Detail Pesanan Pembeli (${tenantRep.customerOrdersDetail.length} Pembeli)</h4>
@@ -532,7 +548,7 @@ export default function App() {
       {/* Confirmation Modal */}
       {confirmModal.isOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 mx-4">
             <h3 className="text-lg font-bold text-slate-900">{confirmModal.title}</h3>
             <p className="text-sm text-slate-600">{confirmModal.message}</p>
             <div className="flex space-x-3 pt-2">
@@ -543,33 +559,42 @@ export default function App() {
         </div>
       )}
 
-      {/* Header Utama */}
+      {/* Header Utama Responsive */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md shadow-sm border-b border-slate-200">
         <div className="max-w-5xl mx-auto px-4 py-2.5 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-11 h-11 shrink-0 p-0.5 bg-white rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-center overflow-hidden">
-              <LittleDarbiLogo className="w-full h-full object-contain" />
+          <div className="flex items-center space-x-2 sm:space-x-3">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0.5 bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-center overflow-hidden">
+              <LittleDarbiLogo className="w-8 h-8 sm:w-10 sm:h-10 object-contain" />
             </div>
             <div>
-              <h1 className="font-black text-base sm:text-lg leading-tight text-slate-900 tracking-tight">
-                Bazaar DANUS PTA Little Darbi
+              <h1 className="font-black text-[13px] sm:text-lg leading-tight text-slate-900 tracking-tight">
+                Bazaar DANUS <span className="hidden sm:inline">PTA Little Darbi</span>
               </h1>
-              <p className="text-[11px] text-slate-500 font-medium">Pemesanan Online Stand & Produk</p>
+              <h1 className="font-black text-[13px] sm:hidden leading-tight text-slate-900 tracking-tight">
+                PTA Little Darbi
+              </h1>
+              <p className="text-[9px] sm:text-[11px] text-slate-500 font-medium">Pemesanan Online</p>
             </div>
           </div>
 
           <div className="flex items-center space-x-2">
-            <button onClick={() => fetchCloudData(false)} disabled={isCloudSyncing} className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center space-x-1 shadow-2xs">
+            <button onClick={() => fetchCloudData(false)} disabled={isCloudSyncing} className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center shadow-2xs">
               <RefreshCw className={`w-4 h-4 ${isCloudSyncing ? 'animate-spin text-indigo-600' : ''}`} />
-              <span className="hidden sm:inline">Sync Cloud</span>
             </button>
-            <div className="flex items-center bg-slate-100 p-1 rounded-xl">
-              <button onClick={() => setActiveTab('shop')} className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-all ${activeTab === 'shop' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-600'}`}>
-                <ShoppingBag className="w-4 h-4" /> <span>Menu Pembeli</span>
+
+            {/* Dropdown Navigation for Mobile (Saves Space) */}
+            <div className="relative">
+              <button onClick={() => setIsNavDropdownOpen(!isNavDropdownOpen)} className="flex items-center space-x-1.5 bg-slate-100 px-3 py-2 rounded-xl text-[11px] sm:text-xs font-bold text-slate-700 shadow-2xs">
+                {activeTab === 'shop' ? <><ShoppingBag className="w-4 h-4"/><span className="hidden sm:inline">Menu Pembeli</span></> : <><Settings className="w-4 h-4"/><span className="hidden sm:inline">Panel Admin</span></>}
+                <ChevronDown className="w-3 h-3" />
               </button>
-              <button onClick={() => setActiveTab('admin')} className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-all ${activeTab === 'admin' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600'}`}>
-                <Settings className="w-4 h-4" /> <span>Panel Admin</span>
-              </button>
+
+              {isNavDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-44 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden z-50">
+                  <button onClick={() => {setActiveTab('shop'); setIsNavDropdownOpen(false);}} className={`w-full text-left px-4 py-3 text-xs font-bold flex items-center ${activeTab === 'shop' ? 'bg-amber-50 text-amber-600' : 'hover:bg-slate-50 text-slate-700'}`}><ShoppingBag className="w-4 h-4 mr-2"/> Menu Pembeli</button>
+                  <button onClick={() => {setActiveTab('admin'); setIsNavDropdownOpen(false);}} className={`w-full text-left px-4 py-3 text-xs font-bold flex items-center ${activeTab === 'admin' ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-slate-50 text-slate-700'}`}><Settings className="w-4 h-4 mr-2"/> Panel Admin</button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -577,99 +602,100 @@ export default function App() {
 
       {}
       {activeTab === 'shop' && (
-        <main className="max-w-5xl mx-auto px-4 pt-6">
+        <main className="max-w-5xl mx-auto px-4 pt-4 sm:pt-6">
           {isInitialLoad ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 animate-pulse">
-              {[1, 2, 3].map(n => (
-                <div key={n} className="bg-white h-64 rounded-2xl border border-slate-200 shadow-sm">
-                  <div className="h-32 bg-slate-200 rounded-t-2xl"></div>
-                  <div className="p-4 space-y-3">
-                    <div className="h-4 bg-slate-200 rounded w-3/4"></div>
-                    <div className="h-3 bg-slate-200 rounded w-1/2"></div>
-                    <div className="h-8 bg-slate-200 rounded w-full mt-4"></div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4 animate-pulse">
+              {[1, 2, 3, 4].map(n => (
+                <div key={n} className="bg-white h-48 sm:h-64 rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="h-24 sm:h-32 bg-slate-200 rounded-t-xl sm:rounded-t-2xl"></div>
+                  <div className="p-3 sm:p-4 space-y-2 sm:space-y-3">
+                    <div className="h-3 sm:h-4 bg-slate-200 rounded w-3/4"></div>
+                    <div className="h-2 sm:h-3 bg-slate-200 rounded w-1/2"></div>
+                    <div className="h-6 sm:h-8 bg-slate-200 rounded w-full mt-2 sm:mt-4"></div>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
             <>
-              <div className="mb-6">
+              <div className="mb-4 sm:mb-6">
                 {orderStatusInfo.isOpen && activeBatch ? (
-                  <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 sm:p-5 shadow-md flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                  <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-xl sm:rounded-2xl p-4 sm:p-5 shadow-md flex flex-col sm:flex-row justify-between sm:items-center gap-2 sm:gap-3">
                     <div>
                       <div className="flex items-center space-x-2">
-                        <span className="bg-white/20 text-white text-[10px] uppercase font-extrabold tracking-wider px-2.5 py-0.5 rounded-full flex items-center">
+                        <span className="bg-white/20 text-white text-[9px] sm:text-[10px] uppercase font-extrabold tracking-wider px-2 py-0.5 rounded-full flex items-center">
                           <Layers className="w-3 h-3 mr-1" /> {activeBatch.name}
                         </span>
-                        <span className="text-xs text-amber-100">Batas: <strong>{formatIndoDate(activeBatch.startDate)}</strong> s/d <strong>{formatIndoDate(activeBatch.endDate)}</strong></span>
+                        <span className="text-[10px] sm:text-xs text-amber-100">Batas: <strong>{window.formatIndoDate(activeBatch.startDate)}</strong> s/d <strong>{window.formatIndoDate(activeBatch.endDate)}</strong></span>
                       </div>
-                      <h2 className="text-lg sm:text-xl font-black mt-1">Pesan Makanan & Souvenir Bazaar</h2>
-                      <p className="text-amber-100 text-xs">Pesanan akan diproses sesuai periode {activeBatch.name}.</p>
+                      <h2 className="text-base sm:text-xl font-black mt-1.5 sm:mt-1">Pesan Makanan & Souvenir</h2>
+                      <p className="text-amber-100 text-[10px] sm:text-xs">Pesanan akan diproses sesuai periode {activeBatch.name}.</p>
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-red-500 text-white rounded-2xl p-4 sm:p-5 shadow-md flex items-center space-x-3">
-                    <div className="bg-white/20 p-2.5 rounded-xl"><Lock className="w-6 h-6 text-white" /></div>
+                  <div className="bg-red-500 text-white rounded-xl sm:rounded-2xl p-4 sm:p-5 shadow-md flex items-center space-x-3">
+                    <div className="bg-white/20 p-2 sm:p-2.5 rounded-xl"><Lock className="w-5 h-5 sm:w-6 sm:h-6 text-white" /></div>
                     <div>
-                      <span className="bg-white/20 text-white text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full">Ditutup</span>
-                      <h2 className="text-base sm:text-lg font-bold mt-1">Sistem Pemesanan Sedang Ditutup!</h2>
-                      <p className="text-red-100 text-xs">{orderStatusInfo.reason}</p>
+                      <span className="bg-white/20 text-white text-[9px] sm:text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">Ditutup</span>
+                      <h2 className="text-sm sm:text-lg font-bold mt-1">Sistem Pemesanan Ditutup</h2>
+                      <p className="text-red-100 text-[10px] sm:text-xs">{orderStatusInfo.reason}</p>
                     </div>
                   </div>
                 )}
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-3 mb-6">
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mb-4 sm:mb-6">
                 <div className="relative flex-1">
-                  <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-                  <input type="text" placeholder="Cari makanan, minuman..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-white rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-amber-500/20" />
+                  <Search className="w-4 h-4 absolute left-3.5 top-2.5 sm:top-3 text-slate-400" />
+                  <input type="text" placeholder="Cari makanan..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 sm:py-2.5 bg-white rounded-xl border border-slate-200 text-xs sm:text-sm focus:ring-2 focus:ring-amber-500/20" />
                 </div>
-                <div className="flex items-center space-x-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-                  <button onClick={() => setSelectedTenantFilter('all')} className={`px-3.5 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all ${selectedTenantFilter === 'all' ? 'bg-amber-600 text-white' : 'bg-white text-slate-600 border'}`}>Semua Stand</button>
+                <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
+                  <button onClick={() => setSelectedTenantFilter('all')} className={`px-3 py-2 rounded-xl text-[11px] sm:text-xs font-medium whitespace-nowrap transition-all ${selectedTenantFilter === 'all' ? 'bg-amber-600 text-white shadow-sm' : 'bg-white text-slate-600 border'}`}>Semua Stand</button>
                   {tenants.map((t) => (
-                    <button key={t.id} onClick={() => setSelectedTenantFilter(t.id)} className={`px-3.5 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all ${selectedTenantFilter === t.id ? 'bg-amber-600 text-white' : 'bg-white text-slate-600 border'}`}>{t.name}</button>
+                    <button key={t.id} onClick={() => setSelectedTenantFilter(t.id)} className={`px-3 py-2 rounded-xl text-[11px] sm:text-xs font-medium whitespace-nowrap transition-all ${selectedTenantFilter === t.id ? 'bg-amber-600 text-white shadow-sm' : 'bg-white text-slate-600 border'}`}>{t.name}</button>
                   ))}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {/* Grid 2-Kolom di Mobile */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                 {products.filter(p => (selectedTenantFilter === 'all' || p.tenantId === selectedTenantFilter) && p.available && p.name.toLowerCase().includes(searchQuery.toLowerCase())).map((prod) => {
                   const tenant = tenants.find((t) => t.id === prod.tenantId);
                   const sellingPrice = Number(prod.priceOwner || 0) + Number(prod.priceOrganizer || 0);
                   const inCart = cart.find((item) => item.id === prod.id);
 
                   return (
-                    <div key={prod.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between overflow-hidden hover:shadow-md">
-                      <div className="h-40 w-full bg-slate-100 relative overflow-hidden flex items-center justify-center">
+                    <div key={prod.id} className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between overflow-hidden hover:shadow-md">
+                      <div className="h-28 sm:h-40 w-full bg-slate-100 relative overflow-hidden flex items-center justify-center">
                         {prod.imageUrl ? (
                           <img src={prod.imageUrl} alt={prod.name} className="w-full h-full object-cover" />
                         ) : (
-                          <ImageIcon className="w-10 h-10 text-slate-300" />
+                          <ImageIcon className="w-8 h-8 sm:w-10 sm:h-10 text-slate-300" />
                         )}
-                        <span className="absolute top-2 left-2 text-[10px] font-bold bg-white/95 text-slate-800 px-2 py-0.5 rounded-md">{tenant?.name || 'Stand'}</span>
+                        <span className="absolute top-1.5 left-1.5 sm:top-2 sm:left-2 text-[9px] sm:text-[10px] font-bold bg-white/95 text-slate-800 px-1.5 py-0.5 rounded shadow-sm max-w-[90%] truncate">{tenant?.name || 'Stand'}</span>
                       </div>
-                      <div className="p-4 flex-1 flex flex-col justify-between">
+                      <div className="p-2.5 sm:p-4 flex-1 flex flex-col justify-between">
                         <div>
-                          <h3 className="font-bold text-slate-900">{prod.name}</h3>
-                          <p className="text-xs text-slate-500 line-clamp-2 mt-1">{prod.description}</p>
+                          <h3 className="font-bold text-slate-900 text-[11px] sm:text-sm line-clamp-2 leading-tight">{prod.name}</h3>
+                          <p className="hidden sm:block text-[10px] text-slate-500 line-clamp-2 mt-1">{prod.description}</p>
                         </div>
-                        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                        <div className="mt-2 sm:mt-4 pt-2 sm:pt-3 border-t border-slate-100 flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                           <div>
-                            <span className="text-[10px] text-slate-400 block">Harga Jual</span>
-                            <span className="text-base font-extrabold text-amber-600">{formatRupiah(sellingPrice)}</span>
+                            <span className="hidden sm:block text-[9px] text-slate-400">Harga Jual</span>
+                            <span className="text-xs sm:text-base font-extrabold text-amber-600">{formatRupiah(sellingPrice)}</span>
                           </div>
                           {orderStatusInfo.isOpen ? (
                             inCart ? (
-                              <div className="flex items-center space-x-2 bg-amber-50 border border-amber-200 p-1 rounded-xl">
-                                <button onClick={() => updateCartQty(prod.id, -1)} className="w-7 h-7 bg-white rounded-lg font-bold text-amber-700">-</button>
-                                <span className="text-xs font-bold px-1">{inCart.qty}</span>
-                                <button onClick={() => updateCartQty(prod.id, 1)} className="w-7 h-7 bg-amber-600 text-white rounded-lg font-bold">+</button>
+                              <div className="flex items-center justify-between sm:justify-center space-x-1.5 bg-amber-50 border border-amber-200 p-0.5 sm:p-1 rounded-lg sm:rounded-xl">
+                                <button onClick={() => updateCartQty(prod.id, -1)} className="w-6 h-6 sm:w-7 sm:h-7 bg-white rounded font-bold text-amber-700 shadow-sm flex items-center justify-center">-</button>
+                                <span className="text-[11px] sm:text-xs font-bold px-1">{inCart.qty}</span>
+                                <button onClick={() => updateCartQty(prod.id, 1)} className="w-6 h-6 sm:w-7 sm:h-7 bg-amber-600 text-white rounded font-bold shadow-sm flex items-center justify-center">+</button>
                               </div>
                             ) : (
-                              <button onClick={() => addToCart(prod)} className="px-3.5 py-2 bg-slate-900 text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5"><Plus className="w-4 h-4" /><span>Pesan</span></button>
+                              <button onClick={() => addToCart(prod)} className="w-full sm:w-auto px-2 py-1.5 sm:px-3.5 sm:py-2 bg-slate-900 text-white rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-semibold flex items-center justify-center space-x-1 shadow-sm"><Plus className="w-3 h-3 sm:w-4 sm:h-4" /><span>Pesan</span></button>
                             )
                           ) : (
-                            <span className="text-[11px] font-semibold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg"><Lock className="w-3 h-3 inline mr-1" /> Ditutup</span>
+                            <span className="text-[9px] sm:text-[11px] font-semibold text-slate-400 bg-slate-100 px-2 py-1 rounded text-center"><Lock className="w-2.5 h-2.5 inline mr-1" /> Tutup</span>
                           )}
                         </div>
                       </div>
@@ -680,21 +706,20 @@ export default function App() {
             </>
           )}
 
-          {}
           {cart.length > 0 && orderStatusInfo.isOpen && (
             <div className="fixed bottom-4 left-4 right-4 max-w-md mx-auto z-40">
-              <button onClick={() => setIsCartOpen(true)} className="w-full bg-amber-600 hover:bg-amber-700 text-white p-3.5 rounded-2xl shadow-xl flex items-center justify-between">
+              <button onClick={() => setIsCartOpen(true)} className="w-full bg-amber-600 hover:bg-amber-700 text-white p-3 sm:p-3.5 rounded-2xl shadow-xl flex items-center justify-between">
                 <div className="flex items-center space-x-3">
                   <div className="relative bg-white/20 p-2 rounded-xl">
                     <ShoppingCart className="w-5 h-5" />
-                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">{cartSummary.totalItems}</span>
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] sm:text-[10px] font-bold w-4 h-4 sm:w-4.5 sm:h-4.5 rounded-full flex items-center justify-center border-2 border-amber-600">{cartSummary.totalItems}</span>
                   </div>
                   <div className="text-left">
-                    <p className="text-xs text-amber-100 font-medium">{cartSummary.totalItems} Pesanan</p>
-                    <p className="text-base font-black">{formatRupiah(cartSummary.totalSellingPrice)}</p>
+                    <p className="text-[10px] sm:text-xs text-amber-100 font-medium">{cartSummary.totalItems} Pesanan</p>
+                    <p className="text-sm sm:text-base font-black">{formatRupiah(cartSummary.totalSellingPrice)}</p>
                   </div>
                 </div>
-                <div className="bg-white text-amber-700 px-3 py-2 rounded-xl text-xs font-bold shadow-sm">Lihat Keranjang</div>
+                <div className="bg-white text-amber-700 px-3 py-2 rounded-xl text-[10px] sm:text-xs font-bold shadow-sm">Lihat Keranjang</div>
               </button>
             </div>
           )}
@@ -707,7 +732,7 @@ export default function App() {
           <div className="w-full max-w-md bg-white h-full flex flex-col justify-between shadow-2xl">
             <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
               <h2 className="font-bold text-slate-900 flex items-center"><ShoppingCart className="w-5 h-5 text-amber-600 mr-2" /> Keranjang</h2>
-              <button onClick={() => setIsCartOpen(false)} className="p-1.5 text-slate-400"><X className="w-5 h-5" /></button>
+              <button onClick={() => setIsCartOpen(false)} className="p-1.5 text-slate-400 bg-white rounded-lg shadow-sm border"><X className="w-5 h-5" /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {cart.map((item) => {
@@ -716,22 +741,22 @@ export default function App() {
                 return (
                   <div key={item.id} className="flex items-center justify-between p-3 bg-slate-50 border rounded-xl">
                     <div>
-                      <span className="text-[10px] text-slate-400 block">{tenant?.name || 'Stand'}</span>
-                      <h4 className="font-bold text-sm">{item.name}</h4>
-                      <p className="text-xs text-amber-600 font-semibold">{formatRupiah(sellingPrice)} x {item.qty}</p>
+                      <span className="text-[9px] text-slate-400 block max-w-[150px] truncate">{tenant?.name || 'Stand'}</span>
+                      <h4 className="font-bold text-xs sm:text-sm leading-tight mt-0.5">{item.name}</h4>
+                      <p className="text-[11px] sm:text-xs text-amber-600 font-semibold mt-1">{formatRupiah(sellingPrice)} x {item.qty}</p>
                     </div>
-                    <div className="flex space-x-2 bg-white border p-1 rounded-lg">
-                      <button onClick={() => updateCartQty(item.id, -1)} className="w-6 h-6 bg-slate-100 font-bold">-</button>
-                      <span className="text-xs font-bold px-1 py-1">{item.qty}</span>
-                      <button onClick={() => updateCartQty(item.id, 1)} className="w-6 h-6 bg-amber-600 text-white font-bold">+</button>
+                    <div className="flex space-x-1.5 bg-white border p-1 rounded-lg">
+                      <button onClick={() => updateCartQty(item.id, -1)} className="w-6 h-6 bg-slate-100 font-bold rounded">-</button>
+                      <span className="text-[11px] sm:text-xs font-bold px-1.5 flex items-center">{item.qty}</span>
+                      <button onClick={() => updateCartQty(item.id, 1)} className="w-6 h-6 bg-amber-600 text-white font-bold rounded">+</button>
                     </div>
                   </div>
                 );
               })}
             </div>
             <div className="p-4 border-t border-slate-200 bg-white space-y-3">
-              <div className="flex justify-between items-center"><span className="text-slate-500">Total:</span><span className="text-lg font-black text-amber-600">{formatRupiah(cartSummary.totalSellingPrice)}</span></div>
-              <button onClick={() => { setIsCartOpen(false); setIsCheckoutModalOpen(true); }} className="w-full py-3 bg-amber-600 text-white font-bold rounded-xl flex justify-center items-center space-x-2"><span>Isi Data Pemesan</span><Send className="w-4 h-4" /></button>
+              <div className="flex justify-between items-center"><span className="text-slate-500 text-xs sm:text-sm">Total Tagihan:</span><span className="text-base sm:text-lg font-black text-amber-600">{formatRupiah(cartSummary.totalSellingPrice)}</span></div>
+              <button onClick={() => { setIsCartOpen(false); setIsCheckoutModalOpen(true); }} className="w-full py-3 bg-amber-600 text-white text-sm font-bold rounded-xl flex justify-center items-center space-x-2"><span>Isi Data Pemesan</span><Send className="w-4 h-4" /></button>
             </div>
           </div>
         </div>
@@ -740,16 +765,16 @@ export default function App() {
       {}
       {isCheckoutModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
-            <button onClick={() => setIsCheckoutModalOpen(false)} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
-            <h3 className="text-lg font-bold text-slate-900 mb-1">Data Pemesan</h3>
-            <p className="text-xs text-slate-500 mb-4">Batch: {activeBatch?.name}</p>
-            <form onSubmit={handleCheckoutSubmit} className="space-y-4">
-              <div><label className="block text-xs font-semibold text-slate-700 mb-1">Nama Anak <span className="text-red-500">*</span></label><input type="text" required value={checkoutData.namaAnak} onChange={(e) => setCheckoutData({ ...checkoutData, namaAnak: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-              <div><label className="block text-xs font-semibold text-slate-700 mb-1">Pilih Kelas <span className="text-red-500">*</span></label><select value={checkoutData.kelas} onChange={(e) => setCheckoutData({ ...checkoutData, kelas: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl">{classesList.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select></div>
-              <div><label className="block text-xs font-semibold text-slate-700 mb-1">Nama Ortu / WA</label><input type="text" value={checkoutData.namaOrtu} onChange={(e) => setCheckoutData({ ...checkoutData, namaOrtu: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-              <div><label className="block text-xs font-semibold text-slate-700 mb-1">Catatan</label><textarea rows={2} value={checkoutData.catatan} onChange={(e) => setCheckoutData({ ...checkoutData, catatan: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-              <button type="submit" className="w-full py-3 bg-green-600 text-white font-bold rounded-xl flex items-center justify-center space-x-2"><MessageCircle className="w-5 h-5 fill-current" /><span>Kirim ke WA PIC Kelas</span></button>
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative">
+            <button onClick={() => setIsCheckoutModalOpen(false)} className="absolute top-4 right-4 text-slate-400 bg-slate-100 p-1 rounded-lg"><X className="w-4 h-4" /></button>
+            <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-1">Data Pemesan</h3>
+            <p className="text-[10px] sm:text-xs text-slate-500 mb-4">Batch: <span className="font-semibold text-amber-700">{activeBatch?.name}</span></p>
+            <form onSubmit={handleCheckoutSubmit} className="space-y-3 sm:space-y-4">
+              <div><label className="block text-[11px] sm:text-xs font-semibold text-slate-700 mb-1">Nama Anak <span className="text-red-500">*</span></label><input type="text" required value={checkoutData.namaAnak} onChange={(e) => setCheckoutData({ ...checkoutData, namaAnak: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl text-xs sm:text-sm" /></div>
+              <div><label className="block text-[11px] sm:text-xs font-semibold text-slate-700 mb-1">Pilih Kelas <span className="text-red-500">*</span></label><select value={checkoutData.kelas} onChange={(e) => setCheckoutData({ ...checkoutData, kelas: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl text-xs sm:text-sm">{classesList.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select></div>
+              <div><label className="block text-[11px] sm:text-xs font-semibold text-slate-700 mb-1">Nama Ortu / WA</label><input type="text" value={checkoutData.namaOrtu} onChange={(e) => setCheckoutData({ ...checkoutData, namaOrtu: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl text-xs sm:text-sm" /></div>
+              <div><label className="block text-[11px] sm:text-xs font-semibold text-slate-700 mb-1">Catatan</label><textarea rows={2} value={checkoutData.catatan} onChange={(e) => setCheckoutData({ ...checkoutData, catatan: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl text-xs sm:text-sm" /></div>
+              <button type="submit" className="w-full py-2.5 sm:py-3 bg-green-600 text-white text-sm font-bold rounded-xl flex items-center justify-center space-x-2"><MessageCircle className="w-4 h-4 sm:w-5 sm:h-5 fill-current" /><span>Kirim ke WA PIC Kelas</span></button>
             </form>
           </div>
         </div>
@@ -757,12 +782,12 @@ export default function App() {
 
       {}
       {activeTab === 'admin' && (
-        <main className="max-w-5xl mx-auto px-4 pt-6">
+        <main className="max-w-5xl mx-auto px-4 pt-4 sm:pt-6">
           {!isAdminLoggedIn ? (
-            <div className="max-w-md mx-auto bg-white rounded-2xl border p-6 sm:p-8 shadow-xl mt-6">
+            <div className="max-w-md mx-auto bg-white rounded-2xl border p-6 sm:p-8 shadow-xl mt-4 sm:mt-6">
               <div className="text-center mb-6">
                 <LittleDarbiLogo className="w-12 h-12 mx-auto mb-3" />
-                <h2 className="text-xl font-black text-slate-900">Login Admin PTA</h2>
+                <h2 className="text-lg sm:text-xl font-black text-slate-900">Login Admin PTA</h2>
               </div>
               {loginError && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-xl text-xs flex items-center"><AlertCircle className="w-4 h-4 mr-2" />{loginError}</div>}
               <form onSubmit={(e) => {
@@ -778,128 +803,149 @@ export default function App() {
                   setLoginError('Username atau Password salah!');
                 }
               }} className="space-y-4 text-xs">
-                <div><label className="block font-bold text-slate-700 mb-1">Username</label><input type="text" required value={loginForm.username} onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })} className="w-full px-3.5 py-2.5 bg-slate-50 border rounded-xl" /></div>
-                <div><label className="block font-bold text-slate-700 mb-1">Password</label><input type="password" required value={loginForm.password} onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })} className="w-full px-3.5 py-2.5 bg-slate-50 border rounded-xl" /></div>
-                <div><label className="block font-bold text-slate-700 mb-1 text-indigo-700">Webhook URL (Hanya jika belum sync)</label><input type="url" placeholder="Opsional jika sudah sync" value={loginForm.webhookUrl} onChange={(e) => setLoginForm({ ...loginForm, webhookUrl: e.target.value })} className="w-full px-3.5 py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl" /></div>
-                <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md">Masuk Panel Admin</button>
+                <div><label className="block font-bold text-slate-700 mb-1">Username</label><input type="text" required value={loginForm.username} onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })} className="w-full px-3.5 py-2.5 bg-slate-50 border rounded-xl text-sm" /></div>
+                <div><label className="block font-bold text-slate-700 mb-1">Password</label><input type="password" required value={loginForm.password} onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })} className="w-full px-3.5 py-2.5 bg-slate-50 border rounded-xl text-sm" /></div>
+                <div><label className="block font-bold text-slate-700 mb-1 text-indigo-700">Webhook URL (Opsional jika blm sync)</label><input type="url" value={loginForm.webhookUrl} onChange={(e) => setLoginForm({ ...loginForm, webhookUrl: e.target.value })} className="w-full px-3.5 py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-sm" /></div>
+                <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md text-sm">Masuk Panel Admin</button>
               </form>
             </div>
           ) : (
-            <div className="space-y-6">
-              <div className="flex items-center space-x-2 border-b border-slate-200 pb-3 overflow-x-auto scrollbar-none">
+            <div className="space-y-4 sm:space-y-6">
+              <div className="flex items-center space-x-2 border-b border-slate-200 pb-2 sm:pb-3 overflow-x-auto scrollbar-none whitespace-nowrap">
                 {[{id:'batch_reports', label:'Rekap Per Tenant', icon:FileSpreadsheet}, {id:'tenants', label:'Kelola Stand', icon:User}, {id:'batches', label:'Kelola Batch', icon:Layers}, {id:'products', label:'Produk & Harga', icon:Store}, {id:'orders', label:`Semua Pesanan (${orders.length})`, icon:ShoppingBag}, {id:'class_pics', label:'Routing WA Kelas', icon:School}, {id:'settings', label:'Integrasi Webhook', icon:Settings}].map(tab => (
-                  <button key={tab.id} onClick={() => setAdminSubTab(tab.id)} className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 whitespace-nowrap ${adminSubTab === tab.id ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-100'}`}><tab.icon className="w-4 h-4" /><span>{tab.label}</span></button>
+                  <button key={tab.id} onClick={() => setAdminSubTab(tab.id)} className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[10px] sm:text-xs font-semibold flex items-center space-x-1.5 ${adminSubTab === tab.id ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}><tab.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" /><span>{tab.label}</span></button>
                 ))}
               </div>
 
-              {}
               {adminSubTab === 'batch_reports' && (
-                <div className="space-y-6">
-                  <div className="bg-white p-4 rounded-2xl border flex gap-4 justify-between items-center">
-                    <div><h3 className="font-bold text-slate-900 text-base">Laporan Rekapitulasi Per Stand</h3></div>
-                    <div className="flex gap-2">
-                      <select value={reportSelectedBatchId} onChange={(e) => setReportSelectedBatchId(e.target.value)} className="px-3 py-1.5 bg-slate-50 border rounded-xl text-xs font-bold">{batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
-                      <select value={reportSelectedStatus} onChange={(e) => setReportSelectedStatus(e.target.value)} className="px-3 py-1.5 bg-slate-50 border rounded-xl text-xs font-bold"><option value="Paid">Hanya Paid</option><option value="Unpaid">Hanya Unpaid</option><option value="Selesai">Hanya Selesai</option><option value="ALL">Semua Status</option></select>
+                <div className="space-y-4 sm:space-y-6">
+                  {/* FIX: Layout Responsive Admin Filters */}
+                  <div className="bg-white p-3 sm:p-4 rounded-2xl border flex flex-col sm:flex-row gap-3 justify-between sm:items-center shadow-sm">
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-sm sm:text-base">Laporan Rekapitulasi</h3>
+                      <p className="text-[10px] sm:text-xs text-slate-500 mt-0.5">Filter berdasar batch dan status pembayaran.</p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <select value={reportSelectedBatchId} onChange={(e) => setReportSelectedBatchId(e.target.value)} className="w-full sm:w-auto px-3 py-2 bg-slate-50 border rounded-xl text-xs font-bold">
+                        {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                      <select value={reportSelectedStatus} onChange={(e) => setReportSelectedStatus(e.target.value)} className="w-full sm:w-auto px-3 py-2 bg-slate-50 border rounded-xl text-xs font-bold">
+                        <option value="Paid">Hanya Paid</option>
+                        <option value="Unpaid">Hanya Unpaid</option>
+                        <option value="Selesai">Hanya Selesai</option>
+                        <option value="ALL">Semua Status (Kec. Void)</option>
+                      </select>
                     </div>
                   </div>
-                  <div className="space-y-6">
-                    {batchReportData.map((tenantRep) => (
-                      <div key={tenantRep.tenantId} className="bg-white rounded-2xl border overflow-hidden shadow-sm">
-                        <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
-                          <div>
-                            <h4 className="text-lg font-black">{tenantRep.tenantName}</h4>
-                            <p className="text-xs text-slate-300">PJ: {tenantRep.tenantOwner} (WA: {tenantRep.tenantPhone})</p>
-                          </div>
-                          <div className="flex gap-2">
-                            <button onClick={() => handlePrintTenantReport(tenantRep)} className="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center"><Printer className="w-4 h-4 mr-1.5" /> Cetak PDF</button>
-                            <button onClick={() => {
-                              let cleanPhone = String(tenantRep.tenantPhone).replace(/[^0-9]/g, '');
-                              if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
-                              if (!cleanPhone) return showToast('Nomor WA belum valid!');
-                              
-                              const currentBatch = batches.find((b) => b.id === reportSelectedBatchId);
-                              let text = `*REKAP PESANAN - ${tenantRep.tenantName.toUpperCase()}*\n`;
-                              text += `Periode: ${currentBatch?.name || '-'}\n`;
-                              if (currentBatch?.readyDate) text += `Tanggal ready: ${formatIndoDate(currentBatch.readyDate)}\n`;
-                              text += `\n`;
-                              
-                              let calcTotalMargin = 0;
-                              let calcTotalNominal = 0;
 
-                              Object.keys(tenantRep.itemAggregatesMap).forEach((name) => {
-                                const agg = tenantRep.itemAggregatesMap[name];
-                                text += `* ${agg.name}: ${agg.qty} pcs (${formatRupiah(agg.totalOwnerShare)})\n`;
-                                calcTotalMargin += agg.totalOrganizerShare;
-                                calcTotalNominal += agg.totalNominal;
-                              });
-                              
-                              text += `\nTOTAL HARGA PRODUCT: ${formatRupiah(tenantRep.tenantTotalOwnerShare)}\n`;
-                              text += `TOTAL MARGIN JUAL: ${formatRupiah(calcTotalMargin)}\n`;
-                              text += `NOMINAL TOTAL: ${formatRupiah(calcTotalNominal)}\n\n`;
-                              text += `Terima kasih!`;
-                              
-                              window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
-                            }} className="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl flex items-center"><MessageCircle className="w-4 h-4 mr-1.5 fill-current" /> WA Tenant</button>
-                          </div>
-                        </div>
-                        <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-6">
-                          <div className="md:col-span-2 space-y-3">
-                            <h5 className="font-bold text-xs uppercase text-slate-400">Detail Pesanan Masuk</h5>
-                            <div className="space-y-2 max-h-72 overflow-y-auto">
-                              {tenantRep.customerOrdersDetail.map((cust, idx) => (
-                                <div key={idx} className="p-3 bg-slate-50 border rounded-xl text-xs space-y-1">
-                                  <div className="flex justify-between font-bold text-slate-900">
-                                    <span>{idx + 1}. {cust.namaAnak} ({cust.kelas})</span>
-                                  </div>
-                                  <div className="text-slate-600 pl-3 border-l-2 border-slate-300">
-                                    {cust.items.map((it, iIdx) => <div key={iIdx}>- {it.name} <span className="font-bold">(x{it.qty})</span></div>)}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 flex flex-col justify-between">
+                  {batchReportData.length === 0 ? (
+                    <div className="text-center py-10 bg-white border border-dashed rounded-2xl">
+                      <FileSpreadsheet className="w-10 h-10 text-slate-300 mx-auto mb-2"/>
+                      <p className="text-slate-500 text-xs sm:text-sm">Belum ada data rekap untuk filter tersebut.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4 sm:space-y-6">
+                      {batchReportData.map((tenantRep) => (
+                        <div key={tenantRep.tenantId} className="bg-white rounded-2xl border overflow-hidden shadow-sm">
+                          <div className="p-3 sm:p-4 bg-slate-900 text-white flex flex-col sm:flex-row justify-between sm:items-center gap-3">
                             <div>
-                              <h5 className="font-bold text-xs uppercase text-amber-900 mb-3 flex items-center"><Store className="w-3.5 h-3.5 mr-1" /> Ringkasan Dapur</h5>
-                              {Object.keys(tenantRep.itemAggregatesMap).map((name) => (
-                                <div key={name} className="flex justify-between items-center bg-white p-2 rounded-lg border border-amber-200 text-xs mb-1">
-                                  <span className="font-medium">{name}</span><span className="font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded">{tenantRep.itemAggregatesMap[name].qty} Pcs</span>
-                                </div>
-                              ))}
+                              <h4 className="text-base sm:text-lg font-black">{tenantRep.tenantName}</h4>
+                              <p className="text-[10px] sm:text-xs text-slate-300">PJ: {tenantRep.tenantOwner} (WA: {tenantRep.tenantPhone})</p>
                             </div>
-                            <div className="mt-4 pt-3 border-t border-amber-200 flex justify-between font-bold text-emerald-700 text-sm"><span>Hak Vendor:</span><span>{formatRupiah(tenantRep.tenantTotalOwnerShare)}</span></div>
+                            <div className="flex gap-2">
+                              <button onClick={() => handlePrintTenantReport(tenantRep)} className="flex-1 sm:flex-none px-3 py-2 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold rounded-xl flex items-center justify-center"><Printer className="w-3.5 h-3.5 mr-1.5" /> Cetak PDF</button>
+                              <button onClick={() => {
+                                let cleanPhone = String(tenantRep.tenantPhone).replace(/[^0-9]/g, '');
+                                if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
+                                if (!cleanPhone) return showToast('Nomor WA belum valid!');
+                                
+                                const currentBatch = batches.find((b) => b.id === reportSelectedBatchId);
+                                let text = `*REKAP PESANAN - ${tenantRep.tenantName.toUpperCase()}*\n`;
+                                text += `Periode: ${currentBatch?.name || '-'}\n`;
+                                if (currentBatch?.readyDate) text += `Tanggal ready: ${window.formatIndoDate(currentBatch.readyDate)}\n`;
+                                text += `\n`;
+                                
+                                let calcTotalMargin = 0;
+                                let calcTotalNominal = 0;
+
+                                Object.keys(tenantRep.itemAggregatesMap).forEach((name) => {
+                                  const agg = tenantRep.itemAggregatesMap[name];
+                                  text += `* ${agg.name}: ${agg.qty} pcs (${formatRupiah(agg.totalOwnerShare)})\n`;
+                                  calcTotalMargin += agg.totalOrganizerShare;
+                                  calcTotalNominal += agg.totalNominal;
+                                });
+                                
+                                text += `\nTOTAL HARGA PRODUCT: ${formatRupiah(tenantRep.tenantTotalOwnerShare)}\n`;
+                                text += `TOTAL MARGIN JUAL: ${formatRupiah(calcTotalMargin)}\n`;
+                                text += `NOMINAL TOTAL: ${formatRupiah(calcTotalNominal)}\n\n`;
+                                text += `Terima kasih!`;
+                                
+                                window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
+                              }} className="flex-1 sm:flex-none px-3 py-2 bg-emerald-600 text-white text-[10px] sm:text-xs font-bold rounded-xl flex items-center justify-center"><MessageCircle className="w-3.5 h-3.5 mr-1.5 fill-current" /> WA Tenant</button>
+                            </div>
+                          </div>
+                          <div className="p-3 sm:p-4 grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+                            <div className="md:col-span-2 space-y-2 sm:space-y-3">
+                              <h5 className="font-bold text-[10px] sm:text-xs uppercase text-slate-400">Detail Pesanan Masuk</h5>
+                              <div className="space-y-2 max-h-60 sm:max-h-72 overflow-y-auto">
+                                {tenantRep.customerOrdersDetail.map((cust, idx) => (
+                                  <div key={idx} className="p-2.5 sm:p-3 bg-slate-50 border rounded-xl text-[10px] sm:text-xs space-y-1">
+                                    <div className="flex flex-wrap justify-between font-bold text-slate-900 gap-1">
+                                      <span>{idx + 1}. {cust.namaAnak} ({cust.kelas})</span>
+                                      {cust.namaOrtu !== '-' && <span className="font-medium text-slate-500">Ortu: {cust.namaOrtu}</span>}
+                                    </div>
+                                    <div className="text-slate-600 pl-2 sm:pl-3 border-l-2 border-slate-300">
+                                      {cust.items.map((it, iIdx) => <div key={iIdx}>- {it.name} <span className="font-bold text-slate-800">(x{it.qty})</span></div>)}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="bg-amber-50 p-3 sm:p-4 rounded-xl border border-amber-200 flex flex-col justify-between">
+                              <div>
+                                <h5 className="font-bold text-[10px] sm:text-xs uppercase text-amber-900 mb-2 sm:mb-3 flex items-center"><Store className="w-3.5 h-3.5 mr-1" /> Ringkasan Dapur</h5>
+                                {Object.keys(tenantRep.itemAggregatesMap).map((name) => (
+                                  <div key={name} className="flex justify-between items-center bg-white p-2 rounded-lg border border-amber-200 text-[10px] sm:text-xs mb-1">
+                                    <span className="font-medium truncate pr-2 max-w-[70%]">{name}</span><span className="font-black text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">{tenantRep.itemAggregatesMap[name].qty} Pcs</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="mt-3 sm:mt-4 pt-2 sm:pt-3 border-t border-amber-200 flex justify-between font-bold text-emerald-700 text-xs sm:text-sm"><span>Hak Vendor:</span><span>{formatRupiah(tenantRep.tenantTotalOwnerShare)}</span></div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {}
               {adminSubTab === 'orders' && (
-                <div className="space-y-4">
-                  <h3 className="font-bold text-slate-900 text-base">Semua Pesanan Masuk ({orders.length})</h3>
+                <div className="space-y-3 sm:space-y-4">
+                  <h3 className="font-bold text-slate-900 text-sm sm:text-base">Semua Pesanan Masuk ({orders.length})</h3>
                   <div className="space-y-3">
-                    {orders.map((ord) => {
-                      const cleanItems = ord.items.map(it => parseAndCleanItem(it, products, tenants));
+                    {orders.length === 0 ? (
+                       <div className="text-center py-10 bg-white border border-dashed rounded-2xl"><ShoppingBag className="w-10 h-10 text-slate-300 mx-auto mb-2"/><p className="text-slate-500 text-xs sm:text-sm">Belum ada pesanan yang masuk.</p></div>
+                    ) : orders.map((ord) => {
+                      const itemsArr = Array.isArray(ord.items) ? ord.items : [];
+                      const cleanItems = itemsArr.map(it => parseAndCleanItem(it, products, tenants));
                       const recalculateTotal = cleanItems.reduce((sum, item) => sum + item.subtotal, 0);
                       
                       return (
-                        <div key={ord.orderId} className="bg-white p-4 rounded-2xl border text-xs shadow-sm">
-                          <div className="flex justify-between items-center mb-3">
-                            <span className="font-bold text-indigo-700 text-sm">{ord.orderId} - {ord.customer?.namaAnak} ({ord.customer?.kelas})</span>
-                            <div className="flex items-center space-x-2">
+                        <div key={ord.orderId} className="bg-white p-3 sm:p-4 rounded-xl sm:rounded-2xl border text-[10px] sm:text-xs shadow-sm">
+                          <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-2 sm:mb-3 gap-2">
+                            <span className="font-bold text-indigo-700 text-[11px] sm:text-sm break-all">{ord.orderId} - {ord.customer?.namaAnak} ({ord.customer?.kelas})</span>
+                            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                               <select value={ord.status} onChange={(e) => {
                                 const newOrders = orders.map(o => o.orderId === ord.orderId ? { ...o, status: e.target.value } : o);
                                 setOrders(newOrders);
-                              }} className="bg-slate-100 font-bold px-2 py-1.5 rounded border outline-none">
+                              }} className="bg-slate-100 font-bold px-2 py-1.5 rounded-lg border outline-none text-[10px] sm:text-xs">
                                 <option value="Unpaid">Unpaid</option><option value="Paid">Paid</option><option value="Selesai">Selesai</option><option value="Void">Void (Batal)</option>
                               </select>
                               <button onClick={() => {
                                 fetch(sheetWebhookUrl || DEFAULT_WEBHOOK_URL, { method: 'POST', mode: 'no-cors', headers: {'Content-Type':'application/json'}, body: JSON.stringify({action:'updateOrderStatus', orderId: ord.orderId, status: ord.status}) });
-                                showToast(`Status pesanan ${ord.orderId} disave ke Cloud!`);
-                              }} className="p-1.5 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded-lg flex items-center font-bold px-2"><Save className="w-3.5 h-3.5 mr-1"/> Simpan Status</button>
+                                showToast(`Status pesanan disave ke Cloud!`);
+                              }} className="p-1.5 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded-lg flex items-center font-bold px-2 text-[10px] sm:text-xs"><Save className="w-3.5 h-3.5 mr-1"/> Simpan</button>
                               <button onClick={() => {
                                 setConfirmModal({
                                   isOpen: true, title: 'Hapus Pesanan', message: `Yakin ingin hapus pesanan ${ord.orderId}?`,
@@ -914,16 +960,16 @@ export default function App() {
                               }} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
                             </div>
                           </div>
-                          <div className="space-y-1.5 text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                          <div className="space-y-1.5 text-slate-600 bg-slate-50 p-2.5 sm:p-3 rounded-xl border border-slate-100">
                             {cleanItems.map((i, idx) => (
-                              <div key={idx} className="flex justify-between items-center border-b border-slate-200/50 pb-1 mb-1 last:border-0 last:pb-0 last:mb-0">
-                                <span><strong className="text-slate-800">{i.name} (x{i.qty})</strong> <span className="text-slate-400 text-[10px] ml-1">[{i.tenantName}]</span></span>
-                                <span className="font-bold text-slate-900">{formatRupiah(i.subtotal)}</span>
+                              <div key={idx} className="flex justify-between items-center border-b border-slate-200/50 pb-1 mb-1 last:border-0 last:pb-0 last:mb-0 gap-2">
+                                <span className="flex-1"><strong className="text-slate-800">{i.name} (x{i.qty})</strong> <span className="text-slate-400 text-[9px] sm:text-[10px] ml-1 block sm:inline">[{i.tenantName}]</span></span>
+                                <span className="font-bold text-slate-900 whitespace-nowrap">{formatRupiah(i.subtotal)}</span>
                               </div>
                             ))}
-                            {ord.customer?.catatan && <p className="text-[11px] text-amber-700 italic border-t pt-1">Catatan: {ord.customer.catatan}</p>}
+                            {ord.customer?.catatan && <p className="text-[9px] sm:text-[11px] text-amber-700 italic border-t pt-1">Catatan: {ord.customer.catatan}</p>}
                           </div>
-                          <div className="flex justify-between font-bold text-slate-900 text-xs mt-3 px-1"><span>Total Nominal Pesanan:</span><span className="text-amber-600 text-sm">{formatRupiah(recalculateTotal)}</span></div>
+                          <div className="flex justify-between font-bold text-slate-900 text-[10px] sm:text-xs mt-2.5 sm:mt-3 px-1"><span>Total Nominal:</span><span className="text-amber-600 text-xs sm:text-sm">{formatRupiah(recalculateTotal)}</span></div>
                         </div>
                       );
                     })}
@@ -931,37 +977,36 @@ export default function App() {
                 </div>
               )}
 
-              {}
               {adminSubTab === 'products' && (
-                <div className="space-y-4">
+                <div className="space-y-3 sm:space-y-4">
                   <div className="flex justify-between items-center">
-                    <h3 className="font-bold text-slate-900 text-base">Setup Produk & Harga</h3>
-                    <button onClick={() => setProductModal({ isOpen: true, item: null })} className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center space-x-1"><Plus className="w-4 h-4" /><span>Tambah Produk</span></button>
+                    <h3 className="font-bold text-slate-900 text-sm sm:text-base">Setup Produk</h3>
+                    <button onClick={() => setProductModal({ isOpen: true, item: null })} className="px-3 py-1.5 sm:px-4 sm:py-2 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold rounded-xl flex items-center space-x-1"><Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" /><span>Tambah</span></button>
                   </div>
-                  <div className="bg-white rounded-2xl border overflow-x-auto">
-                    <table className="w-full text-left text-xs min-w-[700px]">
-                      <thead className="bg-slate-100 text-slate-600 uppercase text-[10px]">
-                        <tr><th className="p-3.5 w-14">Foto</th><th className="p-3.5">Nama Produk</th><th className="p-3.5">Stand</th><th className="p-3.5">Harga Owner</th><th className="p-3.5">Margin Panitia</th><th className="p-3.5">Harga Jual</th><th className="p-3.5 text-center">Aksi</th></tr>
+                  <div className="bg-white rounded-xl sm:rounded-2xl border overflow-x-auto shadow-sm">
+                    <table className="w-full text-left text-[10px] sm:text-xs min-w-[600px]">
+                      <thead className="bg-slate-100 text-slate-600 uppercase text-[9px] sm:text-[10px]">
+                        <tr><th className="p-2 sm:p-3.5 w-12 sm:w-14">Foto</th><th className="p-2 sm:p-3.5">Nama Produk</th><th className="p-2 sm:p-3.5">Stand</th><th className="p-2 sm:p-3.5 text-emerald-700">Owner</th><th className="p-2 sm:p-3.5 text-indigo-700">Margin</th><th className="p-2 sm:p-3.5">Jual</th><th className="p-2 sm:p-3.5 text-center">Aksi</th></tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {products.map((p) => {
                           const tenant = tenants.find((t) => t.id === p.tenantId);
                           return (
                             <tr key={p.id}>
-                              <td className="p-3">{p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-10 h-10 object-cover rounded-lg border" /> : <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400"><ImageIcon className="w-5 h-5" /></div>}</td>
-                              <td className="p-3 font-bold">{p.name}</td>
-                              <td className="p-3 text-slate-600">{tenant?.name || '-'}</td>
-                              <td className="p-3 text-emerald-700">{formatRupiah(p.priceOwner)}</td>
-                              <td className="p-3 text-indigo-700">+ {formatRupiah(p.priceOrganizer)}</td>
-                              <td className="p-3 font-black text-amber-600">{formatRupiah(Number(p.priceOwner)+Number(p.priceOrganizer))}</td>
-                              <td className="p-3 text-center">
-                                <button onClick={() => setProductModal({ isOpen: true, item: p })} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit3 className="w-4 h-4" /></button>
+                              <td className="p-2 sm:p-3">{p.imageUrl ? <img src={p.imageUrl} alt={p.name} className="w-8 h-8 sm:w-10 sm:h-10 object-cover rounded-lg border" /> : <div className="w-8 h-8 sm:w-10 sm:h-10 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400"><ImageIcon className="w-4 h-4 sm:w-5 sm:h-5" /></div>}</td>
+                              <td className="p-2 sm:p-3 font-bold">{p.name}</td>
+                              <td className="p-2 sm:p-3 text-slate-600">{tenant?.name || '-'}</td>
+                              <td className="p-2 sm:p-3 text-emerald-700">{formatRupiah(p.priceOwner)}</td>
+                              <td className="p-2 sm:p-3 text-indigo-700">+ {formatRupiah(p.priceOrganizer)}</td>
+                              <td className="p-2 sm:p-3 font-black text-amber-600">{formatRupiah(Number(p.priceOwner)+Number(p.priceOrganizer))}</td>
+                              <td className="p-2 sm:p-3 text-center">
+                                <button onClick={() => setProductModal({ isOpen: true, item: p })} className="p-1 sm:p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit3 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /></button>
                                 <button onClick={() => {
                                   setConfirmModal({isOpen: true, title: 'Hapus Produk', message: `Hapus ${p.name}?`, onConfirm: () => {
                                     const updated = products.filter(item => item.id !== p.id);
                                     setProducts(updated); syncPushToCloud({ products: updated }); setConfirmModal({isOpen:false}); showToast('Produk dihapus');
                                   }});
-                                }} className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                                }} className="p-1 sm:p-1.5 text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /></button>
                               </td>
                             </tr>
                           );
@@ -972,35 +1017,34 @@ export default function App() {
                 </div>
               )}
               
-              {}
               {adminSubTab === 'batches' && (
-                <div className="space-y-4">
+                <div className="space-y-3 sm:space-y-4">
                   <div className="flex justify-between items-center">
-                    <h3 className="font-bold text-slate-900 text-base">Kelola Batch Periode</h3>
-                    <button onClick={() => setBatchModal({ isOpen: true, item: null })} className="px-3.5 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center space-x-1"><Plus className="w-4 h-4" /><span>Buat Batch Baru</span></button>
+                    <h3 className="font-bold text-slate-900 text-sm sm:text-base">Kelola Batch</h3>
+                    <button onClick={() => setBatchModal({ isOpen: true, item: null })} className="px-3 py-1.5 sm:px-3.5 sm:py-2 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold rounded-xl flex items-center space-x-1"><Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" /><span>Buat Batch</span></button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     {batches.map((b) => (
-                      <div key={b.id} className={`bg-white rounded-2xl p-4 border ${b.isActive ? 'border-indigo-500 ring-2 ring-indigo-500/10' : 'border-slate-200'}`}>
+                      <div key={b.id} className={`bg-white rounded-xl sm:rounded-2xl p-3 sm:p-4 border ${b.isActive ? 'border-indigo-500 ring-2 ring-indigo-500/10 shadow-sm' : 'border-slate-200'}`}>
                         <div className="flex justify-between items-start">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${b.isActive ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{b.isActive ? 'BATCH AKTIF' : 'Non-Aktif'}</span>
+                          <span className={`text-[9px] sm:text-[10px] font-bold px-2 py-0.5 rounded-full ${b.isActive ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{b.isActive ? 'BATCH AKTIF' : 'Non-Aktif'}</span>
                           <div className="flex space-x-1">
-                            <button onClick={() => setBatchModal({ isOpen: true, item: b })} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit3 className="w-4 h-4" /></button>
+                            <button onClick={() => setBatchModal({ isOpen: true, item: b })} className="p-1 sm:p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit3 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /></button>
                             <button onClick={() => setConfirmModal({isOpen:true, title:'Hapus Batch', message:`Hapus ${b.name}?`, onConfirm: () => {
                               const updated = batches.filter(item => item.id !== b.id); setBatches(updated); syncPushToCloud({ batches: updated }); setConfirmModal({isOpen:false});
-                            }})} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4" /></button>
+                            }})} className="p-1 sm:p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /></button>
                           </div>
                         </div>
-                        <h4 className="font-bold text-slate-900 text-base mt-1">{b.name}</h4>
-                        <div className="mt-2 space-y-1 text-xs">
-                          <p className="text-slate-500">Pesan: {formatIndoDate(b.startDate)} - {formatIndoDate(b.endDate)}</p>
-                          {b.readyDate && <p className="text-emerald-600 font-bold">Ready: {formatIndoDate(b.readyDate)}</p>}
+                        <h4 className="font-bold text-slate-900 text-sm sm:text-base mt-1.5">{b.name}</h4>
+                        <div className="mt-1.5 sm:mt-2 space-y-1 text-[10px] sm:text-xs">
+                          <p className="text-slate-500">Pesan: {window.formatIndoDate(b.startDate)} - {window.formatIndoDate(b.endDate)}</p>
+                          {b.readyDate && <p className="text-emerald-600 font-bold">Ready: {window.formatIndoDate(b.readyDate)}</p>}
                         </div>
-                        <div className="mt-3 pt-3 border-t flex justify-end">
+                        <div className="mt-2.5 sm:mt-3 pt-2.5 sm:pt-3 border-t flex justify-end">
                           <button onClick={() => {
                             const updated = batches.map((item) => ({ ...item, isActive: item.id === b.id }));
                             setBatches(updated); syncPushToCloud({ batches: updated });
-                          }} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${b.isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'}`}>{b.isActive ? 'Aktif Saat Ini' : 'Set Aktif'}</button>
+                          }} className={`px-3 py-1.5 rounded-lg font-bold text-[10px] sm:text-xs ${b.isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'}`}>{b.isActive ? 'Aktif Saat Ini' : 'Set Aktif'}</button>
                         </div>
                       </div>
                     ))}
@@ -1008,24 +1052,23 @@ export default function App() {
                 </div>
               )}
 
-              {}
               {adminSubTab === 'tenants' && (
-                <div className="space-y-4">
+                <div className="space-y-3 sm:space-y-4">
                   <div className="flex justify-between items-center">
-                    <h3 className="font-bold text-slate-900 text-base">Kelola Stand / Tenant</h3>
-                    <button onClick={() => setTenantModal({ isOpen: true, item: null })} className="px-3.5 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center space-x-1"><Plus className="w-4 h-4" /><span>Tambah Stand Baru</span></button>
+                    <h3 className="font-bold text-slate-900 text-sm sm:text-base">Stand / Tenant</h3>
+                    <button onClick={() => setTenantModal({ isOpen: true, item: null })} className="px-3 py-1.5 sm:px-3.5 sm:py-2 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold rounded-xl flex items-center space-x-1"><Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" /><span>Tambah</span></button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
                     {tenants.map((t) => (
-                      <div key={t.id} className="bg-white p-4 rounded-2xl border shadow-sm space-y-2">
-                        <h4 className="font-bold text-slate-900 text-sm">{t.name}</h4>
-                        <p className="text-xs text-slate-500">PJ: {t.owner}</p>
-                        <p className="text-xs font-semibold text-emerald-700 flex items-center"><Phone className="w-3 h-3 mr-1" /> WA: {t.phone || '(Belum diisi)'}</p>
+                      <div key={t.id} className="bg-white p-3 sm:p-4 rounded-xl sm:rounded-2xl border shadow-sm space-y-1.5 sm:space-y-2">
+                        <h4 className="font-bold text-slate-900 text-xs sm:text-sm">{t.name}</h4>
+                        <p className="text-[10px] sm:text-xs text-slate-500">PJ: {t.owner}</p>
+                        <p className="text-[10px] sm:text-xs font-semibold text-emerald-700 flex items-center"><Phone className="w-3 h-3 mr-1" /> WA: {t.phone || '(Kosong)'}</p>
                         <div className="pt-2 border-t flex justify-end space-x-2">
-                          <button onClick={() => setTenantModal({ isOpen: true, item: t })} className="px-2.5 py-1 text-xs text-blue-600 bg-blue-50 rounded-lg font-semibold">Edit</button>
+                          <button onClick={() => setTenantModal({ isOpen: true, item: t })} className="px-2.5 py-1 text-[10px] sm:text-xs text-blue-600 bg-blue-50 rounded-lg font-semibold">Edit</button>
                           <button onClick={() => setConfirmModal({isOpen:true, title:'Hapus Stand', message:`Hapus ${t.name}?`, onConfirm: () => {
                             const updated = tenants.filter(item => item.id !== t.id); setTenants(updated); syncPushToCloud({ tenants: updated }); setConfirmModal({isOpen:false});
-                          }})} className="px-2.5 py-1 text-xs text-red-600 bg-red-50 rounded-lg font-semibold">Hapus</button>
+                          }})} className="px-2.5 py-1 text-[10px] sm:text-xs text-red-600 bg-red-50 rounded-lg font-semibold">Hapus</button>
                         </div>
                       </div>
                     ))}
@@ -1033,43 +1076,42 @@ export default function App() {
                 </div>
               )}
               {adminSubTab === 'class_pics' && (
-                <div className="bg-white p-6 rounded-2xl border space-y-4 shadow-sm">
+                <div className="bg-white p-4 sm:p-6 rounded-xl sm:rounded-2xl border space-y-3 sm:space-y-4 shadow-sm">
                   <div className="flex justify-between items-center">
-                    <h3 className="font-bold text-base text-slate-900">Kelola Kelas & Routing WA PIC</h3>
-                    <button onClick={() => setClassModal({ isOpen: true, item: null })} className="px-3.5 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center space-x-1"><Plus className="w-4 h-4" /><span>Tambah Kelas Baru</span></button>
+                    <h3 className="font-bold text-sm sm:text-base text-slate-900">Routing WA Kelas</h3>
+                    <button onClick={() => setClassModal({ isOpen: true, item: null })} className="px-3 py-1.5 sm:px-3.5 sm:py-2 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold rounded-xl flex items-center space-x-1"><Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4" /><span>Tambah</span></button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 text-[10px] sm:text-xs">
                     {classesList.map((c) => (
-                      <div key={c.id} className="p-3 bg-slate-50 border rounded-xl space-y-2">
+                      <div key={c.id} className="p-2.5 sm:p-3 bg-slate-50 border rounded-xl space-y-2">
                         <div className="flex justify-between items-center">
                           <span className="font-bold text-slate-900">{c.name}</span>
                           <div className="flex space-x-1">
-                            <button onClick={() => setClassModal({ isOpen: true, item: c })} className="text-blue-600 hover:bg-blue-50 p-1 rounded"><Edit3 className="w-4 h-4" /></button>
+                            <button onClick={() => setClassModal({ isOpen: true, item: c })} className="text-blue-600 hover:bg-blue-50 p-1 rounded"><Edit3 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /></button>
                             <button onClick={() => setConfirmModal({isOpen:true, title:'Hapus Kelas', message:`Hapus ${c.name}?`, onConfirm: () => {
                               const updated = classesList.filter(item => item.id !== c.id); setClassesList(updated); syncPushToCloud({ classes: updated }); setConfirmModal({isOpen:false});
-                            }})} className="text-red-600 hover:bg-red-50 p-1 rounded"><Trash2 className="w-4 h-4" /></button>
+                            }})} className="text-red-600 hover:bg-red-50 p-1 rounded"><Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /></button>
                           </div>
                         </div>
-                        <input type="text" placeholder="No WA PIC (628...)" value={c.phone} onChange={(e) => {
+                        <input type="text" placeholder="No WA (628...)" value={c.phone} onChange={(e) => {
                           const updated = classesList.map(item => item.id === c.id ? { ...item, phone: e.target.value } : item);
                           setClassesList(updated);
-                        }} onBlur={() => syncPushToCloud()} className="w-full p-2 bg-white border rounded-lg text-xs" />
+                        }} onBlur={() => syncPushToCloud()} className="w-full p-2 bg-white border rounded-lg text-[10px] sm:text-xs" />
                       </div>
                     ))}
                   </div>
                 </div>
               )}
               
-              {}
               {adminSubTab === 'settings' && (
-                <div className="max-w-xl bg-white rounded-2xl border p-6 space-y-4 shadow-sm text-xs">
-                  <h3 className="font-bold text-base text-slate-900">Pengaturan Webhook & Cloud Sync</h3>
+                <div className="max-w-xl bg-white rounded-xl sm:rounded-2xl border p-4 sm:p-6 space-y-3 sm:space-y-4 shadow-sm text-[10px] sm:text-xs">
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900">Pengaturan Webhook</h3>
                   <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2">
-                    <span className="font-bold text-indigo-900 block">Link Auto-Sync Semua Perangkat:</span>
+                    <span className="font-bold text-indigo-900 block">Link Auto-Sync:</span>
                     <button type="button" onClick={() => {
                       const shareUrl = `${window.location.origin}${window.location.pathname}?sheet=${encodeURIComponent(sheetWebhookUrl)}`;
-                      navigator.clipboard.writeText(shareUrl); showToast('Link Auto-Sync Berhasil Disalin!');
-                    }} className="w-full py-2 bg-indigo-600 text-white font-bold rounded-xl flex items-center justify-center space-x-1.5 shadow-sm"><Share2 className="w-4 h-4" /><span>Salin Link Web Auto-Sync Panitia</span></button>
+                      navigator.clipboard.writeText(shareUrl); showToast('Link Disalin!');
+                    }} className="w-full py-2 bg-indigo-600 text-white font-bold rounded-xl flex items-center justify-center space-x-1.5 shadow-sm"><Share2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /><span>Salin Link Web Auto-Sync</span></button>
                   </div>
                   <form onSubmit={(e) => {
                     e.preventDefault();
@@ -1077,12 +1119,12 @@ export default function App() {
                     localStorage.setItem('ld_bazaar_admin_phone', adminPhone);
                     localStorage.setItem('ld_bazaar_admin_auth', JSON.stringify(adminAuth));
                     syncPushToCloud();
-                  }} className="space-y-3">
-                    <div><label className="block font-bold mb-1">Google Sheets Webhook URL</label><input type="url" value={sheetWebhookUrl} onChange={(e) => setSheetWebhookUrl(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl font-mono text-xs" /></div>
-                    <div><label className="block font-bold mb-1">No. WA Admin Utama</label><input type="text" value={adminPhone} onChange={(e) => setAdminPhone(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-                    <div><label className="block font-bold mb-1">Username Admin Login</label><input type="text" value={adminAuth.username} onChange={(e) => setAdminAuth({ ...adminAuth, username: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-                    <div><label className="block font-bold mb-1">Password Admin Login</label><input type="password" value={adminAuth.password} onChange={(e) => setAdminAuth({ ...adminAuth, password: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-                    <button type="submit" disabled={isCloudSyncing} className="w-full py-3 bg-emerald-600 text-white font-bold rounded-xl shadow-md flex justify-center items-center space-x-2 transition-all"><Save className="w-4 h-4" /><span>Simpan Pengaturan</span></button>
+                  }} className="space-y-2.5 sm:space-y-3">
+                    <div><label className="block font-bold mb-1">Webhook URL</label><input type="url" value={sheetWebhookUrl} onChange={(e) => setSheetWebhookUrl(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl font-mono text-[9px] sm:text-[10px]" /></div>
+                    <div><label className="block font-bold mb-1">WA Admin</label><input type="text" value={adminPhone} onChange={(e) => setAdminPhone(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
+                    <div><label className="block font-bold mb-1">Username Admin</label><input type="text" value={adminAuth.username} onChange={(e) => setAdminAuth({ ...adminAuth, username: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
+                    <div><label className="block font-bold mb-1">Password Admin</label><input type="password" value={adminAuth.password} onChange={(e) => setAdminAuth({ ...adminAuth, password: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
+                    <button type="submit" disabled={isCloudSyncing} className="w-full py-2.5 sm:py-3 bg-emerald-600 text-white font-bold rounded-xl shadow-md flex justify-center items-center space-x-2 transition-all"><Save className="w-3.5 h-3.5 sm:w-4 sm:h-4" /><span>Simpan</span></button>
                   </form>
                 </div>
               )}
@@ -1094,9 +1136,9 @@ export default function App() {
       {}
       {productModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative text-xs space-y-3">
-            <button onClick={() => setProductModal({isOpen: false, item: null})} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
-            <h3 className="text-base font-bold text-slate-900">{productModal.item ? 'Edit Produk' : 'Setup Produk Baru'}</h3>
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative text-[10px] sm:text-xs space-y-3">
+            <button onClick={() => setProductModal({isOpen: false, item: null})} className="absolute top-4 right-4 text-slate-400 bg-slate-100 p-1 rounded-lg"><X className="w-4 h-4" /></button>
+            <h3 className="text-sm sm:text-base font-bold text-slate-900">{productModal.item ? 'Edit Produk' : 'Setup Produk'}</h3>
             <form onSubmit={(e) => {
               e.preventDefault();
               const fd = new FormData(e.target);
@@ -1105,9 +1147,8 @@ export default function App() {
               formObj.priceOrganizer = Number(formObj.priceOrganizer);
               formObj.available = true;
               
-              // Prevent overriding image if an upload was just converted to base64 in state
               const finalImageUrl = productModal.item?.tempImageUrl || formObj.imageUrl || '';
-              delete formObj.imageUrlInput; // exclude file input from saving
+              delete formObj.imageUrlInput;
               formObj.imageUrl = finalImageUrl;
 
               let updated;
@@ -1117,28 +1158,28 @@ export default function App() {
                 updated = [...products, { ...formObj, id: 'p-' + Date.now() }];
               }
               setProducts(updated); syncPushToCloud({ products: updated }); setProductModal({ isOpen: false, item: null });
-            }} className="space-y-3 max-h-[80vh] overflow-y-auto pr-1">
+            }} className="space-y-2.5 sm:space-y-3 max-h-[75vh] overflow-y-auto pr-1">
               <div><label className="block font-semibold mb-1">Nama Produk</label><input type="text" name="name" required defaultValue={productModal.item?.name || ''} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
               <div><label className="block font-semibold mb-1">Stand / Tenant</label><select name="tenantId" defaultValue={productModal.item?.tenantId || tenants[0]?.id || ''} className="w-full px-3 py-2 bg-slate-50 border rounded-xl">{tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><label className="block font-semibold mb-1">Harga Owner (Rp)</label><input type="number" name="priceOwner" required defaultValue={productModal.item?.priceOwner || 0} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-                <div><label className="block font-semibold mb-1">Margin Panitia (Rp)</label><input type="number" name="priceOrganizer" required defaultValue={productModal.item?.priceOrganizer || 0} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
+              <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                <div><label className="block font-semibold mb-1">Harga Owner</label><input type="number" name="priceOwner" required defaultValue={productModal.item?.priceOwner || 0} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
+                <div><label className="block font-semibold mb-1">Margin Panitia</label><input type="number" name="priceOrganizer" required defaultValue={productModal.item?.priceOrganizer || 0} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
               </div>
               
-              <div className="border border-dashed border-slate-300 p-3 rounded-xl bg-slate-50 space-y-2">
-                <label className="block font-semibold mb-1">Upload Foto / URL Foto</label>
+              <div className="border border-dashed border-slate-300 p-2.5 sm:p-3 rounded-xl bg-slate-50 space-y-2">
+                <label className="block font-semibold mb-1">Upload Foto / URL</label>
                 {productModal.item?.tempImageUrl || productModal.item?.imageUrl ? (
-                  <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-slate-200">
+                  <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden border border-slate-200">
                     <img src={productModal.item?.tempImageUrl || productModal.item?.imageUrl} alt="Preview" className="w-full h-full object-cover" />
                     <button type="button" onClick={() => setProductModal({ ...productModal, item: { ...productModal.item, tempImageUrl: '', imageUrl: '' } })} className="absolute top-1 right-1 bg-red-500 text-white rounded p-0.5"><X className="w-3 h-3"/></button>
                   </div>
                 ) : (
                   <>
-                    <input type="text" name="imageUrl" placeholder="Paste link URL gambar (opsional)" className="w-full px-3 py-2 bg-white border rounded-xl text-xs mb-2" />
+                    <input type="text" name="imageUrl" placeholder="Paste link URL gambar (opsional)" className="w-full px-3 py-2 bg-white border rounded-xl text-[10px] sm:text-xs mb-2" />
                     <div className="flex items-center space-x-2">
-                      <span className="text-slate-400 font-bold mx-2">ATAU</span>
-                      <label className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-center cursor-pointer hover:bg-slate-100 flex items-center justify-center space-x-1 font-bold text-slate-600">
-                        <Upload className="w-4 h-4"/> <span>Pilih dari Galeri</span>
+                      <span className="text-slate-400 font-bold mx-1 sm:mx-2 text-[9px] sm:text-[10px]">ATAU</span>
+                      <label className="flex-1 px-2 sm:px-3 py-2 bg-white border border-slate-300 rounded-xl text-center cursor-pointer hover:bg-slate-100 flex items-center justify-center space-x-1 font-bold text-slate-600">
+                        <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4"/> <span>Galeri</span>
                         <input type="file" name="imageUrlInput" accept="image/*" className="hidden" onChange={(e) => {
                           const file = e.target.files[0];
                           if (!file) return;
@@ -1147,7 +1188,7 @@ export default function App() {
                             const img = new Image();
                             img.onload = () => {
                               const canvas = document.createElement('canvas');
-                              const MAX_WIDTH = 500;
+                              const MAX_WIDTH = 400;
                               const scaleSize = MAX_WIDTH / img.width;
                               canvas.width = MAX_WIDTH;
                               canvas.height = img.height * scaleSize;
@@ -1165,28 +1206,27 @@ export default function App() {
                   </>
                 )}
               </div>
-              <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">Simpan Produk</button>
+              <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">Simpan</button>
             </form>
           </div>
         </div>
       )}
 
-      {}
       {tenantModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative text-xs space-y-3">
-            <button onClick={() => setTenantModal({isOpen: false, item: null})} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
-            <h3 className="text-base font-bold">{tenantModal.item ? 'Edit Stand' : 'Tambah Stand Baru'}</h3>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-2xl relative text-[10px] sm:text-xs space-y-3">
+            <button onClick={() => setTenantModal({isOpen: false, item: null})} className="absolute top-4 right-4 text-slate-400 bg-slate-100 p-1 rounded-lg"><X className="w-4 h-4" /></button>
+            <h3 className="text-sm sm:text-base font-bold">{tenantModal.item ? 'Edit Stand' : 'Tambah Stand'}</h3>
             <form onSubmit={(e) => {
               e.preventDefault();
               const formObj = Object.fromEntries(new FormData(e.target).entries());
               let updated = tenantModal.item ? tenants.map(t => t.id === tenantModal.item.id ? { ...t, ...formObj } : t) : [...tenants, { ...formObj, id: 't-' + Date.now() }];
               setTenants(updated); syncPushToCloud({ tenants: updated }); setTenantModal({isOpen:false, item:null});
-            }} className="space-y-3">
+            }} className="space-y-2.5 sm:space-y-3">
               <div><label className="block font-semibold mb-1">Nama Stand</label><input type="text" name="name" required defaultValue={tenantModal.item?.name || ''} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
               <div><label className="block font-semibold mb-1">Nama Pemilik</label><input type="text" name="owner" required defaultValue={tenantModal.item?.owner || ''} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-              <div><label className="block font-semibold mb-1 text-emerald-700">No WhatsApp</label><input type="text" name="phone" required defaultValue={tenantModal.item?.phone || ''} className="w-full px-3 py-2 bg-slate-50 border border-emerald-200 rounded-xl" /></div>
-              <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl">Simpan Stand</button>
+              <div><label className="block font-semibold mb-1 text-emerald-700">No WA</label><input type="text" name="phone" required defaultValue={tenantModal.item?.phone || ''} className="w-full px-3 py-2 bg-slate-50 border border-emerald-200 rounded-xl" /></div>
+              <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl">Simpan</button>
             </form>
           </div>
         </div>
@@ -1194,20 +1234,20 @@ export default function App() {
 
       {batchModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative text-xs space-y-3">
-            <button onClick={() => setBatchModal({isOpen: false, item: null})} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
-            <h3 className="text-base font-bold">{batchModal.item ? 'Edit Batch' : 'Buat Batch Baru'}</h3>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-2xl relative text-[10px] sm:text-xs space-y-3">
+            <button onClick={() => setBatchModal({isOpen: false, item: null})} className="absolute top-4 right-4 text-slate-400 bg-slate-100 p-1 rounded-lg"><X className="w-4 h-4" /></button>
+            <h3 className="text-sm sm:text-base font-bold">{batchModal.item ? 'Edit Batch' : 'Buat Batch'}</h3>
             <form onSubmit={(e) => {
               e.preventDefault();
               const formObj = Object.fromEntries(new FormData(e.target).entries());
               let updated = batchModal.item ? batches.map(b => b.id === batchModal.item.id ? { ...b, ...formObj } : b) : [...batches, { ...formObj, id: 'b-' + Date.now(), isActive: false }];
               setBatches(updated); syncPushToCloud({ batches: updated }); setBatchModal({isOpen:false, item:null});
-            }} className="space-y-3">
+            }} className="space-y-2.5 sm:space-y-3">
               <div><label className="block font-semibold mb-1">Nama Batch</label><input type="text" name="name" required defaultValue={batchModal.item?.name || ''} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-              <div><label className="block font-semibold mb-1">Tanggal Mulai Pemesanan</label><input type="date" name="startDate" required defaultValue={batchModal.item?.startDate || new Date().toISOString().slice(0, 10)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-              <div><label className="block font-semibold mb-1">Tanggal Selesai Pemesanan</label><input type="date" name="endDate" required defaultValue={batchModal.item?.endDate || new Date().toISOString().slice(0, 10)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-              <div><label className="block font-semibold mb-1 text-emerald-700">Tanggal Distribusi / Ready (Opsional)</label><input type="date" name="readyDate" defaultValue={batchModal.item?.readyDate || ''} className="w-full px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl" /></div>
-              <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl">Simpan Batch</button>
+              <div><label className="block font-semibold mb-1">Tanggal Mulai</label><input type="date" name="startDate" required defaultValue={batchModal.item?.startDate || new Date().toISOString().slice(0, 10)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
+              <div><label className="block font-semibold mb-1">Tanggal Selesai</label><input type="date" name="endDate" required defaultValue={batchModal.item?.endDate || new Date().toISOString().slice(0, 10)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
+              <div><label className="block font-semibold mb-1 text-emerald-700">Tgl Ready / Distribusi</label><input type="date" name="readyDate" defaultValue={batchModal.item?.readyDate || ''} className="w-full px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl" /></div>
+              <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl">Simpan</button>
             </form>
           </div>
         </div>
@@ -1215,18 +1255,18 @@ export default function App() {
 
       {classModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative text-xs space-y-3">
-            <button onClick={() => setClassModal({isOpen: false, item: null})} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
-            <h3 className="text-base font-bold">{classModal.item ? 'Edit Kelas' : 'Tambah Kelas Baru'}</h3>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-2xl relative text-[10px] sm:text-xs space-y-3">
+            <button onClick={() => setClassModal({isOpen: false, item: null})} className="absolute top-4 right-4 text-slate-400 bg-slate-100 p-1 rounded-lg"><X className="w-4 h-4" /></button>
+            <h3 className="text-sm sm:text-base font-bold">{classModal.item ? 'Edit Kelas' : 'Tambah Kelas'}</h3>
             <form onSubmit={(e) => {
               e.preventDefault();
               const formObj = Object.fromEntries(new FormData(e.target).entries());
               let updated = classModal.item ? classesList.map(c => c.id === classModal.item.id ? { ...c, ...formObj } : c) : [...classesList, { ...formObj, id: 'c-' + Date.now() }];
               setClassesList(updated); syncPushToCloud({ classes: updated }); setClassModal({isOpen:false, item:null});
-            }} className="space-y-3">
+            }} className="space-y-2.5 sm:space-y-3">
               <div><label className="block font-semibold mb-1">Nama Kelas</label><input type="text" name="name" required defaultValue={classModal.item?.name || ''} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-              <div><label className="block font-semibold mb-1">No. WA PIC Kelas</label><input type="text" name="phone" required defaultValue={classModal.item?.phone || ''} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-              <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl">Simpan Kelas</button>
+              <div><label className="block font-semibold mb-1">No. WA PIC</label><input type="text" name="phone" required defaultValue={classModal.item?.phone || ''} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
+              <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl">Simpan</button>
             </form>
           </div>
         </div>
