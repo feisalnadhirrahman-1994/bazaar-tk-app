@@ -40,6 +40,9 @@ import {
   Share2
 } from 'lucide-react';
 
+// DEFAULT WEBHOOK GOOGLE SHEETS CLOUD
+const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwmWBM_AsaxtOf8RcDwtbRBsZJcWM5Qd2xVMG7RkhWwoeh8fCoqC8XKSh0HWqRqonN_/exec';
+
 const formatIndoDate = (dateStr) => {
   if (!dateStr) return '-';
   try {
@@ -112,6 +115,73 @@ const INITIAL_CLASSES = [
   { id: 'c7', name: 'Umum / Tamu', phone: '628123456780' }
 ];
 
+function LittleDarbiLogo({ className = "w-10 h-10" }) {
+  return (
+    <svg className={className} viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* Background Circle Soft Container */}
+      <circle cx="200" cy="200" r="190" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="8"/>
+      
+      {/* Green Leaf / Dome Curve */}
+      <path d="M 200,108 C 240,150 260,200 230,240 C 200,250 200,250 170,240 C 140,200 160,150 200,108 Z" 
+            fill="#FFFFFF" stroke="#007A37" strokeWidth="8" strokeLinejoin="round"/>
+      
+      {/* Rising Sun */}
+      <circle cx="200" cy="180" r="28" fill="#F58220" />
+      <path d="M 160,210 Q 200,195 240,210 L 235,230 Q 200,218 165,230 Z" fill="#FFC20E" />
+
+      {/* Boy Character (Red Shirt) */}
+      <g id="boy">
+        {/* Head & Hair */}
+        <circle cx="125" cy="115" r="22" fill="#FCD3B1" />
+        <path d="M 108,108 Q 125,85 140,110 Q 130,102 108,108 Z" fill="#231F20" />
+        {/* Arms Raised */}
+        <path d="M 110,128 L 72,135 M 140,128 L 160,110" stroke="#231F20" strokeWidth="5" strokeLinecap="round" />
+        {/* Hands */}
+        <circle cx="68" cy="136" r="6" fill="#FCD3B1" stroke="#231F20" strokeWidth="2"/>
+        <circle cx="163" cy="108" r="6" fill="#FCD3B1" stroke="#231F20" strokeWidth="2"/>
+        {/* Torso / Shirt */}
+        <path d="M 105,128 L 145,128 L 160,195 Q 125,215 90,190 Z" fill="#ED1C24" stroke="#231F20" strokeWidth="4" />
+      </g>
+
+      {/* Girl Character (Yellow Top & Blue Hijab) */}
+      <g id="girl">
+        {/* Face */}
+        <circle cx="275" cy="118" r="20" fill="#FCD3B1" />
+        {/* Blue Hijab */}
+        <path d="M 275,88 C 248,88 245,118 250,140 C 260,148 290,148 300,140 C 305,118 302,88 275,88 Z" fill="#00AEEF" stroke="#231F20" strokeWidth="4" />
+        <ellipse cx="275" cy="115" rx="16" ry="18" fill="#FCD3B1" />
+        {/* Arms Raised */}
+        <path d="M 260,140 L 220,108 M 290,140 L 328,135" stroke="#231F20" strokeWidth="5" strokeLinecap="round" />
+        <circle cx="217" cy="106" r="6" fill="#FCD3B1" stroke="#231F20" strokeWidth="2"/>
+        <circle cx="332" cy="136" r="6" fill="#FCD3B1" stroke="#231F20" strokeWidth="2"/>
+        {/* Yellow Shirt */}
+        <path d="M 250,145 L 300,145 L 315,210 Q 275,225 235,210 Z" fill="#FFF200" stroke="#231F20" strokeWidth="4" />
+      </g>
+
+      {/* Arch Bridge Line */}
+      <path d="M 50,265 Q 200,200 350,265" fill="none" stroke="#231F20" strokeWidth="7" strokeLinecap="round"/>
+
+      {/* Text "little darbi" Curved Styling */}
+      <text x="75" y="240" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#3A3A3C" transform="rotate(-15, 75, 240)">l</text>
+      <text x="90" y="235" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#ED1C24" transform="rotate(-12, 90, 235)">i</text>
+      <text x="102" y="230" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#F58220" transform="rotate(-9, 102, 230)">t</text>
+      <text x="118" y="226" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#FFC20E" transform="rotate(-6, 118, 226)">t</text>
+      <text x="134" y="223" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#007A37" transform="rotate(-3, 134, 223)">l</text>
+      <text x="150" y="221" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#00AEEF" transform="rotate(-1, 150, 221)">e</text>
+
+      <text x="195" y="221" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#007A37" transform="rotate(2, 195, 221)">d</text>
+      <text x="225" y="224" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#F58220" transform="rotate(5, 225, 224)">a</text>
+      <text x="252" y="228" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#2E3192" transform="rotate(8, 252, 228)">r</text>
+      <text x="274" y="233" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#ED1C24" transform="rotate(12, 274, 233)">b</text>
+      <text x="302" y="240" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#8C2685" transform="rotate(16, 302, 240)">i</text>
+
+      {/* Subtitle "Parent Teacher Association" */}
+      <text x="200" y="310" textAnchor="middle" fontSize="26" fontFamily="Georgia, serif" fontWeight="bold" fill="#000000">Parent Teacher</text>
+      <text x="200" y="348" textAnchor="middle" fontSize="30" fontFamily="Georgia, serif" fontWeight="bold" fill="#000000">Association</text>
+    </svg>
+  );
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('shop');
   const [adminSubTab, setAdminSubTab] = useState('batch_reports');
@@ -136,8 +206,10 @@ export default function App() {
     return localStorage.getItem('ld_bazaar_admin_phone') || '628123456780';
   });
 
+  // WEBHOOK URL - DEFAULT ALWAYS FALLBACK TO THE DEPLOYED ENDPOINT
   const [sheetWebhookUrl, setSheetWebhookUrl] = useState(() => {
-    return localStorage.getItem('ld_bazaar_sheet_webhook') || '';
+    const saved = localStorage.getItem('ld_bazaar_sheet_webhook');
+    return saved && saved.trim() !== '' ? saved : DEFAULT_WEBHOOK_URL;
   });
 
   const [classesList, setClassesList] = useState(() => {
@@ -190,7 +262,6 @@ export default function App() {
   const [reportSelectedBatchId, setReportSelectedBatchId] = useState('b1');
   const [reportSelectedStatus, setReportSelectedStatus] = useState('Paid');
 
-  // LocalStorage Persist
   useEffect(() => { localStorage.setItem('ld_bazaar_tenants', JSON.stringify(tenants)); }, [tenants]);
   useEffect(() => { localStorage.setItem('ld_bazaar_products', JSON.stringify(products)); }, [products]);
   useEffect(() => { localStorage.setItem('ld_bazaar_batches', JSON.stringify(batches)); }, [batches]);
@@ -212,10 +283,11 @@ export default function App() {
 
   // AUTOMATIC 2-WAY FETCH FROM GOOGLE SHEETS ON LAUNCH
   const fetchCloudData = async (silent = false) => {
-    if (!sheetWebhookUrl) return;
+    const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
+    if (!targetUrl) return;
     setIsCloudSyncing(true);
     try {
-      const res = await fetch(sheetWebhookUrl);
+      const res = await fetch(targetUrl);
       const json = await res.json();
       if (json.status === 'success' && json.data) {
         if (json.data.products && json.data.products.length > 0) setProducts(json.data.products);
@@ -235,20 +307,19 @@ export default function App() {
       }
     } catch (e) {
       console.warn('Google Sheets Fetch Error:', e);
-    } finally {
+    } fontally {
       setIsCloudSyncing(false);
     }
   };
 
   useEffect(() => {
-    if (sheetWebhookUrl) {
-      fetchCloudData(true);
-    }
-  }, [sheetWebhookUrl]);
+    fetchCloudData(true);
+  }, []);
 
   // PUSH ALL DATA TO GOOGLE SHEETS CLOUD
   const syncPushToCloud = async (overrideData = {}) => {
-    if (!sheetWebhookUrl) return;
+    const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
+    if (!targetUrl) return;
     setIsCloudSyncing(true);
     try {
       const payload = {
@@ -263,7 +334,7 @@ export default function App() {
         }
       };
 
-      await fetch(sheetWebhookUrl, {
+      await fetch(targetUrl, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
@@ -387,9 +458,10 @@ export default function App() {
     setOrders((prev) => [orderPayload, ...prev]);
 
     // Send order to Google Sheets
-    if (sheetWebhookUrl) {
+    const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
+    if (targetUrl) {
       try {
-        fetch(sheetWebhookUrl, {
+        fetch(targetUrl, {
           method: 'POST',
           mode: 'no-cors',
           headers: { 'Content-Type': 'application/json' },
@@ -496,8 +568,9 @@ export default function App() {
 
   const updateOrderStatusInCloud = (orderId, newStatus) => {
     setOrders(orders.map((o) => (o.orderId === orderId ? { ...o, status: newStatus } : o)));
-    if (sheetWebhookUrl) {
-      fetch(sheetWebhookUrl, {
+    const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
+    if (targetUrl) {
+      fetch(targetUrl, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
@@ -515,33 +588,31 @@ export default function App() {
         </div>
       )}
 
-      {/* HEADER UTAMA */}
+      {/* HEADER UTAMA DENGAN LOGO LITTLE DARBI PTA */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md shadow-sm border-b border-slate-200">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-4 py-2.5 flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <div className="bg-amber-500 text-white p-2 rounded-xl shadow-md">
-              <School className="w-6 h-6" />
+            <div className="w-11 h-11 shrink-0 p-0.5 bg-amber-50 rounded-2xl border border-amber-200 shadow-2xs flex items-center justify-center">
+              <LittleDarbiLogo className="w-10 h-10" />
             </div>
             <div>
-              <h1 className="font-extrabold text-base sm:text-lg leading-tight text-slate-900">
+              <h1 className="font-black text-base sm:text-lg leading-tight text-slate-900 tracking-tight">
                 Bazaar DANUS PTA Little Darbi
               </h1>
-              <p className="text-xs text-slate-500">Pemesanan Online Stand & Produk</p>
+              <p className="text-[11px] text-slate-500 font-medium">Pemesanan Online Stand & Produk</p>
             </div>
           </div>
 
           <div className="flex items-center space-x-2">
-            {sheetWebhookUrl && (
-              <button
-                onClick={() => fetchCloudData(false)}
-                disabled={isCloudSyncing}
-                className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center space-x-1 shadow-2xs"
-                title="Refresh Data dari Google Sheets Cloud"
-              >
-                <RefreshCw className={`w-4 h-4 ${isCloudSyncing ? 'animate-spin text-indigo-600' : ''}`} />
-                <span className="hidden sm:inline">Sync Cloud</span>
-              </button>
-            )}
+            <button
+              onClick={() => fetchCloudData(false)}
+              disabled={isCloudSyncing}
+              className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center space-x-1 shadow-2xs"
+              title="Refresh Data dari Google Sheets Cloud"
+            >
+              <RefreshCw className={`w-4 h-4 ${isCloudSyncing ? 'animate-spin text-indigo-600' : ''}`} />
+              <span className="hidden sm:inline">Sync Cloud</span>
+            </button>
 
             <div className="flex items-center bg-slate-100 p-1 rounded-xl">
               <button
@@ -567,7 +638,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* CATALOG CUSTOMER & ADMIN TABS (PERSISTENT LOGIC) */}
+      {}
       {activeTab === 'shop' && (
         <main className="max-w-5xl mx-auto px-4 pt-6">
           <div className="mb-6">
@@ -739,7 +810,7 @@ export default function App() {
         </main>
       )}
 
-      {/* DRAWER KERANJANG */}
+      {}
       {isCartOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs">
           <div className="w-full max-w-md bg-white h-full flex flex-col justify-between shadow-2xl">
@@ -797,7 +868,6 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL CHECKOUT */}
       {isCheckoutModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
@@ -887,78 +957,55 @@ export default function App() {
         </div>
       )}
 
-      {/* PANEL ADMIN WITH REALTIME 2-WAY SYNC */}
+      {}
       {activeTab === 'admin' && (
-    <main className="max-w-5xl mx-auto px-4 pt-6">
-      {!isAdminLoggedIn ? (
-        <div className="max-w-md mx-auto bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xl mt-6">
-          <div className="text-center mb-6">
-            <div className="bg-indigo-100 text-indigo-700 w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-sm">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
-            <h2 className="text-xl font-black text-slate-900">Login Admin Panitia PTA</h2>
-            <p className="text-xs text-slate-500 mt-1">Bazaar DANUS PTA Little Darbi</p>
-          </div>
-
-          {loginError && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center space-x-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{loginError}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleAdminLogin} className="space-y-4 text-xs">
-            {/* Input Webhook URL Opsional untuk Device Baru */}
-            {!sheetWebhookUrl && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1">
-                <label className="block font-bold text-amber-900 flex items-center">
-                  <Cloud className="w-3.5 h-3.5 mr-1 text-amber-600" /> Webhook Cloud Google Sheets
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://script.google.com/macros/s/.../exec"
-                  value={sheetWebhookUrl}
-                  onChange={(e) => setSheetWebhookUrl(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-amber-300 rounded-lg text-xs font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={() => fetchCloudData(false)}
-                  className="w-full py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[11px]"
-                >
-                  Tarik Data Sandi & Produk Terbaru dari Cloud
-                </button>
+        <main className="max-w-5xl mx-auto px-4 pt-6">
+          {!isAdminLoggedIn ? (
+            <div className="max-w-md mx-auto bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xl mt-6">
+              <div className="text-center mb-6">
+                <div className="w-14 h-14 p-1 bg-amber-50 rounded-2xl border border-amber-200 flex items-center justify-center mx-auto mb-3 shadow-xs">
+                  <LittleDarbiLogo className="w-12 h-12" />
+                </div>
+                <h2 className="text-xl font-black text-slate-900">Login Admin PTA</h2>
+                <p className="text-xs text-slate-500 mt-1">Bazaar DANUS PTA Little Darbi</p>
               </div>
-            )}
 
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Username</label>
-              <input
-                type="text"
-                required
-                placeholder="admin"
-                value={loginForm.username}
-                onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
-              />
+              {loginError && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{loginError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleAdminLogin} className="space-y-4 text-xs">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Username</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="admin"
+                    value={loginForm.username}
+                    onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Password</label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Password Baru"
+                    value={loginForm.password}
+                    onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                  />
+                </div>
+                <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md text-sm">
+                  Masuk Panel Admin
+                </button>
+              </form>
             </div>
-            <div>
-              <label className="block font-bold text-slate-700 mb-1">Password</label>
-              <input
-                type="password"
-                required
-                placeholder="Password Baru"
-                value={loginForm.password}
-                onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
-              />
-            </div>
-            <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md text-sm">
-              Masuk Panel Admin
-            </button>
-          </form>
-        </div>
-      ) : (
+          ) : (
             <div className="space-y-6">
               <div className="flex justify-between items-center bg-indigo-900 text-white p-4 rounded-2xl shadow-sm">
                 <div className="flex items-center space-x-3">
@@ -1047,7 +1094,7 @@ export default function App() {
                 </button>
               </div>
 
-              {/* BATCH REPORTS */}
+              {}
               {adminSubTab === 'batch_reports' && (
                 <div className="space-y-6">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4 justify-between sm:items-center">
@@ -1186,7 +1233,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* TENANTS MANAGEMENT */}
+              {}
               {adminSubTab === 'tenants' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1229,7 +1276,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* BATCHES MANAGEMENT */}
+              {}
               {adminSubTab === 'batches' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1265,7 +1312,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* PRODUCTS SETUP TABLE */}
+              {}
               {adminSubTab === 'products' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1337,7 +1384,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* ORDERS LIST & STATUS UDPATE */}
+              {}
               {adminSubTab === 'orders' && (
                 <div className="space-y-4">
                   <h3 className="font-bold text-slate-900 text-base">Semua Pesanan Masuk ({orders.length})</h3>
@@ -1371,7 +1418,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* DYNAMIC CLASS MANAGEMENT */}
+              {}
               {adminSubTab === 'class_pics' && (
                 <div className="bg-white p-6 rounded-2xl border space-y-4 shadow-sm">
                   <div className="flex justify-between items-center">
@@ -1416,30 +1463,28 @@ export default function App() {
                 </div>
               )}
 
-              {/* SETTINGS & CLOUD SYNC CONTROL */}
+              {}
               {adminSubTab === 'settings' && (
                 <div className="space-y-6">
                   <div className="max-w-xl bg-white rounded-2xl border p-6 space-y-4 shadow-sm text-xs">
                     <h3 className="font-bold text-base text-slate-900">Pengaturan Webhook & Cloud Sync</h3>
 
-                    {sheetWebhookUrl && (
-                      <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2">
-                        <span className="font-bold text-indigo-900 block">Bagikan Link Web Panitia (Auto-Sync All Devices):</span>
-                        <p className="text-[11px] text-indigo-700">Gunakan link ini saat membuka web di HP Panitia lain agar otomatis terhubung ke Google Sheets tanpa perlu mengetik ulang Webhook & Sandi.</p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const shareUrl = `${window.location.origin}${window.location.pathname}?sheet=${encodeURIComponent(sheetWebhookUrl)}`;
-                            navigator.clipboard.writeText(shareUrl);
-                            showToast('Link Auto-Sync Berhasil Disalin!');
-                          }}
-                          className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center justify-center space-x-1.5 shadow-sm"
-                        >
-                          <Share2 className="w-4 h-4" />
-                          <span>Salin Link Web Auto-Sync Panitia</span>
-                        </button>
-                      </div>
-                    )}
+                    <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2">
+                      <span className="font-bold text-indigo-900 block">Bagikan Link Web Panitia (Auto-Sync All Devices):</span>
+                      <p className="text-[11px] text-indigo-700">Gunakan link ini saat membuka web di HP Panitia lain agar otomatis terhubung ke Google Sheets tanpa perlu mengetik ulang Webhook & Sandi.</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const shareUrl = `${window.location.origin}${window.location.pathname}?sheet=${encodeURIComponent(sheetWebhookUrl)}`;
+                          navigator.clipboard.writeText(shareUrl);
+                          showToast('Link Auto-Sync Berhasil Disalin!');
+                        }}
+                        className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center justify-center space-x-1.5 shadow-sm"
+                      >
+                        <Share2 className="w-4 h-4" />
+                        <span>Salin Link Web Auto-Sync Panitia</span>
+                      </button>
+                    </div>
 
                     <form
                       onSubmit={(e) => {
@@ -1509,7 +1554,7 @@ export default function App() {
         </main>
       )}
 
-      {/* MODAL EDIT PRODUK */}
+      {}
       {productModal.isOpen && (
         <ModalProductForm
           item={productModal.item}
@@ -1529,7 +1574,6 @@ export default function App() {
         />
       )}
 
-      {/* MODAL TENANT */}
       {tenantModal.isOpen && (
         <ModalTenantForm
           item={tenantModal.item}
@@ -1548,7 +1592,6 @@ export default function App() {
         />
       )}
 
-      {/* MODAL BATCH */}
       {batchModal.isOpen && (
         <ModalBatchForm
           onClose={() => setBatchModal({ isOpen: false, item: null })}
@@ -1561,7 +1604,6 @@ export default function App() {
         />
       )}
 
-      {/* MODAL KELAS */}
       {classModal.isOpen && (
         <ModalClassForm
           item={classModal.item}
