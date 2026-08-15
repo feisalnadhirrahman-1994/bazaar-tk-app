@@ -9,10 +9,6 @@ import {
 // URL Webhook Baru sesuai deployment terakhir
 const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwMORs9RhRXNQhQf5s0NhxKkT-IDiyu4NcOSXpcHkU3175JdLo5E-l_9166sznyL9U/exec';
 
-// Unicode Emojis (Mencegah corrupted encode di Windows/CMD)
-const WA_SMILE = '\uD83D\uDE0A';
-const WA_PRAY = '\uD83D\uDE4F';
-
 const formatIndoDate = (dateStr) => {
   if (!dateStr) return '-';
   try {
@@ -334,7 +330,7 @@ export default function App() {
     waText += `-----------------------------------\n`;
     waText += `*TOTAL TAGIHAN: ${formatRupiah(orderPayload.totalAmount)}*\n`;
     waText += `-----------------------------------\n`;
-    waText += `Halo PIC Kelas ${checkoutData.kelas}, mohon instruksi info rekening pembayaran. Terima kasih! ${WA_PRAY}`;
+    waText += `Halo PIC Kelas ${checkoutData.kelas}, mohon instruksi info rekening pembayaran. Terima kasih!`;
 
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
 
@@ -820,15 +816,28 @@ export default function App() {
                               let cleanPhone = String(tenantRep.tenantPhone).replace(/[^0-9]/g, '');
                               if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
                               if (!cleanPhone) return showToast('Nomor WA belum valid!');
+                              
                               const currentBatch = batches.find((b) => b.id === reportSelectedBatchId);
-                              let text = `*REKAP PESANAN - ${tenantRep.tenantName.toUpperCase()}*\nPeriode: ${currentBatch?.name}\n`;
-                              if (currentBatch?.readyDate) text += `Tgl Ready/Distribusi: ${formatIndoDate(currentBatch.readyDate)}\n`;
+                              let text = `*REKAP PESANAN - ${tenantRep.tenantName.toUpperCase()}*\n`;
+                              text += `Periode: ${currentBatch?.name || '-'}\n`;
+                              if (currentBatch?.readyDate) text += `Tanggal ready: ${formatIndoDate(currentBatch.readyDate)}\n`;
                               text += `\n`;
+                              
+                              let calcTotalMargin = 0;
+                              let calcTotalNominal = 0;
+
                               Object.keys(tenantRep.itemAggregatesMap).forEach((name) => {
                                 const agg = tenantRep.itemAggregatesMap[name];
-                                text += `• *${agg.name}*: ${agg.qty} pcs (${formatRupiah(agg.totalOwnerShare)})\n`;
+                                text += `* ${agg.name}: ${agg.qty} pcs (${formatRupiah(agg.totalOwnerShare)})\n`;
+                                calcTotalMargin += agg.totalOrganizerShare;
+                                calcTotalNominal += agg.totalNominal;
                               });
-                              text += `\n*TOTAL HAK VENDOR: ${formatRupiah(tenantRep.tenantTotalOwnerShare)}*\n\nTerima kasih! ${WA_PRAY}`;
+                              
+                              text += `\nTOTAL HARGA PRODUCT: ${formatRupiah(tenantRep.tenantTotalOwnerShare)}\n`;
+                              text += `TOTAL MARGIN JUAL: ${formatRupiah(calcTotalMargin)}\n`;
+                              text += `NOMINAL TOTAL: ${formatRupiah(calcTotalNominal)}\n\n`;
+                              text += `Terima kasih!`;
+                              
                               window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
                             }} className="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl flex items-center"><MessageCircle className="w-4 h-4 mr-1.5 fill-current" /> WA Tenant</button>
                           </div>
