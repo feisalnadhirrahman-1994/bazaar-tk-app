@@ -200,6 +200,16 @@ export default function App() {
   useEffect(() => { localStorage.setItem('ld_bazaar_admin_phone', adminPhone); }, [adminPhone]);
   useEffect(() => { localStorage.setItem('ld_bazaar_sheet_webhook', sheetWebhookUrl); }, [sheetWebhookUrl]);
 
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlSheet = urlParams.get('sheet') || urlParams.get('s');
+    if (urlSheet) {
+      setSheetWebhookUrl(urlSheet);
+      localStorage.setItem('ld_bazaar_sheet_webhook', urlSheet);
+      showToast('URL Webhook Cloud Berhasil Diidentifikasi!');
+    }
+  }, []);
+
   // AUTOMATIC 2-WAY FETCH FROM GOOGLE SHEETS ON LAUNCH
   const fetchCloudData = async (silent = false) => {
     if (!sheetWebhookUrl) return;
@@ -879,53 +889,76 @@ export default function App() {
 
       {/* PANEL ADMIN WITH REALTIME 2-WAY SYNC */}
       {activeTab === 'admin' && (
-        <main className="max-w-5xl mx-auto px-4 pt-6">
-          {!isAdminLoggedIn ? (
-            <div className="max-w-md mx-auto bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xl mt-6">
-              <div className="text-center mb-6">
-                <div className="bg-indigo-100 text-indigo-700 w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-sm">
-                  <ShieldCheck className="w-6 h-6" />
-                </div>
-                <h2 className="text-xl font-black text-slate-900">Login Admin Panitia PTA</h2>
-                <p className="text-xs text-slate-500 mt-1">Bazaar DANUS PTA Little Darbi</p>
-              </div>
-
-              {loginError && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center space-x-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>{loginError}</span>
-                </div>
-              )}
-
-              <form onSubmit={handleAdminLogin} className="space-y-4 text-xs">
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Username</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="admin"
-                    value={loginForm.username}
-                    onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">Password</label>
-                  <input
-                    type="password"
-                    required
-                    placeholder="admin123"
-                    value={loginForm.password}
-                    onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
-                  />
-                </div>
-                <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md text-sm">
-                  Masuk Panel Admin
-                </button>
-              </form>
+    <main className="max-w-5xl mx-auto px-4 pt-6">
+      {!isAdminLoggedIn ? (
+        <div className="max-w-md mx-auto bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 shadow-xl mt-6">
+          <div className="text-center mb-6">
+            <div className="bg-indigo-100 text-indigo-700 w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-sm">
+              <ShieldCheck className="w-6 h-6" />
             </div>
-          ) : (
+            <h2 className="text-xl font-black text-slate-900">Login Admin Panitia PTA</h2>
+            <p className="text-xs text-slate-500 mt-1">Bazaar DANUS PTA Little Darbi</p>
+          </div>
+
+          {loginError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center space-x-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{loginError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleAdminLogin} className="space-y-4 text-xs">
+            {/* Input Webhook URL Opsional untuk Device Baru */}
+            {!sheetWebhookUrl && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1">
+                <label className="block font-bold text-amber-900 flex items-center">
+                  <Cloud className="w-3.5 h-3.5 mr-1 text-amber-600" /> Webhook Cloud Google Sheets
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://script.google.com/macros/s/.../exec"
+                  value={sheetWebhookUrl}
+                  onChange={(e) => setSheetWebhookUrl(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-amber-300 rounded-lg text-xs font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => fetchCloudData(false)}
+                  className="w-full py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-[11px]"
+                >
+                  Tarik Data Sandi & Produk Terbaru dari Cloud
+                </button>
+              </div>
+            )}
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Username</label>
+              <input
+                type="text"
+                required
+                placeholder="admin"
+                value={loginForm.username}
+                onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Password</label>
+              <input
+                type="password"
+                required
+                placeholder="Password Baru"
+                value={loginForm.password}
+                onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+              />
+            </div>
+            <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md text-sm">
+              Masuk Panel Admin
+            </button>
+          </form>
+        </div>
+      ) : (
             <div className="space-y-6">
               <div className="flex justify-between items-center bg-indigo-900 text-white p-4 rounded-2xl shadow-sm">
                 <div className="flex items-center space-x-3">
@@ -1388,6 +1421,25 @@ export default function App() {
                 <div className="space-y-6">
                   <div className="max-w-xl bg-white rounded-2xl border p-6 space-y-4 shadow-sm text-xs">
                     <h3 className="font-bold text-base text-slate-900">Pengaturan Webhook & Cloud Sync</h3>
+
+                    {sheetWebhookUrl && (
+                      <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2">
+                        <span className="font-bold text-indigo-900 block">Bagikan Link Web Panitia (Auto-Sync All Devices):</span>
+                        <p className="text-[11px] text-indigo-700">Gunakan link ini saat membuka web di HP Panitia lain agar otomatis terhubung ke Google Sheets tanpa perlu mengetik ulang Webhook & Sandi.</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const shareUrl = `${window.location.origin}${window.location.pathname}?sheet=${encodeURIComponent(sheetWebhookUrl)}`;
+                            navigator.clipboard.writeText(shareUrl);
+                            showToast('Link Auto-Sync Berhasil Disalin!');
+                          }}
+                          className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center justify-center space-x-1.5 shadow-sm"
+                        >
+                          <Share2 className="w-4 h-4" />
+                          <span>Salin Link Web Auto-Sync Panitia</span>
+                        </button>
+                      </div>
+                    )}
 
                     <form
                       onSubmit={(e) => {
