@@ -2,34 +2,51 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ShoppingBag, ShoppingCart, Plus, Trash2, Edit3, CheckCircle2, 
   MessageCircle, Store, Settings, Search, FileSpreadsheet, X, Send,
-  User, School, Lock, Phone, Image as ImageIcon, Share2, Printer, Save, RefreshCw
+  User, School, Lock, Phone, Image as ImageIcon, Upload, 
+  AlertCircle, RefreshCw, Layers, Printer, Save, Share2, Menu
 } from 'lucide-react';
 
-// URL Endpoint Google Sheets Webhook
 const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwMORs9RhRXNQhQf5s0NhxKkT-IDiyu4NcOSXpcHkU3175JdLo5E-l_9166sznyL9U/exec';
 
 const formatIndoDate = (dateStr) => {
   if (!dateStr) return '-';
-  try { return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); }
-  catch (e) { return dateStr; }
+  try {
+    return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch (e) {
+    return dateStr;
+  }
 };
 
 const formatRupiah = (num) => {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num || 0);
 };
 
-// Fungsi pembersih imbuhan "(x...)" bawaan dari Cloud (Mencegah Duplikasi Qty)
-const parseAndCleanItem = (itemString) => {
-  if (!itemString) return { name: '-', qty: 1 };
-  let name = itemString;
-  let qty = 1;
-  const match = itemString.match(/\(x(\d+)\)/g);
-  if (match && match.length > 0) {
-    qty = parseInt(match[0].replace(/[^0-9]/g, ''));
-    name = itemString.replace(/\s*\(x\d+\)\s*/g, '').trim();
+// --- INITIAL DATA (Fallbacks) ---
+const INITIAL_TENANTS = [
+  { id: 't1', name: 'Stand Snack & Es Ceria', owner: 'Mama Budi (TK A1)', phone: '6281234567891' },
+];
+
+const INITIAL_PRODUCTS = [
+  { 
+    id: 'p1', tenantId: 't1', name: 'Es Lilin Buah Segar', 
+    priceOwner: 8000, priceOrganizer: 2000, 
+    description: 'Es lilin dari buah asli tanpa pemanis buatan',
+    category: 'Minuman', imageUrl: '', available: true
   }
-  return { name, qty };
-};
+];
+
+const INITIAL_BATCHES = [
+  {
+    id: 'b1', name: 'Batch 1 - Pre-Order Awal',
+    startDate: '2026-08-01', endDate: '2026-08-15', readyDate: '2026-08-20',
+    isActive: true, description: 'Gelombang pertama pemesanan makanan bazaar'
+  }
+];
+
+const INITIAL_CLASSES = [
+  { id: 'c1', name: 'Little Owl', phone: '628123456781' },
+  { id: 'c3', name: 'TK A1', phone: '628123456783' },
+];
 
 function LittleDarbiLogo({ className = "w-10 h-10" }) {
   return (
@@ -56,30 +73,38 @@ function LittleDarbiLogo({ className = "w-10 h-10" }) {
         <path d="M 250,145 L 300,145 L 315,210 Q 275,225 235,210 Z" fill="#FFF200" stroke="#231F20" strokeWidth="4" />
       </g>
       <path d="M 50,265 Q 200,200 350,265" fill="none" stroke="#231F20" strokeWidth="7" strokeLinecap="round"/>
-      <text x="75" y="240" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#3A3A3C" transform="rotate(-15, 75, 240)">l</text>
-      <text x="90" y="235" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#ED1C24" transform="rotate(-12, 90, 235)">i</text>
-      <text x="102" y="230" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#F58220" transform="rotate(-9, 102, 230)">t</text>
-      <text x="118" y="226" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#FFC20E" transform="rotate(-6, 118, 226)">t</text>
-      <text x="134" y="223" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#007A37" transform="rotate(-3, 134, 223)">l</text>
-      <text x="150" y="221" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#00AEEF" transform="rotate(-1, 150, 221)">e</text>
-      <text x="195" y="221" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#007A37" transform="rotate(2, 195, 221)">d</text>
-      <text x="225" y="224" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#F58220" transform="rotate(5, 225, 224)">a</text>
-      <text x="252" y="228" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#2E3192" transform="rotate(8, 252, 228)">r</text>
-      <text x="274" y="233" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#ED1C24" transform="rotate(12, 274, 233)">b</text>
-      <text x="302" y="240" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#8C2685" transform="rotate(16, 302, 240)">i</text>
-      <text x="200" y="310" textAnchor="middle" fontSize="26" fontFamily="Georgia, serif" fontWeight="bold" fill="#000000">Parent Teacher</text>
-      <text x="200" y="348" textAnchor="middle" fontSize="30" fontFamily="Georgia, serif" fontWeight="bold" fill="#000000">Association</text>
+      <text x="75" y="240" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#3A3A3C" transform="rotate(-15, 75, 240)">l</text>
+      <text x="90" y="235" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#ED1C24" transform="rotate(-12, 90, 235)">i</text>
+      <text x="102" y="230" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#F58220" transform="rotate(-9, 102, 230)">t</text>
+      <text x="118" y="226" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#FFC20E" transform="rotate(-6, 118, 226)">t</text>
+      <text x="134" y="223" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#007A37" transform="rotate(-3, 134, 223)">l</text>
+      <text x="150" y="221" fontWidth="bold" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#00AEEF" transform="rotate(-1, 150, 221)">e</text>
+      <text x="195" y="221" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#007A37" transform="rotate(2, 195, 221)">d</text>
+      <text x="225" y="224" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#F58220" transform="rotate(5, 225, 224)">a</text>
+      <text x="252" y="228" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#2E3192" transform="rotate(8, 252, 228)">r</text>
+      <text x="274" y="233" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#ED1C24" transform="rotate(12, 274, 233)">b</text>
+      <text x="302" y="240" fontWidth="bold" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#8C2685" transform="rotate(16, 302, 240)">i</text>
     </svg>
   );
 }
+
+// Helper to clean duplicate item names from the sheet
+const cleanItemName = (name) => {
+  if (!name) return '';
+  return name.replace(/\(x\d+\)$/g, '').trim();
+};
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('shop');
   const [adminSubTab, setAdminSubTab] = useState('batch_reports');
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
-  const [isCloudSyncing, setIsCloudSyncing] = useState(true);
-  const [toastMessage, setToastMessage] = useState('');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [loginError, setLoginError] = useState('');
+  const [toastMessage, setToastMessage] = useState('');
+  const [isCloudSyncing, setIsCloudSyncing] = useState(true); // Default true for initial load
+
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(''), 3500);
@@ -87,7 +112,7 @@ export default function App() {
 
   const [adminAuth, setAdminAuth] = useState(() => {
     const saved = localStorage.getItem('ld_bazaar_admin_auth');
-    return saved ? JSON.parse(saved) : { username: 'admin', password: 'admin123' };
+    return saved ? JSON.parse(saved) : { username: 'admin', password: '123' };
   });
 
   const [sheetWebhookUrl, setSheetWebhookUrl] = useState(() => {
@@ -95,26 +120,52 @@ export default function App() {
     return saved && saved.trim() !== '' ? saved : DEFAULT_WEBHOOK_URL;
   });
 
-  const [classesList, setClassesList] = useState([]);
-  const [tenants, setTenants] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [batches, setBatches] = useState([]);
-  const [orders, setOrders] = useState([]);
+  const [classesList, setClassesList] = useState(() => JSON.parse(localStorage.getItem('ld_bazaar_classes')) || INITIAL_CLASSES);
+  const [tenants, setTenants] = useState(() => JSON.parse(localStorage.getItem('ld_bazaar_tenants')) || INITIAL_TENANTS);
+  const [products, setProducts] = useState(() => JSON.parse(localStorage.getItem('ld_bazaar_products')) || INITIAL_PRODUCTS);
+  const [batches, setBatches] = useState(() => JSON.parse(localStorage.getItem('ld_bazaar_batches')) || INITIAL_BATCHES);
+  const [orders, setOrders] = useState(() => JSON.parse(localStorage.getItem('ld_bazaar_orders')) || []);
 
-  // Modals & Forms State
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
-  const [checkoutData, setCheckoutData] = useState({ namaAnak: '', kelas: '', namaOrtu: '', catatan: '' });
   const [selectedTenantFilter, setSelectedTenantFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [printData, setPrintData] = useState(null);
+
+  const [checkoutData, setCheckoutData] = useState({
+    namaAnak: '',
+    kelas: classesList[0]?.name || 'TK A1',
+    namaOrtu: '',
+    catatan: ''
+  });
+  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [productModal, setProductModal] = useState({ isOpen: false, item: null });
   const [tenantModal, setTenantModal] = useState({ isOpen: false, item: null });
   const [batchModal, setBatchModal] = useState({ isOpen: false, item: null });
   const [classModal, setClassModal] = useState({ isOpen: false, item: null });
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
+  const [printData, setPrintData] = useState(null);
+
+  const [reportSelectedBatchId, setReportSelectedBatchId] = useState('');
+  const [reportSelectedStatus, setReportSelectedStatus] = useState('ALL');
+
+  useEffect(() => { localStorage.setItem('ld_bazaar_tenants', JSON.stringify(tenants)); }, [tenants]);
+  useEffect(() => { localStorage.setItem('ld_bazaar_products', JSON.stringify(products)); }, [products]);
+  useEffect(() => { localStorage.setItem('ld_bazaar_batches', JSON.stringify(batches)); }, [batches]);
+  useEffect(() => { localStorage.setItem('ld_bazaar_orders', JSON.stringify(orders)); }, [orders]);
+  useEffect(() => { localStorage.setItem('ld_bazaar_classes', JSON.stringify(classesList)); }, [classesList]);
+  useEffect(() => { localStorage.setItem('ld_bazaar_admin_auth', JSON.stringify(adminAuth)); }, [adminAuth]);
+  useEffect(() => { localStorage.setItem('ld_bazaar_sheet_webhook', sheetWebhookUrl); }, [sheetWebhookUrl]);
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlSheet = urlParams.get('sheet') || urlParams.get('s');
+    if (urlSheet) {
+      setSheetWebhookUrl(urlSheet);
+      localStorage.setItem('ld_bazaar_sheet_webhook', urlSheet);
+      showToast('URL Webhook Berhasil Diidentifikasi!');
+    }
+  }, []);
 
   const fetchCloudData = async (silent = false) => {
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
@@ -126,29 +177,27 @@ export default function App() {
       if (json.status === 'success' && json.data) {
         if (json.data.products?.length > 0) setProducts(json.data.products);
         if (json.data.tenants?.length > 0) setTenants(json.data.tenants);
-        if (json.data.batches?.length > 0) setBatches(json.data.batches);
+        if (json.data.batches?.length > 0) {
+          setBatches(json.data.batches);
+          setReportSelectedBatchId(json.data.batches[0].id); // Auto select first batch
+        }
         if (json.data.classes?.length > 0) setClassesList(json.data.classes);
         if (json.data.orders?.length > 0) setOrders(json.data.orders);
         if (json.data.settings?.adminAuth) {
-          try { setAdminAuth(typeof json.data.settings.adminAuth === 'string' ? JSON.parse(json.data.settings.adminAuth) : json.data.settings.adminAuth); } catch(e) {}
+          try {
+            setAdminAuth(typeof json.data.settings.adminAuth === 'string' ? JSON.parse(json.data.settings.adminAuth) : json.data.settings.adminAuth);
+          } catch(e) {}
         }
-        if (!silent) showToast('Data tersinkronisasi dari Cloud!');
+        if (!silent) showToast('Data Tersinkronisasi dari Cloud!');
       }
     } catch (e) {
-      console.warn('Sync Error:', e);
+      console.warn('Sync Fetch Error:', e);
     } finally {
       setIsCloudSyncing(false);
     }
   };
 
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlSheet = urlParams.get('sheet');
-    if (urlSheet) {
-      setSheetWebhookUrl(urlSheet);
-      localStorage.setItem('ld_bazaar_sheet_webhook', urlSheet);
-      showToast('Webhook Auto-Sync Aktif!');
-    }
     fetchCloudData(true);
   }, []);
 
@@ -165,23 +214,46 @@ export default function App() {
         classes: overrideData.classes || classesList,
         settings: { adminAuth }
       };
-      await fetch(targetUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+
+      await fetch(targetUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
       showToast('Perubahan Disimpan ke Cloud!');
     } catch (err) {
-      console.warn('Push Error:', err);
+      console.warn('Sync Push Error:', err);
     } finally {
       setIsCloudSyncing(false);
     }
   };
 
   const activeBatch = useMemo(() => {
-    return batches.find((b) => b.isActive) || batches[0] || null;
+    const explicitActive = batches.find((b) => b.isActive);
+    if (explicitActive) return explicitActive;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    return batches.find((b) => todayStr >= b.startDate && todayStr <= b.endDate) || batches[0];
   }, [batches]);
+
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+    if (loginForm.username.trim() === adminAuth.username && loginForm.password.trim() === adminAuth.password) {
+      setIsAdminLoggedIn(true);
+      setLoginError('');
+      setLoginForm({ username: '', password: '' });
+      showToast('Login Admin Berhasil!');
+    } else {
+      setLoginError('Username atau Password salah!');
+    }
+  };
 
   const addToCart = (product) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id);
-      if (existing) return prev.map((item) => item.id === product.id ? { ...item, qty: item.qty + 1 } : item);
+      if (existing) {
+        return prev.map((item) => item.id === product.id ? { ...item, qty: item.qty + 1 } : item);
+      }
       return [...prev, { ...product, qty: 1 }];
     });
   };
@@ -197,107 +269,124 @@ export default function App() {
   };
 
   const cartSummary = useMemo(() => {
-    return cart.reduce((acc, item) => {
-      const sp = Number(item.priceOwner) + Number(item.priceOrganizer);
-      acc.totalSellingPrice += sp * item.qty;
-      acc.totalOwnerPrice += item.priceOwner * item.qty;
-      acc.totalOrganizerPrice += item.priceOrganizer * item.qty;
-      acc.totalItems += item.qty;
-      return acc;
-    }, { totalSellingPrice: 0, totalOwnerPrice: 0, totalOrganizerPrice: 0, totalItems: 0 });
+    return cart.reduce(
+      (acc, item) => {
+        const itemSellingPrice = Number(item.priceOwner) + Number(item.priceOrganizer);
+        acc.totalSellingPrice += itemSellingPrice * item.qty;
+        acc.totalOwnerPrice += Number(item.priceOwner) * item.qty;
+        acc.totalOrganizerPrice += Number(item.priceOrganizer) * item.qty;
+        acc.totalItems += item.qty;
+        return acc;
+      },
+      { totalSellingPrice: 0, totalOwnerPrice: 0, totalOrganizerPrice: 0, totalItems: 0 }
+    );
   }, [cart]);
 
-  const handleCheckoutSubmit = (e) => {
+  const handleCheckoutSubmit = async (e) => {
     e.preventDefault();
-    if (!activeBatch) return;
-    if (!checkoutData.namaAnak.trim() || !checkoutData.namaOrtu.trim() || cart.length === 0) return;
+    if (!activeBatch || !checkoutData.namaAnak.trim() || !checkoutData.namaOrtu.trim() || cart.length === 0) return;
 
+    setIsSubmitting(true);
     const newOrderId = 'BZ-' + Math.floor(100000 + Math.random() * 900000);
-    const targetClassObj = classesList.find((c) => c.name === checkoutData.kelas) || classesList[0];
     
-    // Clean and validate phone number
-    let cleanPhone = targetClassObj?.phone ? targetClassObj.phone.replace(/[^0-9]/g, '') : '';
-    if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
+    // Formatting detailed items safely without emojis
+    let formattedItemsText = cart.map(item => `${item.name} (x${item.qty})`).join(', ');
 
     const orderPayload = {
       orderId: newOrderId,
       batchId: activeBatch.id,
       date: new Date().toISOString(),
-      customer: { ...checkoutData, kelas: targetClassObj?.name || '-' },
-      items: cart.map(item => ({
+      customer: { ...checkoutData },
+      items: cart.map((item) => ({
         id: item.id,
         name: item.name,
         tenantId: item.tenantId,
-        priceOwner: item.priceOwner,
-        priceOrganizer: item.priceOrganizer,
+        priceOwner: Number(item.priceOwner),
+        priceOrganizer: Number(item.priceOrganizer),
         qty: item.qty,
         subtotal: (Number(item.priceOwner) + Number(item.priceOrganizer)) * item.qty
       })),
       totalAmount: cartSummary.totalSellingPrice,
       totalOwnerShare: cartSummary.totalOwnerPrice,
       totalOrganizerShare: cartSummary.totalOrganizerPrice,
-      status: 'Unpaid'
+      status: 'Unpaid',
+      formattedItemsText: formattedItemsText
     };
 
-    // Update state locally first for immediate UI feedback
-    const newOrders = [orderPayload, ...orders];
-    setOrders(newOrders);
+    setOrders((prev) => [orderPayload, ...prev]);
 
-    // Send payload to Google Sheets in the background
-    if (sheetWebhookUrl) {
-      fetch(sheetWebhookUrl, {
-        method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'checkout', ...orderPayload })
-      }).catch(e => console.warn(e));
+    const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
+    if (targetUrl) {
+      try {
+        // Fire and forget, don't await to avoid stalling
+        fetch(targetUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'checkout', ...orderPayload })
+        });
+      } catch (err) {
+        console.warn('Webhook error:', err);
+      }
     }
 
-    // Construct WA Text (strictly without emojis to prevent encoding issues)
-    let waText = `PEMESANAN BAZAAR DANUS PTA LITTLE DARBI\n`;
+    const targetClassObj = classesList.find((c) => c.name === checkoutData.kelas);
+    const picPhoneForClass = targetClassObj?.phone || '';
+    let cleanPhone = picPhoneForClass ? picPhoneForClass.replace(/[^0-9]/g, '') : '';
+    if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
+
+    let waText = `*PEMESANAN BAZAAR DANUS PTA LITTLE DARBI*\n`;
     waText += `Periode: ${activeBatch.name}\n`;
     waText += `-----------------------------------\n`;
-    waText += `No. Pesanan: ${newOrderId}\n`;
-    waText += `Nama Anak: ${checkoutData.namaAnak}\n`;
-    waText += `Kelas: ${targetClassObj?.name || '-'}\n`;
-    waText += `Nama Ortu: ${checkoutData.namaOrtu}\n`;
-    if (checkoutData.catatan) waText += `Catatan: ${checkoutData.catatan}\n`;
-    waText += `Status: UNPAID (Belum Lunas)\n`;
+    waText += `*No. Pesanan:* ${newOrderId}\n`;
+    waText += `*Nama Anak:* ${checkoutData.namaAnak}\n`;
+    waText += `*Kelas:* ${checkoutData.kelas}\n`;
+    waText += `*Nama Ortu/WA:* ${checkoutData.namaOrtu}\n`;
+    if (checkoutData.catatan) waText += `*Catatan:* ${checkoutData.catatan}\n`;
+    waText += `*Status:* UNPAID (Belum Lunas)\n`;
     waText += `-----------------------------------\n`;
-    waText += `Rincian Pesanan:\n`;
+    waText += `*Rincian Pesanan:*\n`;
 
-    orderPayload.items.forEach((item, index) => {
-      const tenant = tenants.find((t) => t.id === item.tenantId);
-      waText += `${index + 1}. ${item.name} (x${item.qty})\n   [${tenant ? tenant.name : 'Stand'}] - ${formatRupiah(item.subtotal)}\n`;
+    cart.forEach((item, index) => {
+      const tenant = tenants.find(t => t.id === item.tenantId);
+      const tenantName = tenant ? tenant.name : 'Stand';
+      const itemSubtotal = (Number(item.priceOwner) + Number(item.priceOrganizer)) * item.qty;
+      waText += `${index + 1}. *${item.name}* (x${item.qty}) - ${formatRupiah(itemSubtotal)}\n   _[${tenantName}]_\n`;
     });
 
     waText += `-----------------------------------\n`;
-    waText += `TOTAL TAGIHAN: ${formatRupiah(orderPayload.totalAmount)}\n`;
+    waText += `*TOTAL TAGIHAN: ${formatRupiah(orderPayload.totalAmount)}*\n`;
     waText += `-----------------------------------\n`;
-    waText += `Halo PIC Kelas ${targetClassObj?.name || '-'}, mohon info instruksi rekening pembayaran. Terima kasih!`;
+    waText += `Halo PIC Kelas ${checkoutData.kelas}, mohon instruksi info rekening pembayaran. Terima kasih!`;
 
-    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
+    const encodedWaText = encodeURIComponent(waText);
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodedWaText}`;
 
-    // Reset Form
     setCart([]);
     setIsCheckoutModalOpen(false);
     setIsCartOpen(false);
-    setCheckoutData({ namaAnak: '', kelas: classesList[0]?.name || '', namaOrtu: '', catatan: '' });
+    setCheckoutData({ namaAnak: '', kelas: classesList[0]?.name || 'TK A1', namaOrtu: '', catatan: '' });
+    setIsSubmitting(false);
 
-    // Open WA Immediately (Synchronous to avoid popup blockers)
-    window.open(waUrl, '_blank');
+    // FIX: Use setTimeout to guarantee window.open doesn't get blocked or stalled
+    setTimeout(() => {
+      window.open(waUrl, '_blank');
+    }, 100);
   };
 
-  const [reportSelectedBatchId, setReportSelectedBatchId] = useState('');
-  const [reportSelectedStatus, setReportSelectedStatus] = useState('Paid');
-
-  useEffect(() => {
-    if (batches.length > 0 && !reportSelectedBatchId) {
-      setReportSelectedBatchId(batches[0].id);
-    }
-  }, [batches, reportSelectedBatchId]);
+  const filteredProducts = useMemo(() => {
+    return products.filter((p) => {
+      const matchTenant = selectedTenantFilter === 'all' || p.tenantId === selectedTenantFilter;
+      const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchTenant && matchSearch && p.available;
+    });
+  }, [products, selectedTenantFilter, searchQuery]);
 
   const batchReportData = useMemo(() => {
     let filtered = orders.filter((o) => o.batchId === reportSelectedBatchId);
-    if (reportSelectedStatus !== 'ALL') filtered = filtered.filter((o) => o.status === reportSelectedStatus);
+    if (reportSelectedStatus !== 'ALL') {
+      filtered = filtered.filter((o) => o.status === reportSelectedStatus);
+    }
 
     return tenants.map((tenant) => {
       const customerOrdersDetail = [];
@@ -311,655 +400,768 @@ export default function App() {
         if (tenantItemsInOrder.length > 0) {
           customerOrdersDetail.push({
             orderId: ord.orderId,
-            namaAnak: ord.customer?.namaAnak || 'Unknown',
-            kelas: ord.customer?.kelas || '-',
-            namaOrtu: ord.customer?.namaOrtu || '-',
-            catatan: ord.customer?.catatan || '-',
-            items: tenantItemsInOrder.map(it => ({
-              ...it,
-              cleanName: parseAndCleanItem(it.name).name,
-              qty: parseAndCleanItem(it.name).qty * (it.qty || 1)
-            }))
+            namaAnak: ord.customer.namaAnak,
+            kelas: ord.customer.kelas,
+            namaOrtu: ord.customer.namaOrtu || '-',
+            catatan: ord.customer.catatan || '-',
+            items: tenantItemsInOrder
           });
 
           tenantItemsInOrder.forEach((it) => {
-            const cleanObj = parseAndCleanItem(it.name);
-            const finalQty = cleanObj.qty * (it.qty || 1);
-            if (!itemTotalsMap[cleanObj.name]) {
-              itemTotalsMap[cleanObj.name] = { qty: 0, priceOwner: Number(it.priceOwner || 0), priceOrganizer: Number(it.priceOrganizer || 0) };
+            const cleanNameLocal = cleanItemName(it.name);
+            if (!itemTotalsMap[cleanNameLocal]) {
+              itemTotalsMap[cleanNameLocal] = {
+                qty: 0,
+                priceOwner: Number(it.priceOwner) || 0,
+                priceOrganizer: Number(it.priceOrganizer) || 0,
+              };
             }
-            itemTotalsMap[cleanObj.name].qty += finalQty;
-            tenantTotalGross += (Number(it.priceOwner) + Number(it.priceOrganizer)) * finalQty;
-            tenantTotalOwnerShare += Number(it.priceOwner) * finalQty;
-            tenantTotalMargin += Number(it.priceOrganizer) * finalQty;
+            itemTotalsMap[cleanNameLocal].qty += it.qty;
+            tenantTotalOwnerShare += (Number(it.priceOwner) || 0) * it.qty;
+            tenantTotalMargin += (Number(it.priceOrganizer) || 0) * it.qty;
+            tenantTotalGross += ((Number(it.priceOwner) || 0) + (Number(it.priceOrganizer) || 0)) * it.qty;
           });
         }
       });
 
       return {
-        tenantId: tenant.id, tenantName: tenant.name, tenantOwner: tenant.owner, tenantPhone: tenant.phone || '',
-        customerOrdersDetail, itemTotalsMap, tenantTotalGross, tenantTotalOwnerShare, tenantTotalMargin
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        tenantOwner: tenant.owner,
+        tenantPhone: tenant.phone || '',
+        customerOrdersDetail,
+        itemTotalsMap,
+        tenantTotalGross,
+        tenantTotalOwnerShare,
+        tenantTotalMargin
       };
     });
   }, [orders, reportSelectedBatchId, reportSelectedStatus, tenants]);
 
-  const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
-      const matchTenant = selectedTenantFilter === 'all' || p.tenantId === selectedTenantFilter;
-      const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchTenant && matchSearch && p.available !== false;
-    });
-  }, [products, selectedTenantFilter, searchQuery]);
+  // Main Print Wrapper
+  // We apply `print:hidden` to the entire main app wrapper when `printData` is active
+  // so the browser only sees the print container.
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-24 relative">
-      {/* Toast Notification */}
+    <div className={`min-h-screen bg-slate-50 text-slate-800 font-sans pb-24 ${printData ? 'print:hidden' : ''}`}>
       {toastMessage && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-2xl text-xs font-bold flex items-center space-x-2 animate-bounce">
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-2xl text-xs font-bold flex items-center space-x-2 animate-bounce">
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           <span>{toastMessage}</span>
         </div>
       )}
 
-      {/* Header - Mobile Compact */}
-      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md shadow-sm border-b border-slate-200">
-        <div className="max-w-5xl mx-auto px-3 py-2 flex items-center justify-between">
+      {/* HEADER COMPACT (Mobile Friendly) */}
+      <header className="sticky top-0 z-30 bg-white shadow-sm border-b border-slate-200">
+        <div className="max-w-5xl mx-auto px-4 py-2 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <div className="w-9 h-9 sm:w-11 sm:h-11 shrink-0 bg-white rounded-xl border border-slate-200 shadow-sm flex items-center justify-center p-0.5 overflow-hidden">
-              <LittleDarbiLogo className="w-full h-full" />
+            <div className="w-8 h-8 shrink-0 p-0.5 bg-amber-50 rounded-lg border border-amber-200 shadow-sm flex items-center justify-center">
+              <LittleDarbiLogo className="w-7 h-7" />
             </div>
             <div>
-              <h1 className="font-black text-sm sm:text-lg leading-tight text-slate-900 tracking-tight">Bazaar DANUS PTA</h1>
-              <p className="text-[10px] sm:text-[11px] text-slate-500 font-medium">Pemesanan Online</p>
+              <h1 className="font-black text-sm leading-tight text-slate-900">Bazaar DANUS</h1>
+              <p className="text-[9px] text-slate-500 font-medium">PTA Little Darbi</p>
             </div>
           </div>
-          <div className="flex items-center space-x-1.5 sm:space-x-2">
-            <button onClick={() => fetchCloudData(false)} disabled={isCloudSyncing} className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg sm:rounded-xl">
+
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => fetchCloudData(false)}
+              disabled={isCloudSyncing}
+              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs"
+              title="Refresh Data"
+            >
               <RefreshCw className={`w-4 h-4 ${isCloudSyncing ? 'animate-spin text-indigo-600' : ''}`} />
             </button>
-            <div className="bg-slate-100 p-1 rounded-lg sm:rounded-xl flex">
-              <button onClick={() => setActiveTab('shop')} className={`px-2.5 sm:px-3 py-1.5 rounded-md sm:rounded-lg text-xs font-semibold flex items-center ${activeTab === 'shop' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-600'}`}>
-                <ShoppingBag className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Pembeli</span>
+
+            {/* Mobile Menu Toggle */}
+            <div className="relative">
+              <button 
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg sm:hidden"
+              >
+                <Menu className="w-4 h-4" />
               </button>
-              <button onClick={() => setActiveTab('admin')} className={`px-2.5 sm:px-3 py-1.5 rounded-md sm:rounded-lg text-xs font-semibold flex items-center ${activeTab === 'admin' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600'}`}>
-                <Settings className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Admin</span>
-              </button>
+
+              <div className={`sm:flex items-center bg-slate-100 p-1 rounded-xl ${isMobileMenuOpen ? 'absolute right-0 top-10 flex-col w-36 shadow-lg border border-slate-200 bg-white z-50' : 'hidden'}`}>
+                <button
+                  onClick={() => { setActiveTab('shop'); setIsMobileMenuOpen(false); }}
+                  className={`w-full px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 ${
+                    activeTab === 'shop' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-600'
+                  }`}
+                >
+                  <ShoppingBag className="w-4 h-4" /><span>Beli</span>
+                </button>
+                <button
+                  onClick={() => { setActiveTab('admin'); setIsMobileMenuOpen(false); }}
+                  className={`w-full px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 ${
+                    activeTab === 'admin' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600'
+                  }`}
+                >
+                  <Settings className="w-4 h-4" /><span>Admin</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Main Content Area */}
-      {activeTab === 'shop' && (
-        <main className="max-w-5xl mx-auto px-3 sm:px-4 pt-5">
-          {isCloudSyncing && products.length === 0 ? (
-            <div className="text-center py-20"><RefreshCw className="w-8 h-8 animate-spin mx-auto text-amber-500 mb-4" /><p className="text-sm font-bold text-slate-500">Memuat Menu Terbaru...</p></div>
-          ) : (
-            <>
-              {/* Batch Active Info */}
-              <div className="mb-5 sm:mb-6">
-                {activeBatch ? (
-                  <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 sm:p-5 shadow-md">
-                    <span className="bg-white/20 text-white text-[9px] sm:text-[10px] uppercase font-extrabold px-2.5 py-0.5 rounded-full inline-flex mb-1.5 sm:mb-2">{activeBatch.name}</span>
-                    <h2 className="text-base sm:text-lg font-black leading-tight mb-0.5">Pesan Makanan & Souvenir</h2>
-                    <p className="text-amber-100 text-[10px] sm:text-xs">Batas: {formatIndoDate(activeBatch.endDate)}</p>
-                  </div>
-                ) : (
-                  <div className="bg-red-500 text-white rounded-2xl p-4 shadow-md flex items-center space-x-3">
-                    <Lock className="w-6 h-6 shrink-0" />
-                    <div><h2 className="font-bold text-sm">Pemesanan Ditutup</h2><p className="text-[10px] sm:text-xs">Tidak ada periode pemesanan yang aktif.</p></div>
-                  </div>
-                )}
+      {/* LOADING SKELETON */}
+      {isCloudSyncing && products.length === 1 && products[0].id === 'p1' ? (
+        <div className="flex flex-col items-center justify-center pt-20 space-y-4">
+          <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
+          <p className="text-xs font-bold text-slate-500 animate-pulse">Menghubungkan ke Google Sheets...</p>
+        </div>
+      ) : activeTab === 'shop' ? (
+        <main className="max-w-5xl mx-auto px-4 pt-4">
+          {activeBatch && (
+            <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-sm mb-4">
+              <div className="flex items-center space-x-2 mb-1">
+                <span className="bg-white/20 text-[9px] uppercase font-bold px-2 py-0.5 rounded-full">{activeBatch.name}</span>
+                <span className="text-[10px] text-amber-100">Batas: {formatIndoDate(activeBatch.endDate)}</span>
               </div>
-
-              {/* Filters */}
-              <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3 mb-5">
-                <div className="relative flex-1">
-                  <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-                  <input type="text" placeholder="Cari makanan..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-white rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-amber-500/20" />
-                </div>
-                <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
-                  <button onClick={() => setSelectedTenantFilter('all')} className={`px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap ${selectedTenantFilter === 'all' ? 'bg-amber-600 text-white' : 'bg-white border text-slate-600'}`}>Semua Stand</button>
-                  {tenants.map((t) => (
-                    <button key={t.id} onClick={() => setSelectedTenantFilter(t.id)} className={`px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap ${selectedTenantFilter === t.id ? 'bg-amber-600 text-white' : 'bg-white border text-slate-600'}`}>{t.name}</button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Products Grid - 2 Columns Mobile */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
-                {filteredProducts.map((prod) => {
-                  const tenant = tenants.find((t) => t.id === prod.tenantId);
-                  const sellingPrice = Number(prod.priceOwner || 0) + Number(prod.priceOrganizer || 0);
-                  const inCart = cart.find((item) => item.id === prod.id);
-
-                  return (
-                    <div key={prod.id} className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
-                      <div className="h-28 sm:h-36 w-full bg-slate-100 relative">
-                        {prod.imageUrl ? <img src={prod.imageUrl} alt={prod.name} className="w-full h-full object-cover" /> : <div className="w-full h-full flex justify-center items-center"><ImageIcon className="w-6 h-6 sm:w-8 sm:h-8 text-slate-300"/></div>}
-                        <span className="absolute top-1.5 left-1.5 sm:top-2 sm:left-2 text-[8px] sm:text-[9px] font-bold bg-white/90 px-1.5 py-0.5 rounded shadow-xs truncate max-w-[90%]">{tenant?.name || 'Stand'}</span>
-                      </div>
-                      <div className="p-2 sm:p-3 flex-1 flex flex-col justify-between">
-                        <div>
-                          <h3 className="font-bold text-slate-900 text-xs sm:text-sm leading-tight line-clamp-2">{prod.name}</h3>
-                          <span className="text-amber-600 font-black text-xs sm:text-sm mt-0.5 sm:mt-1 block">{formatRupiah(sellingPrice)}</span>
-                        </div>
-                        <div className="mt-2 sm:mt-3">
-                          {activeBatch ? (
-                            inCart ? (
-                              <div className="flex items-center justify-between bg-amber-50 border border-amber-200 p-1 rounded-lg">
-                                <button onClick={() => updateCartQty(prod.id, -1)} className="w-6 h-6 sm:w-7 sm:h-7 bg-white rounded font-bold text-amber-700 shadow-sm flex items-center justify-center">-</button>
-                                <span className="text-xs font-bold">{inCart.qty}</span>
-                                <button onClick={() => updateCartQty(prod.id, 1)} className="w-6 h-6 sm:w-7 sm:h-7 bg-amber-600 text-white rounded font-bold shadow-sm flex items-center justify-center">+</button>
-                              </div>
-                            ) : (
-                              <button onClick={() => addToCart(prod)} className="w-full py-1.5 bg-slate-900 text-white rounded-lg text-xs font-semibold flex justify-center items-center space-x-1"><Plus className="w-3.5 h-3.5"/><span className="hidden sm:inline">Pesan</span></button>
-                            )
-                          ) : (
-                            <div className="text-[10px] text-center bg-slate-100 text-slate-400 py-1.5 rounded-lg font-bold">Ditutup</div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Floating Cart */}
-              {cart.length > 0 && activeBatch && (
-                <div className="fixed bottom-4 left-4 right-4 max-w-md mx-auto z-40">
-                  <button onClick={() => setIsCartOpen(true)} className="w-full bg-amber-600 hover:bg-amber-700 text-white p-3.5 rounded-2xl shadow-xl flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="relative bg-white/20 p-2 rounded-xl"><ShoppingCart className="w-5 h-5"/></div>
-                      <div className="text-left">
-                        <p className="text-[10px] text-amber-100 font-medium">{cartSummary.totalItems} Items</p>
-                        <p className="text-sm font-black">{formatRupiah(cartSummary.totalSellingPrice)}</p>
-                      </div>
-                    </div>
-                    <div className="text-xs font-bold bg-white text-amber-700 px-3 py-2 rounded-xl">Lanjut</div>
-                  </button>
-                </div>
+              <h2 className="text-base sm:text-lg font-black leading-tight">Pesan Makanan & Souvenir</h2>
+              {activeBatch.readyDate && (
+                <p className="text-xs text-amber-100 mt-1 flex items-center">
+                  <CheckCircle2 className="w-3 h-3 mr-1" /> Ready: {formatIndoDate(activeBatch.readyDate)}
+                </p>
               )}
-            </>
+            </div>
           )}
-        </main>
-      )}
 
-      {}
-      {isCartOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs">
-          <div className="w-full max-w-md bg-white h-full flex flex-col shadow-2xl">
-            <div className="p-4 border-b flex justify-between items-center bg-slate-50"><h2 className="font-bold flex items-center"><ShoppingCart className="w-4 h-4 mr-2 text-amber-600"/>Keranjang</h2><button onClick={() => setIsCartOpen(false)}><X className="w-5 h-5"/></button></div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {cart.map((item) => (
-                <div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border">
-                  <div>
-                    <h4 className="font-bold text-sm text-slate-800">{item.name}</h4>
-                    <p className="text-xs text-amber-600 font-semibold">{formatRupiah(Number(item.priceOwner) + Number(item.priceOrganizer))}</p>
-                  </div>
-                  <div className="flex items-center space-x-2 bg-white border p-1 rounded-lg">
-                    <button onClick={() => updateCartQty(item.id, -1)} className="w-6 h-6 bg-slate-100 rounded font-bold text-xs flex items-center justify-center">-</button>
-                    <span className="text-xs font-bold w-4 text-center">{item.qty}</span>
-                    <button onClick={() => updateCartQty(item.id, 1)} className="w-6 h-6 bg-amber-600 text-white rounded font-bold text-xs flex items-center justify-center">+</button>
-                  </div>
-                </div>
+          <div className="flex flex-col sm:flex-row gap-2 mb-4">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Cari makanan..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-white rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-amber-500"
+              />
+            </div>
+            <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
+              <button
+                onClick={() => setSelectedTenantFilter('all')}
+                className={`px-3 py-2 rounded-xl text-[11px] font-bold whitespace-nowrap transition-all ${
+                  selectedTenantFilter === 'all' ? 'bg-amber-600 text-white' : 'bg-white text-slate-600 border'
+                }`}
+              >
+                Semua Stand
+              </button>
+              {tenants.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setSelectedTenantFilter(t.id)}
+                  className={`px-3 py-2 rounded-xl text-[11px] font-bold whitespace-nowrap transition-all ${
+                    selectedTenantFilter === t.id ? 'bg-amber-600 text-white' : 'bg-white text-slate-600 border'
+                  }`}
+                >
+                  {t.name}
+                </button>
               ))}
             </div>
-            <div className="p-4 border-t bg-white">
-              <div className="flex justify-between mb-3"><span className="text-sm font-medium">Total:</span><span className="text-lg font-black text-amber-600">{formatRupiah(cartSummary.totalSellingPrice)}</span></div>
-              <button onClick={() => { setIsCartOpen(false); setIsCheckoutModalOpen(true); }} className="w-full py-3 bg-amber-600 text-white font-bold rounded-xl flex justify-center items-center space-x-2"><span>Isi Data Anak</span><Send className="w-4 h-4"/></button>
-            </div>
           </div>
-        </div>
-      )}
 
-      {isCheckoutModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
-            <button onClick={() => setIsCheckoutModalOpen(false)} className="absolute top-4 right-4"><X className="w-5 h-5 text-slate-400"/></button>
-            <h3 className="text-lg font-bold mb-1">Form Pemesanan</h3>
-            <p className="text-xs text-slate-500 mb-4">Akan dicatat ke: <strong>{activeBatch?.name}</strong></p>
-            <form onSubmit={handleCheckoutSubmit} className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold mb-1">Nama Lengkap Anak <span className="text-red-500">*</span></label>
-                <input type="text" required value={checkoutData.namaAnak} onChange={(e) => setCheckoutData({...checkoutData, namaAnak: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold mb-1">Pilih Kelas <span className="text-red-500">*</span></label>
-                <select required value={checkoutData.kelas} onChange={(e) => setCheckoutData({...checkoutData, kelas: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm">
-                  <option value="">-- Pilih Kelas --</option>
-                  {classesList.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold mb-1">Nama Ortu <span className="text-red-500">*</span></label>
-                <input type="text" required placeholder="Contoh: Mama Budi" value={checkoutData.namaOrtu} onChange={(e) => setCheckoutData({...checkoutData, namaOrtu: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold mb-1">Catatan (Opsional)</label>
-                <textarea rows="2" placeholder="Contoh: Tanpa pedas" value={checkoutData.catatan} onChange={(e) => setCheckoutData({...checkoutData, catatan: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm" />
-              </div>
-              <button type="submit" className="w-full py-3 bg-green-600 text-white font-bold rounded-xl flex justify-center items-center mt-2 shadow-md">
-                <MessageCircle className="w-4 h-4 mr-2" />Kirim via WhatsApp
+          {/* 2-COLUMN GRID FOR MOBILE */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {filteredProducts.map((prod) => {
+              const tenant = tenants.find((t) => t.id === prod.tenantId);
+              const sellingPrice = Number(prod.priceOwner || 0) + Number(prod.priceOrganizer || 0);
+              const inCart = cart.find((item) => item.id === prod.id);
+
+              return (
+                <div key={prod.id} className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
+                  <div className="h-28 sm:h-40 w-full bg-slate-100 relative">
+                    {prod.imageUrl ? (
+                      <img src={prod.imageUrl} alt={prod.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-slate-300">
+                        <ImageIcon className="w-6 h-6" />
+                      </div>
+                    )}
+                    <span className="absolute top-1 left-1 text-[8px] font-bold bg-white/90 px-1.5 py-0.5 rounded shadow-sm">
+                      {tenant?.name || 'Stand'}
+                    </span>
+                  </div>
+                  <div className="p-2 sm:p-3 flex-1 flex flex-col justify-between">
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-[11px] sm:text-sm line-clamp-2 leading-tight">{prod.name}</h3>
+                      <p className="text-[9px] sm:text-xs text-slate-500 line-clamp-2 mt-0.5">{prod.description}</p>
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                      <span className="text-xs sm:text-sm font-black text-amber-600">{formatRupiah(sellingPrice)}</span>
+                      {inCart ? (
+                        <div className="flex items-center space-x-1.5 bg-amber-50 border border-amber-200 p-0.5 rounded-lg w-fit">
+                          <button onClick={() => updateCartQty(prod.id, -1)} className="w-6 h-6 bg-white rounded font-bold text-amber-700 shadow-sm text-xs">-</button>
+                          <span className="text-[11px] font-bold px-1">{inCart.qty}</span>
+                          <button onClick={() => updateCartQty(prod.id, 1)} className="w-6 h-6 bg-amber-600 text-white rounded font-bold shadow-sm text-xs">+</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => addToCart(prod)} className="px-2 py-1.5 bg-slate-900 text-white rounded-lg text-[10px] sm:text-xs font-semibold flex items-center justify-center w-full sm:w-auto">
+                          <Plus className="w-3 h-3 mr-0.5" /> Pesan
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {cart.length > 0 && (
+            <div className="fixed bottom-4 left-4 right-4 max-w-md mx-auto z-40">
+              <button onClick={() => setIsCartOpen(true)} className="w-full bg-amber-600 text-white p-3 rounded-2xl shadow-xl flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="relative bg-white/20 p-2 rounded-xl">
+                    <ShoppingCart className="w-5 h-5 text-white" />
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center border border-amber-600">
+                      {cartSummary.totalItems}
+                    </span>
+                  </div>
+                  <div className="text-left">
+                    <p className="text-[10px] text-amber-100">{cartSummary.totalItems} Pesanan</p>
+                    <p className="text-sm font-black">{formatRupiah(cartSummary.totalSellingPrice)}</p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-bold bg-white text-amber-700 px-3 py-1.5 rounded-lg">Keranjang</span>
               </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {}
-      {activeTab === 'admin' && (
-        <main className="max-w-5xl mx-auto px-3 sm:px-4 pt-5">
+            </div>
+          )}
+        </main>
+      ) : (
+        // ADMIN PANEL
+        <main className="max-w-5xl mx-auto px-4 pt-4">
           {!isAdminLoggedIn ? (
-            <div className="max-w-sm mx-auto bg-white rounded-2xl border p-6 shadow-xl mt-4">
-              <h2 className="text-xl font-black text-center mb-4">Login Admin PTA</h2>
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                if (e.target.user.value === adminAuth.username && e.target.pass.value === adminAuth.password) { setIsAdminLoggedIn(true); showToast('Login Berhasil!'); }
-                else showToast('Username/Password Salah!');
-              }} className="space-y-3">
-                <input name="user" type="text" required placeholder="Username" className="w-full px-3 py-2 border rounded-xl text-sm" />
-                <input name="pass" type="password" required placeholder="Password" className="w-full px-3 py-2 border rounded-xl text-sm" />
-                <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md text-sm">Masuk</button>
+            <div className="max-w-xs mx-auto bg-white rounded-2xl border p-6 shadow-sm mt-10">
+              <div className="text-center mb-4">
+                <LittleDarbiLogo className="w-10 h-10 mx-auto mb-2" />
+                <h2 className="text-base font-black">Login Admin</h2>
+              </div>
+              {loginError && <p className="mb-3 text-[10px] text-red-600 text-center bg-red-50 p-2 rounded-lg">{loginError}</p>}
+              <form onSubmit={handleAdminLogin} className="space-y-3 text-xs">
+                <input type="text" required placeholder="Username" value={loginForm.username} onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })} className="w-full px-3 py-2 border rounded-xl" />
+                <input type="password" required placeholder="Password" value={loginForm.password} onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })} className="w-full px-3 py-2 border rounded-xl" />
+                <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl">Masuk</button>
               </form>
             </div>
           ) : (
-            <div className="space-y-4 sm:space-y-5">
-              {/* Admin Navigation Mobile Friendly */}
-              <div className="bg-white rounded-xl shadow-sm border p-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center justify-between px-2 w-full sm:w-auto">
-                  <div className="flex items-center space-x-2">
-                    <User className="w-4 h-4 text-indigo-600" /><span className="text-xs font-bold">Admin Active</span>
-                  </div>
-                  <button onClick={() => setIsAdminLoggedIn(false)} className="sm:hidden px-3 py-1.5 rounded-lg text-[10px] font-semibold bg-red-100 text-red-600">Logout</button>
-                </div>
-                <div className="flex flex-wrap gap-1.5 overflow-x-auto scrollbar-none">
-                  {[{id:'batch_reports', label:'Rekap Per Tenant'}, {id:'tenants', label:'Kelola Stand'}, {id:'batches', label:'Kelola Batch'}, {id:'products', label:'Produk'}, {id:'orders', label:`Semua Pesanan`}, {id:'class_pics', label:'Kelas'}, {id:'settings', label:'Pengaturan'}].map(tab => (
-                    <button key={tab.id} onClick={() => setAdminSubTab(tab.id)} className={`px-2.5 py-1.5 rounded-lg text-[10px] sm:text-xs font-semibold whitespace-nowrap ${adminSubTab === tab.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-                      {tab.label} {tab.id === 'orders' ? `(${orders.length})` : ''}
-                    </button>
-                  ))}
-                  <button onClick={() => setIsAdminLoggedIn(false)} className="hidden sm:block px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-100 text-red-600 hover:bg-red-200">Logout</button>
-                </div>
+            <div className="space-y-4">
+              <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-none border-b">
+                <button onClick={() => setAdminSubTab('batch_reports')} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap ${adminSubTab === 'batch_reports' ? 'bg-indigo-600 text-white' : 'bg-white border text-slate-600'}`}>Rekap Tenant</button>
+                <button onClick={() => setAdminSubTab('orders')} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap ${adminSubTab === 'orders' ? 'bg-indigo-600 text-white' : 'bg-white border text-slate-600'}`}>Pesanan Masuk</button>
+                <button onClick={() => setAdminSubTab('products')} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap ${adminSubTab === 'products' ? 'bg-indigo-600 text-white' : 'bg-white border text-slate-600'}`}>Menu Produk</button>
+                <button onClick={() => setAdminSubTab('batches')} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap ${adminSubTab === 'batches' ? 'bg-indigo-600 text-white' : 'bg-white border text-slate-600'}`}>Kelola Batch</button>
+                <button onClick={() => setAdminSubTab('tenants')} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap ${adminSubTab === 'tenants' ? 'bg-indigo-600 text-white' : 'bg-white border text-slate-600'}`}>Stand Vendor</button>
+                <button onClick={() => setAdminSubTab('classes')} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap ${adminSubTab === 'classes' ? 'bg-indigo-600 text-white' : 'bg-white border text-slate-600'}`}>Kelas & PIC</button>
               </div>
 
-              {/* SubTabs Data */}
               {adminSubTab === 'batch_reports' && (
                 <div className="space-y-4">
-                  <div className="flex flex-wrap gap-2 items-end bg-white p-3 rounded-xl border">
+                  <div className="bg-white p-3 rounded-xl border flex flex-col sm:flex-row gap-2 justify-between">
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 mb-1">Pilih Batch</label>
-                      <select value={reportSelectedBatchId} onChange={e => setReportSelectedBatchId(e.target.value)} className="px-3 py-1.5 bg-slate-50 border rounded-lg text-xs font-bold">
+                      <h3 className="font-bold text-sm">Rekapitulasi Dapur</h3>
+                    </div>
+                    <div className="flex gap-2 text-xs">
+                      <select value={reportSelectedBatchId} onChange={(e) => setReportSelectedBatchId(e.target.value)} className="p-1.5 border rounded-lg bg-slate-50">
+                        <option value="">-- Pilih Batch --</option>
                         {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                       </select>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 mb-1">Status</label>
-                      <select value={reportSelectedStatus} onChange={e => setReportSelectedStatus(e.target.value)} className="px-3 py-1.5 bg-slate-50 border rounded-lg text-xs font-bold">
-                        <option value="Paid">Paid (Lunas)</option>
-                        <option value="Unpaid">Unpaid</option>
-                        <option value="ALL">Semua</option>
+                      <select value={reportSelectedStatus} onChange={(e) => setReportSelectedStatus(e.target.value)} className="p-1.5 border rounded-lg bg-slate-50">
+                        <option value="Paid">Lunas Saja</option>
+                        <option value="ALL">Semua Pesanan</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="space-y-4">
-                    {batchReportData.map((tenantRep) => (
-                      <div key={tenantRep.tenantId} className="bg-white rounded-xl border shadow-sm p-4">
-                        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 border-b pb-3 mb-3">
-                          <div>
-                            <h4 className="font-bold text-slate-900 text-base sm:text-lg">{tenantRep.tenantName}</h4>
-                            <p className="text-[10px] sm:text-xs text-slate-500">PJ: {tenantRep.tenantOwner} | WA: {tenantRep.tenantPhone}</p>
-                          </div>
-                          <div className="flex gap-2">
-                            <button onClick={() => {
-                              const currBatch = batches.find(b => b.id === reportSelectedBatchId);
-                              setPrintData({
-                                ...tenantRep,
-                                batchName: currBatch?.name || '-',
-                                readyDate: currBatch?.readyDate || ''
-                              });
-                            }} className="px-3 py-1.5 bg-slate-800 text-white text-[10px] sm:text-xs font-bold rounded-lg flex items-center space-x-1.5 whitespace-nowrap"><Printer className="w-3.5 h-3.5"/><span>Cetak / Export PDF</span></button>
-                          </div>
-                        </div>
+                    {batchReportData.map(tenantRep => {
+                      const itemNames = Object.keys(tenantRep.itemTotalsMap);
+                      if (itemNames.length === 0) return null; // Hide empty tenants
+                      const currentBatch = batches.find(b => b.id === reportSelectedBatchId);
 
-                        {/* Summary View in Screen */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div className="text-[10px] sm:text-xs space-y-1">
-                            <p className="font-bold text-slate-400 uppercase mb-2">Ringkasan Item:</p>
-                            {Object.keys(tenantRep.itemTotalsMap).map(k => (
-                              <div key={k} className="flex justify-between border-b border-dashed pb-1">
-                                <span>{k}</span><span className="font-bold">{tenantRep.itemTotalsMap[k].qty} Pcs</span>
-                              </div>
-                            ))}
+                      return (
+                        <div key={tenantRep.tenantId} className="bg-white rounded-xl border shadow-sm">
+                          <div className="p-3 bg-slate-900 text-white flex flex-col sm:flex-row justify-between sm:items-center gap-2 rounded-t-xl">
+                            <div>
+                              <h4 className="font-bold text-sm">{tenantRep.tenantName}</h4>
+                              <p className="text-[10px] text-slate-300">PJ: {tenantRep.tenantOwner}</p>
+                            </div>
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={() => setPrintData({ tenantRep, currentBatch })}
+                                className="px-2 py-1.5 bg-blue-600 text-white text-[10px] font-bold rounded-lg flex items-center"
+                              >
+                                <Printer className="w-3 h-3 mr-1" /> Cetak PDF
+                              </button>
+                              <button
+                                onClick={() => {
+                                  let cleanPhone = tenantRep.tenantPhone ? tenantRep.tenantPhone.replace(/[^0-9]/g, '') : '';
+                                  if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
+                                  
+                                  let text = `REKAP PESANAN - ${tenantRep.tenantName.toUpperCase()}\n`;
+                                  text += `Periode: ${currentBatch?.name || '-'}\n`;
+                                  if (currentBatch?.readyDate) text += `Tanggal ready: ${formatIndoDate(currentBatch.readyDate)}\n`;
+                                  text += `\n`;
+                                  
+                                  itemNames.forEach((name) => {
+                                      const o = tenantRep.itemTotalsMap[name];
+                                      text += `* ${name}: ${o.qty} pcs (${formatRupiah(o.priceOwner * o.qty)})\n`;
+                                  });
+                                  
+                                  text += `\nTOTAL HARGA PRODUCT: ${formatRupiah(tenantRep.tenantTotalOwnerShare)}`;
+                                  text += `\nTOTAL MARGIN JUAL: ${formatRupiah(tenantRep.tenantTotalMargin)}`;
+                                  text += `\nNOMINAL TOTAL: ${formatRupiah(tenantRep.tenantTotalGross)}\n\n`;
+                                  text += `Terima kasih!`;
+                                  
+                                  const encodedText = encodeURIComponent(text);
+                                  const waUrl = `https://wa.me/${cleanPhone}?text=${encodedText}`;
+                                  
+                                  // Timeout to prevent blocking
+                                  setTimeout(() => {
+                                    window.open(waUrl, '_blank');
+                                  }, 100);
+                                }}
+                                className="px-2 py-1.5 bg-emerald-600 text-white text-[10px] font-bold rounded-lg flex items-center"
+                              >
+                                <MessageCircle className="w-3 h-3 mr-1" /> WA Vendor
+                              </button>
+                            </div>
                           </div>
-                          <div className="text-[10px] sm:text-xs bg-emerald-50 border border-emerald-100 p-3 rounded-lg space-y-2">
-                            <div className="flex justify-between text-emerald-800"><span>Total Hak Vendor:</span><span className="font-bold">{formatRupiah(tenantRep.tenantTotalOwnerShare)}</span></div>
-                            <div className="flex justify-between text-amber-800"><span>Total Margin Jual:</span><span className="font-bold">{formatRupiah(tenantRep.tenantTotalMargin)}</span></div>
-                            <div className="flex justify-between text-slate-900 font-black border-t border-emerald-200 pt-2"><span>Total Omset Stand:</span><span>{formatRupiah(tenantRep.tenantTotalGross)}</span></div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {}
-              {adminSubTab === 'products' && (
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center"><h3 className="font-bold text-sm sm:text-base">Produk</h3><button onClick={() => setProductModal({isOpen:true, item:null})} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold rounded-lg flex items-center"><Plus className="w-3 h-3 mr-1"/> Tambah</button></div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {products.map(p => (
-                      <div key={p.id} className="bg-white p-3 rounded-xl border flex items-center space-x-3">
-                        <img src={p.imageUrl || ''} alt="" className="w-12 h-12 rounded-lg bg-slate-100 object-cover shrink-0" />
-                        <div className="flex-1 text-[10px] sm:text-xs min-w-0">
-                          <h4 className="font-bold truncate">{p.name}</h4>
-                          <p className="text-slate-500 truncate">{tenants.find(t=>t.id===p.tenantId)?.name}</p>
-                          <p className="font-bold text-amber-600 mt-1">{formatRupiah(Number(p.priceOwner) + Number(p.priceOrganizer))}</p>
-                        </div>
-                        <div className="flex flex-col space-y-1 shrink-0">
-                          <button onClick={()=>setProductModal({isOpen:true, item:p})} className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"><Edit3 className="w-3.5 h-3.5"/></button>
-                          <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Produk', message:`Hapus ${p.name}?`, onConfirm: () => { const n = products.filter(x=>x.id!==p.id); setProducts(n); syncPushToCloud({products:n}); }})} className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100"><Trash2 className="w-3.5 h-3.5"/></button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {adminSubTab === 'batches' && (
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center"><h3 className="font-bold text-sm sm:text-base">Kelola Batch</h3><button onClick={() => setBatchModal({isOpen:true, item:null})} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold rounded-lg flex items-center"><Plus className="w-3 h-3 mr-1"/> Tambah</button></div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {batches.map(b => (
-                      <div key={b.id} className={`bg-white p-4 rounded-xl border ${b.isActive?'border-indigo-500':'border-slate-200'}`}>
-                        <div className="flex justify-between items-start mb-2">
-                          <h4 className="font-bold text-sm">{b.name} <span className="text-[9px] ml-2 text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase">{b.isActive?'Aktif':''}</span></h4>
-                          <div className="flex gap-1 shrink-0">
-                            <button onClick={()=>setBatchModal({isOpen:true, item:b})} className="p-1.5 text-blue-600 bg-blue-50 rounded hover:bg-blue-100"><Edit3 className="w-3.5 h-3.5"/></button>
-                            <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Batch', message:'Yakin hapus?', onConfirm:()=>{const n=batches.filter(x=>x.id!==b.id); setBatches(n); syncPushToCloud({batches:n})}})} className="p-1.5 text-red-600 bg-red-50 rounded hover:bg-red-100"><Trash2 className="w-3.5 h-3.5"/></button>
+                          
+                          <div className="p-3 text-xs">
+                            <h5 className="font-bold text-amber-800 border-b pb-1 mb-2">Ringkasan Dapur</h5>
+                            <div className="space-y-1 mb-3">
+                              {itemNames.map(name => (
+                                <div key={name} className="flex justify-between">
+                                  <span>{name}</span>
+                                  <span className="font-bold">{tenantRep.itemTotalsMap[name].qty} Pcs</span>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex justify-between font-bold text-emerald-700 bg-emerald-50 p-2 rounded-lg">
+                              <span>Hak Vendor:</span>
+                              <span>{formatRupiah(tenantRep.tenantTotalOwnerShare)}</span>
+                            </div>
                           </div>
                         </div>
-                        <p className="text-[10px] sm:text-xs text-slate-500">Pesan: {formatIndoDate(b.startDate)} - {formatIndoDate(b.endDate)}</p>
-                        <p className="text-[10px] sm:text-xs text-emerald-600 font-medium">Ready: {formatIndoDate(b.readyDate)}</p>
-                        {!b.isActive && <button onClick={()=>{const n=batches.map(x=>({...x,isActive:x.id===b.id})); setBatches(n); syncPushToCloud({batches:n})}} className="mt-3 px-3 py-1.5 bg-slate-100 text-[10px] sm:text-xs font-bold rounded-lg w-full hover:bg-slate-200">Set Aktif</button>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {adminSubTab === 'tenants' && (
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center"><h3 className="font-bold text-sm sm:text-base">Kelola Stand</h3><button onClick={() => setTenantModal({isOpen:true, item:null})} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold rounded-lg flex items-center"><Plus className="w-3 h-3 mr-1"/> Tambah</button></div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {tenants.map(t => (
-                      <div key={t.id} className="bg-white p-3 rounded-xl border flex justify-between items-center text-xs">
-                        <div className="min-w-0 pr-2"><h4 className="font-bold truncate">{t.name}</h4><p className="text-[10px] text-slate-500 truncate">PJ: {t.owner} - {t.phone}</p></div>
-                        <div className="flex gap-1 shrink-0">
-                          <button onClick={()=>setTenantModal({isOpen:true, item:t})} className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"><Edit3 className="w-3.5 h-3.5"/></button>
-                          <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Stand', message:'Yakin?', onConfirm:()=>{const n=tenants.filter(x=>x.id!==t.id); setTenants(n); syncPushToCloud({tenants:n})}})} className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100"><Trash2 className="w-3.5 h-3.5"/></button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {adminSubTab === 'class_pics' && (
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center"><h3 className="font-bold text-sm sm:text-base">Routing Kelas WA</h3><button onClick={() => setClassModal({isOpen:true, item:null})} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold rounded-lg flex items-center"><Plus className="w-3 h-3 mr-1"/> Tambah</button></div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {classesList.map(c => (
-                      <div key={c.id} className="bg-white p-3 rounded-xl border flex justify-between items-center text-xs">
-                        <div className="min-w-0 pr-2"><h4 className="font-bold truncate">{c.name}</h4><p className="text-[10px] text-slate-500 truncate">WA: {c.phone}</p></div>
-                        <div className="flex gap-1 shrink-0">
-                          <button onClick={()=>setClassModal({isOpen:true, item:c})} className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"><Edit3 className="w-3.5 h-3.5"/></button>
-                          <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Kelas', message:'Yakin?', onConfirm:()=>{const n=classesList.filter(x=>x.id!==c.id); setClassesList(n); syncPushToCloud({classes:n})}})} className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100"><Trash2 className="w-3.5 h-3.5"/></button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
               {adminSubTab === 'orders' && (
                 <div className="space-y-3">
-                  <h3 className="font-bold text-slate-900 text-sm sm:text-base">Semua Pesanan ({orders.length})</h3>
+                  <h3 className="font-bold text-sm">Pesanan Masuk ({orders.length})</h3>
                   {orders.map((ord) => (
-                    <div key={ord.orderId} className="bg-white p-3 sm:p-4 rounded-xl border text-xs shadow-sm">
-                      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 mb-2 border-b pb-2">
+                    <div key={ord.orderId} className="bg-white p-3 rounded-xl border text-xs shadow-sm">
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-2 gap-2">
                         <div>
-                          <span className="font-black text-indigo-700">{ord.orderId}</span>
-                          <span className="font-bold ml-1.5 sm:ml-2">{ord.customer?.namaAnak} ({ord.customer?.kelas})</span>
+                          <span className="font-bold text-indigo-700">{ord.orderId}</span>
+                          <span className="font-semibold block">{ord.customer.namaAnak} ({ord.customer.kelas})</span>
+                          <span className="text-[10px] text-slate-500">Ortu: {ord.customer.namaOrtu || '-'}</span>
                         </div>
-                        <div className="flex items-center gap-1.5 self-end sm:self-auto">
-                          <select value={ord.status} onChange={(e)=>{
-                            const newStatus = e.target.value;
-                            const n = orders.map(o => o.orderId === ord.orderId ? {...o, status: newStatus} : o);
-                            setOrders(n);
-                            if(sheetWebhookUrl) fetch(sheetWebhookUrl, {method:'POST',mode:'no-cors',body:JSON.stringify({action:'updateOrderStatus',orderId:ord.orderId,status:newStatus})});
-                            showToast('Status Disimpan!');
-                          }} className="bg-slate-50 border px-2 py-1.5 rounded font-bold outline-none focus:ring-1 focus:ring-indigo-500">
-                            <option value="Paid">Paid</option>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={ord.status}
+                            onChange={(e) => {
+                              const newStatus = e.target.value;
+                              const updatedOrders = orders.map(o => o.orderId === ord.orderId ? { ...o, status: newStatus } : o);
+                              setOrders(updatedOrders);
+                              syncPushToCloud({ orders: updatedOrders });
+                            }}
+                            className="bg-slate-50 font-bold px-2 py-1.5 rounded-lg border focus:outline-none"
+                          >
                             <option value="Unpaid">Unpaid</option>
-                            <option value="Void">Void</option>
+                            <option value="Paid">Paid</option>
+                            <option value="Selesai">Selesai</option>
+                            <option value="Batal">Batal</option>
                           </select>
-                          <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Pesanan', message:`Hapus ${ord.orderId}?`, onConfirm:()=>{const n=orders.filter(o=>o.orderId!==ord.orderId); setOrders(n); syncPushToCloud({orders:n});}})} className="p-1.5 text-red-500 bg-red-50 hover:bg-red-100 rounded"><Trash2 className="w-4 h-4"/></button>
+                          <button 
+                            onClick={() => {
+                              if(confirm(`Hapus pesanan ${ord.orderId}?`)) {
+                                const updated = orders.filter(o => o.orderId !== ord.orderId);
+                                setOrders(updated);
+                                syncPushToCloud({ orders: updated });
+                              }
+                            }}
+                            className="p-1.5 bg-red-50 text-red-600 rounded-lg"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
-                      <div className="space-y-1 text-slate-600">
-                        {ord.items.map((it, idx) => {
-                          const cleanObj = parseAndCleanItem(it.name);
-                          const sp = Number(it.priceOwner || 0) + Number(it.priceOrganizer || 0);
-                          const finalQty = cleanObj.qty * (it.qty||1);
+                      <div className="space-y-0.5 text-slate-600 bg-slate-50 p-2 rounded-lg">
+                        {ord.items.map((i, idx) => {
+                          const cName = cleanItemName(i.name);
+                          const sub = (Number(i.priceOwner) + Number(i.priceOrganizer)) * i.qty;
                           return (
-                            <div key={idx} className="flex justify-between items-center text-[10px] sm:text-xs">
-                              <span className="truncate pr-2">{cleanObj.name} (x{finalQty}) @ {formatRupiah(sp)}</span>
-                              <span className="font-bold text-slate-800 shrink-0">{formatRupiah(sp * finalQty)}</span>
+                            <div key={idx} className="flex justify-between text-[10px]">
+                              <span>{cName} (x{i.qty})</span>
+                              <span className="font-medium">{formatRupiah(sub)}</span>
                             </div>
                           )
                         })}
-                      </div>
-                      <div className="mt-2 pt-2 border-t flex justify-between items-center font-black text-amber-700 text-xs sm:text-sm">
-                        <span>TOTAL</span><span>{formatRupiah(ord.totalAmount)}</span>
+                        <div className="flex justify-between font-bold text-slate-800 pt-1 border-t mt-1">
+                          <span>Total Tagihan:</span>
+                          <span>{formatRupiah(ord.totalAmount)}</span>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
 
-              {adminSubTab === 'settings' && (
-                <div className="max-w-md bg-white rounded-xl border p-4 space-y-4 text-xs">
-                  <h3 className="font-bold text-sm">Integrasi Database & Sandi</h3>
-                  <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100">
-                    <p className="font-bold text-indigo-900 mb-2">Sync Otomatis ke HP Panitia Lain</p>
-                    <button onClick={()=>{navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}?sheet=${encodeURIComponent(sheetWebhookUrl)}`);showToast('Link Disalin!');}} className="w-full py-2 bg-indigo-600 text-white rounded-lg flex justify-center items-center font-bold shadow-sm"><Share2 className="w-3.5 h-3.5 mr-1.5"/> Salin Link Web</button>
+              {adminSubTab === 'products' && (
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-bold text-sm">Produk Menu</h3>
+                    <button onClick={() => setProductModal({ isOpen: true, item: null })} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] font-bold rounded-lg flex items-center">
+                      <Plus className="w-3 h-3 mr-1" /> Tambah
+                    </button>
                   </div>
-                  <form onSubmit={e => {e.preventDefault(); localStorage.setItem('ld_bazaar_sheet_webhook', sheetWebhookUrl); syncPushToCloud();}} className="space-y-3">
-                    <div><label className="font-bold mb-1 block">Google Sheets Webhook URL</label><input type="url" value={sheetWebhookUrl} onChange={e=>setSheetWebhookUrl(e.target.value)} className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
-                    <div><label className="font-bold mb-1 block">Username Admin</label><input type="text" value={adminAuth.username} onChange={e=>setAdminAuth({...adminAuth, username: e.target.value})} className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
-                    <div><label className="font-bold mb-1 block">Password Admin</label><input type="text" value={adminAuth.password} onChange={e=>setAdminAuth({...adminAuth, password: e.target.value})} className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
-                    <button type="submit" className="w-full py-2.5 bg-emerald-600 text-white font-bold rounded-lg flex items-center justify-center shadow-sm"><Save className="w-4 h-4 mr-1.5"/> Simpan Pengaturan</button>
-                  </form>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {products.map(p => {
+                      const t = tenants.find(x => x.id === p.tenantId);
+                      return (
+                        <div key={p.id} className="bg-white p-3 rounded-xl border flex gap-3 items-center shadow-sm">
+                          {p.imageUrl ? (
+                            <img src={p.imageUrl} alt="img" className="w-12 h-12 rounded object-cover" />
+                          ) : (
+                            <div className="w-12 h-12 bg-slate-100 rounded flex items-center justify-center"><ImageIcon className="w-4 h-4 text-slate-400" /></div>
+                          )}
+                          <div className="flex-1 text-xs">
+                            <h4 className="font-bold text-sm">{p.name}</h4>
+                            <p className="text-[10px] text-slate-500">{t?.name}</p>
+                            <p className="font-bold text-amber-600 mt-1">{formatRupiah(Number(p.priceOwner) + Number(p.priceOrganizer))}</p>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <button onClick={() => setProductModal({ isOpen: true, item: p })} className="p-1.5 bg-blue-50 text-blue-600 rounded"><Edit3 className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => {
+                              const up = products.filter(x => x.id !== p.id);
+                              setProducts(up); syncPushToCloud({ products: up });
+                            }} className="p-1.5 bg-red-50 text-red-600 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               )}
+
+              {adminSubTab === 'batches' && (
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-bold text-sm">Periode Batch</h3>
+                    <button onClick={() => setBatchModal({ isOpen: true, item: null })} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] font-bold rounded-lg flex items-center">
+                      <Plus className="w-3 h-3 mr-1" /> Buat
+                    </button>
+                  </div>
+                  {batches.map(b => (
+                    <div key={b.id} className={`bg-white p-3 rounded-xl border ${b.isActive ? 'border-indigo-400' : ''}`}>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-bold text-sm">{b.name} {b.isActive && <span className="bg-indigo-100 text-indigo-700 text-[9px] px-1.5 py-0.5 rounded ml-1">AKTIF</span>}</h4>
+                          <p className="text-[10px] text-slate-500 mt-0.5">Order: {formatIndoDate(b.startDate)} - {formatIndoDate(b.endDate)}</p>
+                          <p className="text-[10px] text-emerald-600 font-bold">Ready: {formatIndoDate(b.readyDate)}</p>
+                        </div>
+                        <div className="flex gap-2 text-xs">
+                          <button onClick={() => setBatchModal({ isOpen: true, item: b })} className="text-blue-600 font-bold">Edit</button>
+                          {!b.isActive && (
+                            <button onClick={() => {
+                              const up = batches.map(x => ({ ...x, isActive: x.id === b.id }));
+                              setBatches(up); syncPushToCloud({ batches: up });
+                            }} className="text-indigo-600 font-bold bg-indigo-50 px-2 py-1 rounded">Set Aktif</button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {adminSubTab === 'classes' && (
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-bold text-sm">Kelas & PIC</h3>
+                    <button onClick={() => setClassModal({ isOpen: true, item: null })} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] font-bold rounded-lg flex items-center">
+                      <Plus className="w-3 h-3 mr-1" /> Tambah
+                    </button>
+                  </div>
+                  {classesList.map(c => (
+                    <div key={c.id} className="bg-white p-3 rounded-xl border flex justify-between items-center">
+                      <div>
+                        <h4 className="font-bold text-sm">{c.name}</h4>
+                        <p className="text-[10px] text-slate-500">WA PIC: {c.phone}</p>
+                      </div>
+                      <div className="flex gap-1">
+                         <button onClick={() => setClassModal({ isOpen: true, item: c })} className="p-1.5 bg-blue-50 text-blue-600 rounded"><Edit3 className="w-3.5 h-3.5" /></button>
+                         <button onClick={() => {
+                            const up = classesList.filter(x => x.id !== c.id);
+                            setClassesList(up); syncPushToCloud({ classes: up });
+                          }} className="p-1.5 bg-red-50 text-red-600 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {adminSubTab === 'tenants' && (
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-bold text-sm">Stand / Tenant</h3>
+                    <button onClick={() => setTenantModal({ isOpen: true, item: null })} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] font-bold rounded-lg flex items-center">
+                      <Plus className="w-3 h-3 mr-1" /> Tambah
+                    </button>
+                  </div>
+                  {tenants.map(t => (
+                    <div key={t.id} className="bg-white p-3 rounded-xl border flex justify-between items-center">
+                      <div>
+                        <h4 className="font-bold text-sm">{t.name}</h4>
+                        <p className="text-[10px] text-slate-500">PJ: {t.owner} ({t.phone})</p>
+                      </div>
+                      <div className="flex gap-1">
+                         <button onClick={() => setTenantModal({ isOpen: true, item: t })} className="p-1.5 bg-blue-50 text-blue-600 rounded"><Edit3 className="w-3.5 h-3.5" /></button>
+                         <button onClick={() => {
+                            const up = tenants.filter(x => x.id !== t.id);
+                            setTenants(up); syncPushToCloud({ tenants: up });
+                          }} className="p-1.5 bg-red-50 text-red-600 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
             </div>
           )}
         </main>
       )}
 
-      {}
-      {printData && (
-        <div className="fixed inset-0 z-50 bg-white overflow-y-auto print:bg-white">
-          <div className="print:hidden sticky top-0 z-50 bg-slate-900 text-white p-3 sm:p-4 shadow-xl border-b-4 border-amber-500 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-            <div><h2 className="font-bold text-sm sm:text-base">Mode Cetak & Kirim WA</h2><p className="text-[10px] sm:text-xs text-slate-300">1: Simpan PDF, lalu 2: Buka WA & Lampirkan PDF-nya.</p></div>
-            <div className="flex flex-wrap gap-2">
-              <button onClick={() => setPrintData(null)} className="px-3 py-1.5 sm:py-2 bg-slate-700 text-[10px] sm:text-xs font-bold rounded-lg">Batal</button>
-              <button onClick={() => window.print()} className="px-3 py-1.5 sm:py-2 bg-emerald-600 text-[10px] sm:text-xs font-bold rounded-lg flex items-center"><Printer className="w-3.5 h-3.5 mr-1"/> 1. Simpan PDF</button>
-              <button onClick={() => {
-                let clean = printData.tenantPhone.replace(/[^0-9]/g, '');
-                if (clean.startsWith('0')) clean = '62' + clean.slice(1);
-                
-                // Constructing text exactly as requested without emojis
-                let text = `REKAP PESANAN - ${printData.tenantName.toUpperCase()}\n`;
-                text += `Periode: ${printData.batchName}\n`;
-                if(printData.readyDate) text += `Tanggal ready: ${formatIndoDate(printData.readyDate)}\n`;
-                text += `\n`;
-                
-                Object.keys(printData.itemTotalsMap).forEach((name) => {
-                  const o = printData.itemTotalsMap[name];
-                  text += `* ${name}: ${o.qty} pcs (${formatRupiah(o.priceOwner * o.qty)})\n`;
-                });
-                
-                text += `\nTOTAL HARGA PRODUCT: ${formatRupiah(printData.tenantTotalOwnerShare)}`;
-                text += `\nTOTAL MARGIN JUAL: ${formatRupiah(printData.tenantTotalMargin)}`;
-                text += `\nNOMINAL TOTAL: ${formatRupiah(printData.tenantTotalGross)}\n\n`;
-                text += `Terima kasih!`;
-                
-                window.open(`https://wa.me/${clean}?text=${encodeURIComponent(text)}`, '_blank');
-              }} className="px-3 py-1.5 sm:py-2 bg-blue-600 text-[10px] sm:text-xs font-bold rounded-lg flex items-center"><Send className="w-3.5 h-3.5 mr-1"/> 2. Kirim WA Pengantar</button>
+      {/* MODALS */}
+      {isCartOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60">
+          <div className="w-full max-w-sm bg-white h-full flex flex-col shadow-2xl">
+            <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+              <h2 className="font-bold text-sm flex items-center"><ShoppingCart className="w-4 h-4 mr-2" /> Keranjang</h2>
+              <button onClick={() => setIsCartOpen(false)} className="p-1"><X className="w-5 h-5 text-slate-500" /></button>
             </div>
-          </div>
-
-          <div className="p-4 sm:p-8 max-w-5xl mx-auto text-black text-[10px] sm:text-xs print:p-0">
-            <h1 className="text-lg sm:text-xl font-black text-emerald-800 mb-1">Bazaar DANUS PTA Little Darbi</h1>
-            <h2 className="text-sm sm:text-base font-bold text-slate-800">Rekapitulasi Dapur Stand: {printData.tenantName}</h2>
-            <p className="text-slate-500 mb-6">Periode: {printData.batchName} | Ready: {formatIndoDate(printData.readyDate)} | PJ: {printData.tenantOwner} ({printData.tenantPhone})</p>
-
-            <h3 className="font-bold mb-2 text-xs sm:text-sm">1. Detail Pesanan Pembeli ({printData.customerOrdersDetail.length})</h3>
-            <div className="overflow-x-auto mb-8">
-              <table className="w-full border-collapse border border-slate-300 min-w-[600px]">
-                <thead><tr className="bg-slate-100 text-left"><th className="border p-2 w-10">No</th><th className="border p-2">Nama Anak</th><th className="border p-2">Kelas</th><th className="border p-2">Nama Ortu</th><th className="border p-2">Detail Pesanan</th><th className="border p-2">Catatan</th></tr></thead>
-                <tbody>
-                  {printData.customerOrdersDetail.map((c, i) => (
-                    <tr key={i}>
-                      <td className="border p-2 text-center">{i+1}</td>
-                      <td className="border p-2 font-bold">{c.namaAnak}</td>
-                      <td className="border p-2">{c.kelas}</td>
-                      <td className="border p-2">{c.namaOrtu}</td>
-                      <td className="border p-2">{c.items.map(it => `${it.cleanName} (x${it.qty})`).join(', ')}</td>
-                      <td className="border p-2 italic text-slate-600">{c.catatan}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {cart.map((item) => (
+                <div key={item.id} className="flex items-center justify-between p-2 bg-white border rounded-xl text-xs">
+                  <div>
+                    <h4 className="font-bold line-clamp-1">{item.name}</h4>
+                    <p className="text-[10px] text-amber-600 font-semibold">{formatRupiah((Number(item.priceOwner) + Number(item.priceOrganizer)) * item.qty)}</p>
+                  </div>
+                  <div className="flex items-center space-x-2 bg-slate-50 border p-0.5 rounded-lg">
+                    <button onClick={() => updateCartQty(item.id, -1)} className="w-5 h-5 bg-white rounded shadow-sm text-xs font-bold">-</button>
+                    <span className="text-[10px] font-bold w-3 text-center">{item.qty}</span>
+                    <button onClick={() => updateCartQty(item.id, 1)} className="w-5 h-5 bg-amber-500 text-white rounded shadow-sm text-xs font-bold">+</button>
+                  </div>
+                </div>
+              ))}
             </div>
-
-            <h3 className="font-bold mb-2 text-xs sm:text-sm">2. Ringkasan Pesanan (Dapur)</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse border border-slate-300 min-w-[500px]">
-                <thead><tr className="bg-slate-100 text-left"><th className="border p-2">Produk</th><th className="border p-2 text-center">Qty</th><th className="border p-2 text-right">Harga owner</th><th className="border p-2 text-right">Margin Jual</th><th className="border p-2 text-right">Nominal total</th></tr></thead>
-                <tbody>
-                  {Object.keys(printData.itemTotalsMap).map((k, i) => {
-                    const o = printData.itemTotalsMap[k];
-                    return (
-                      <tr key={i}><td className="border p-2 font-bold">{k}</td><td className="border p-2 text-center font-bold bg-amber-50">{o.qty}</td><td className="border p-2 text-right">{formatRupiah(o.priceOwner * o.qty)}</td><td className="border p-2 text-right">{formatRupiah(o.priceOrganizer * o.qty)}</td><td className="border p-2 text-right font-bold text-slate-800">{formatRupiah((o.priceOwner + o.priceOrganizer) * o.qty)}</td></tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-emerald-50 font-black text-xs sm:text-sm"><td colSpan={2} className="border p-2 text-right text-emerald-800">TOTAL KESELURUHAN:</td><td className="border p-2 text-right text-emerald-700">{formatRupiah(printData.tenantTotalOwnerShare)}</td><td className="border p-2 text-right text-amber-700">{formatRupiah(printData.tenantTotalMargin)}</td><td className="border p-2 text-right text-slate-900">{formatRupiah(printData.tenantTotalGross)}</td></tr>
-                </tfoot>
-              </table>
+            <div className="p-4 border-t bg-white">
+              <button onClick={() => { setIsCartOpen(false); setIsCheckoutModalOpen(true); }} className="w-full py-3 bg-amber-600 text-white font-bold rounded-xl shadow-md text-xs">
+                Lanjut Checkout ({formatRupiah(cartSummary.totalSellingPrice)})
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {}
-      {confirmModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-xs w-full p-5 sm:p-6 text-center shadow-2xl">
-            <h3 className="font-bold text-base sm:text-lg mb-2">{confirmModal.title}</h3><p className="text-xs sm:text-sm text-slate-500 mb-5">{confirmModal.message}</p>
-            <div className="flex gap-2 justify-center">
-              <button onClick={()=>setConfirmModal({isOpen:false})} className="px-4 py-2 bg-slate-100 rounded-lg text-xs font-bold">Batal</button>
-              <button onClick={()=>{confirmModal.onConfirm();setConfirmModal({isOpen:false});}} className="px-4 py-2 bg-red-600 text-white rounded-lg text-xs font-bold shadow-sm">Ya, Lanjutkan</button>
-            </div>
+      {isCheckoutModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-5 relative shadow-2xl">
+            <button onClick={() => setIsCheckoutModalOpen(false)} className="absolute top-4 right-4"><X className="w-4 h-4 text-slate-400" /></button>
+            <h3 className="font-bold text-sm mb-4">Data Pemesan</h3>
+            <form onSubmit={handleCheckoutSubmit} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold mb-1 text-slate-600">Nama Lengkap Anak <span className="text-red-500">*</span></label>
+                <input type="text" required value={checkoutData.namaAnak} onChange={(e) => setCheckoutData({ ...checkoutData, namaAnak: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1 text-slate-600">Pilih Kelas Anak <span className="text-red-500">*</span></label>
+                <select value={checkoutData.kelas} onChange={(e) => setCheckoutData({ ...checkoutData, kelas: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl">
+                  {classesList.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold mb-1 text-slate-600">Nama Ortu / Pemesan <span className="text-red-500">*</span></label>
+                <input type="text" required placeholder="Wajib diisi" value={checkoutData.namaOrtu} onChange={(e) => setCheckoutData({ ...checkoutData, namaOrtu: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1 text-slate-600">Catatan (Opsional)</label>
+                <input type="text" placeholder="Cth: Jangan pedas" value={checkoutData.catatan} onChange={(e) => setCheckoutData({ ...checkoutData, catatan: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
+              </div>
+              <button type="submit" disabled={isSubmitting} className="w-full py-3 mt-2 bg-emerald-600 text-white font-bold rounded-xl shadow-md disabled:opacity-50">
+                {isSubmitting ? 'Memproses...' : 'Kirim WA & Pesan'}
+              </button>
+            </form>
           </div>
         </div>
       )}
 
-      {productModal.isOpen && (
-        <ModalProductForm item={productModal.item} tenants={tenants} onClose={()=>setProductModal({isOpen:false})} onSave={(d)=>{
-          const n = productModal.item ? products.map(p=>p.id===d.id?d:p) : [...products, {...d, id:'p-'+Date.now(), available:true}];
-          setProducts(n); syncPushToCloud({products:n}); setProductModal({isOpen:false});
-        }} />
+      {/* Admin Modals remain modular and fully functional */}
+      {classModal.isOpen && (
+        <ModalClassForm 
+          item={classModal.item} 
+          onClose={() => setClassModal({ isOpen: false, item: null })} 
+          onSave={(data) => {
+            let up;
+            if (classModal.item) up = classesList.map(c => c.id === classModal.item.id ? { ...c, ...data } : c);
+            else up = [...classesList, { ...data, id: 'c-' + Date.now() }];
+            setClassesList(up); syncPushToCloud({ classes: up });
+            setClassModal({ isOpen: false, item: null });
+          }} 
+        />
       )}
-      
+
       {tenantModal.isOpen && (
-        <ModalTenantForm item={tenantModal.item} onClose={()=>setTenantModal({isOpen:false})} onSave={(d)=>{
-          const n = tenantModal.item ? tenants.map(t=>t.id===d.id?d:t) : [...tenants, {...d, id:'t-'+Date.now()}];
-          setTenants(n); syncPushToCloud({tenants:n}); setTenantModal({isOpen:false});
-        }} />
+        <ModalTenantForm 
+          item={tenantModal.item} 
+          onClose={() => setTenantModal({ isOpen: false, item: null })} 
+          onSave={(data) => {
+            let up;
+            if (tenantModal.item) up = tenants.map(t => t.id === tenantModal.item.id ? { ...t, ...data } : t);
+            else up = [...tenants, { ...data, id: 't-' + Date.now() }];
+            setTenants(up); syncPushToCloud({ tenants: up });
+            setTenantModal({ isOpen: false, item: null });
+          }} 
+        />
       )}
 
       {batchModal.isOpen && (
-        <ModalBatchForm item={batchModal.item} onClose={()=>setBatchModal({isOpen:false})} onSave={(d)=>{
-          const n = batchModal.item ? batches.map(b=>b.id===d.id?d:b) : [...batches, {...d, id:'b-'+Date.now(), isActive:false}];
-          setBatches(n); syncPushToCloud({batches:n}); setBatchModal({isOpen:false});
-        }} />
+        <ModalBatchForm 
+          item={batchModal.item}
+          onClose={() => setBatchModal({ isOpen: false, item: null })} 
+          onSave={(data) => {
+            let up;
+            if (batchModal.item) up = batches.map(b => b.id === batchModal.item.id ? { ...b, ...data } : b);
+            else up = [...batches, { ...data, id: 'b-' + Date.now(), isActive: false }];
+            setBatches(up); syncPushToCloud({ batches: up });
+            setBatchModal({ isOpen: false, item: null });
+          }} 
+        />
       )}
 
-      {classModal.isOpen && (
-        <ModalClassForm item={classModal.item} onClose={()=>setClassModal({isOpen:false})} onSave={(d)=>{
-          const n = classModal.item ? classesList.map(c=>c.id===d.id?d:c) : [...classesList, {...d, id:'c-'+Date.now()}];
-          setClassesList(n); syncPushToCloud({classes:n}); setClassModal({isOpen:false});
-        }} />
+      {productModal.isOpen && (
+        <ModalProductForm 
+          item={productModal.item} tenants={tenants} 
+          onClose={() => setProductModal({ isOpen: false, item: null })} 
+          onSave={(data) => {
+            let up;
+            if (productModal.item) up = products.map(p => p.id === productModal.item.id ? { ...p, ...data } : p);
+            else up = [...products, { ...data, id: 'p-' + Date.now(), available: true }];
+            setProducts(up); syncPushToCloud({ products: up });
+            setProductModal({ isOpen: false, item: null });
+          }} 
+        />
+      )}
+
+      {/* PRINT VIEW CONTAINER - Only visible during printing via CSS classes */}
+      {printData && (
+        <div className="fixed inset-0 z-50 bg-white overflow-y-auto print:absolute print:inset-0 print:block print:bg-white print:z-[9999] print:h-auto print:overflow-visible print:m-0 print:p-0">
+          <div className="print:hidden sticky top-0 bg-slate-900 text-white p-4 shadow flex justify-between items-center z-50">
+             <h2 className="font-bold text-sm">Mode Cetak PDF</h2>
+             <div className="flex gap-2">
+               <button onClick={() => window.print()} className="px-3 py-1.5 bg-blue-600 rounded-lg text-xs font-bold">Simpan PDF</button>
+               <button onClick={() => setPrintData(null)} className="px-3 py-1.5 bg-slate-700 rounded-lg text-xs font-bold">Tutup</button>
+             </div>
+          </div>
+          
+          <div className="p-8 max-w-4xl mx-auto text-black text-[10px] sm:text-xs print:p-0 print:m-0 print:w-full print:max-w-none bg-white">
+            <h1 className="text-lg font-black text-emerald-800 mb-1">Bazaar DANUS PTA Little Darbi</h1>
+            <h2 className="text-sm font-bold text-slate-800">Rekapitulasi Dapur Stand: {printData.tenantRep.tenantName}</h2>
+            <p className="text-[10px] text-slate-500 mb-4 border-b pb-2">
+              Periode: {printData.currentBatch?.name} | Ready: {formatIndoDate(printData.currentBatch?.readyDate)} | PJ: {printData.tenantRep.tenantOwner} ({printData.tenantRep.tenantPhone})
+            </p>
+
+            <h3 className="font-bold mt-4 mb-2 text-xs">1. Detail Pesanan Pembeli ({printData.tenantRep.customerOrdersDetail.length})</h3>
+            <table className="w-full border-collapse border border-slate-300 text-[9px] mb-6">
+               <thead className="bg-slate-100 font-bold">
+                 <tr>
+                   <th className="border p-1.5 w-6 text-center">No</th>
+                   <th className="border p-1.5">Nama Anak</th>
+                   <th className="border p-1.5">Kelas</th>
+                   <th className="border p-1.5">Nama Ortu</th>
+                   <th className="border p-1.5">Detail Pesanan</th>
+                   <th className="border p-1.5">Catatan</th>
+                 </tr>
+               </thead>
+               <tbody>
+                 {printData.tenantRep.customerOrdersDetail.map((cust, idx) => (
+                   <tr key={idx}>
+                     <td className="border p-1.5 text-center">{idx + 1}</td>
+                     <td className="border p-1.5 font-bold">{cust.namaAnak}</td>
+                     <td className="border p-1.5">{cust.kelas}</td>
+                     <td className="border p-1.5">{cust.namaOrtu}</td>
+                     <td className="border p-1.5">
+                        {cust.items.map(it => `${cleanItemName(it.name)} (x${it.qty})`).join(', ')}
+                     </td>
+                     <td className="border p-1.5">{cust.catatan}</td>
+                   </tr>
+                 ))}
+               </tbody>
+            </table>
+
+            <h3 className="font-bold mt-4 mb-2 text-xs">2. Ringkasan Pesanan (Dapur)</h3>
+            <table className="w-full border-collapse border border-slate-300 text-[10px]">
+               <thead className="bg-slate-100 font-bold">
+                 <tr>
+                   <th className="border p-1.5 text-left">Produk</th>
+                   <th className="border p-1.5 text-center">Qty</th>
+                   <th className="border p-1.5 text-right">Harga owner</th>
+                   <th className="border p-1.5 text-right">Margin Jual</th>
+                   <th className="border p-1.5 text-right">Nominal total</th>
+                 </tr>
+               </thead>
+               <tbody>
+                 {Object.keys(printData.tenantRep.itemTotalsMap).map(name => {
+                   const item = printData.tenantRep.itemTotalsMap[name];
+                   const ownerT = item.priceOwner * item.qty;
+                   const marginT = item.priceOrganizer * item.qty;
+                   const grossT = ownerT + marginT;
+                   return (
+                     <tr key={name}>
+                       <td className="border p-1.5 font-bold">{name}</td>
+                       <td className="border p-1.5 text-center">{item.qty}</td>
+                       <td className="border p-1.5 text-right">{formatRupiah(ownerT)}</td>
+                       <td className="border p-1.5 text-right">{formatRupiah(marginT)}</td>
+                       <td className="border p-1.5 text-right font-bold">{formatRupiah(grossT)}</td>
+                     </tr>
+                   )
+                 })}
+               </tbody>
+               <tfoot className="bg-slate-50 font-black">
+                 <tr>
+                   <td colSpan={2} className="border p-1.5 text-right text-emerald-800">TOTAL KESELURUHAN:</td>
+                   <td className="border p-1.5 text-right text-emerald-600">{formatRupiah(printData.tenantRep.tenantTotalOwnerShare)}</td>
+                   <td className="border p-1.5 text-right text-orange-600">{formatRupiah(printData.tenantRep.tenantTotalMargin)}</td>
+                   <td className="border p-1.5 text-right text-slate-800">{formatRupiah(printData.tenantRep.tenantTotalGross)}</td>
+                 </tr>
+               </tfoot>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-function ModalProductForm({ item, tenants, onClose, onSave }) {
-  const [form, setForm] = useState(item || { name:'', tenantId:tenants[0]?.id||'', priceOwner:0, priceOrganizer:0, imageUrl:'' });
-  const [isCompressing, setIsCompressing] = useState(false);
-  
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if(!file) return;
-    setIsCompressing(true);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 400; const scaleSize = MAX_WIDTH / img.width;
-        canvas.width = MAX_WIDTH; canvas.height = img.height * scaleSize;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        setForm({...form, imageUrl: canvas.toDataURL('image/jpeg', 0.6)});
-        setIsCompressing(false);
-      };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(file);
-  };
-
+// Modal Components
+function ModalClassForm({ item, onClose, onSave }) {
+  const [name, setName] = useState(item?.name || '');
+  const [phone, setPhone] = useState(item?.phone || '');
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-2xl relative text-xs">
-        <button onClick={onClose} className="absolute top-4 right-4"><X className="w-5 h-5 text-slate-400"/></button>
-        <h3 className="font-bold text-sm sm:text-base mb-4">{item?'Edit Produk':'Produk Baru'}</h3>
-        <form onSubmit={e => {e.preventDefault(); onSave(form)}} className="space-y-3">
-          <div><label className="font-bold mb-1 block text-slate-700">Nama Produk</label><input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
-          <div><label className="font-bold mb-1 block text-slate-700">Stand / Tenant</label><select value={form.tenantId} onChange={e=>setForm({...form,tenantId:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500">{tenants.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="font-bold mb-1 block text-emerald-700">Harga Owner (Rp)</label><input type="number" required value={form.priceOwner} onChange={e=>setForm({...form,priceOwner:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
-            <div><label className="font-bold mb-1 block text-indigo-700">Margin Panitia (Rp)</label><input type="number" required value={form.priceOrganizer} onChange={e=>setForm({...form,priceOrganizer:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
-          </div>
-          <div className="pt-2">
-            <label className="font-bold mb-2 block text-slate-700">Foto (Pilih dari Galeri HP/Laptop)</label>
-            <div className="flex items-center space-x-3">
-              <label className="flex-1 py-2.5 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl text-center font-bold text-slate-500 cursor-pointer hover:bg-slate-100 transition-all">
-                {isCompressing ? 'Memproses Foto...' : '+ Pilih File Foto'}
-                <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-              </label>
-              {form.imageUrl && <img src={form.imageUrl} alt="" className="w-12 h-12 object-cover rounded-xl border border-slate-200 shadow-sm shrink-0" />}
-            </div>
-          </div>
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl mt-2 shadow-sm">Simpan Produk</button>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60">
+      <div className="bg-white rounded-xl w-full max-w-xs p-5 relative">
+        <button onClick={onClose} className="absolute top-4 right-4"><X className="w-4 h-4" /></button>
+        <h3 className="font-bold text-sm mb-3">{item ? 'Edit Kelas' : 'Tambah Kelas'}</h3>
+        <form onSubmit={(e) => { e.preventDefault(); onSave({ name, phone }); }} className="space-y-3 text-xs">
+          <input type="text" required placeholder="Nama Kelas" value={name} onChange={e => setName(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+          <input type="text" required placeholder="No WA (Cth: 628...)" value={phone} onChange={e => setPhone(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+          <button type="submit" className="w-full py-2 bg-indigo-600 text-white font-bold rounded-lg">Simpan</button>
         </form>
       </div>
     </div>
@@ -967,17 +1169,19 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
 }
 
 function ModalTenantForm({ item, onClose, onSave }) {
-  const [form, setForm] = useState(item || { name:'', owner:'', phone:'' });
+  const [name, setName] = useState(item?.name || '');
+  const [owner, setOwner] = useState(item?.owner || '');
+  const [phone, setPhone] = useState(item?.phone || '');
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-2xl relative text-xs">
-        <button onClick={onClose} className="absolute top-4 right-4"><X className="w-5 h-5 text-slate-400"/></button>
-        <h3 className="font-bold text-sm sm:text-base mb-4">{item?'Edit Stand':'Stand Baru'}</h3>
-        <form onSubmit={e => {e.preventDefault(); onSave(form)}} className="space-y-3">
-          <div><label className="font-bold mb-1 block">Nama Stand</label><input required placeholder="Stand Cemilan" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
-          <div><label className="font-bold mb-1 block">Nama PJ</label><input required placeholder="Mama Budi" value={form.owner} onChange={e=>setForm({...form,owner:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
-          <div><label className="font-bold mb-1 block">WA Stand (628...)</label><input required placeholder="62812345..." value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl mt-2 shadow-sm">Simpan Stand</button>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60">
+      <div className="bg-white rounded-xl w-full max-w-xs p-5 relative">
+        <button onClick={onClose} className="absolute top-4 right-4"><X className="w-4 h-4" /></button>
+        <h3 className="font-bold text-sm mb-3">{item ? 'Edit Stand' : 'Tambah Stand'}</h3>
+        <form onSubmit={(e) => { e.preventDefault(); onSave({ name, owner, phone }); }} className="space-y-3 text-xs">
+          <input type="text" required placeholder="Nama Stand" value={name} onChange={e => setName(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+          <input type="text" required placeholder="PJ / Owner" value={owner} onChange={e => setOwner(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+          <input type="text" required placeholder="No WA (628...)" value={phone} onChange={e => setPhone(e.target.value)} className="w-full px-3 py-2 border rounded-lg" />
+          <button type="submit" className="w-full py-2 bg-indigo-600 text-white font-bold rounded-lg">Simpan</button>
         </form>
       </div>
     </div>
@@ -985,38 +1189,74 @@ function ModalTenantForm({ item, onClose, onSave }) {
 }
 
 function ModalBatchForm({ item, onClose, onSave }) {
-  const d = new Date().toISOString().slice(0, 10);
-  const [form, setForm] = useState(item || { name:'', startDate:d, endDate:d, readyDate:d });
+  const [form, setForm] = useState({
+    name: item?.name || '', startDate: item?.startDate || '', endDate: item?.endDate || '', readyDate: item?.readyDate || ''
+  });
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-2xl relative text-xs">
-        <button onClick={onClose} className="absolute top-4 right-4"><X className="w-5 h-5 text-slate-400"/></button>
-        <h3 className="font-bold text-sm sm:text-base mb-4">{item?'Edit Batch':'Batch Baru'}</h3>
-        <form onSubmit={e => {e.preventDefault(); onSave(form)}} className="space-y-3">
-          <div><label className="font-bold mb-1 block">Nama Batch</label><input required placeholder="Batch September" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="font-bold mb-1 block text-slate-500">Tgl Buka</label><input type="date" required value={form.startDate} onChange={e=>setForm({...form,startDate:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
-            <div><label className="font-bold mb-1 block text-slate-500">Tgl Tutup</label><input type="date" required value={form.endDate} onChange={e=>setForm({...form,endDate:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
-          </div>
-          <div className="pt-2"><label className="font-bold text-emerald-700 mb-1 block">Tanggal Ready / Distribusi</label><input type="date" required value={form.readyDate} onChange={e=>setForm({...form,readyDate:e.target.value})} className="w-full p-2 border-emerald-300 bg-emerald-50 rounded-lg outline-none focus:ring-1 focus:ring-emerald-500" /></div>
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl mt-2 shadow-sm">Simpan Batch</button>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60">
+      <div className="bg-white rounded-xl w-full max-w-xs p-5 relative">
+        <button onClick={onClose} className="absolute top-4 right-4"><X className="w-4 h-4" /></button>
+        <h3 className="font-bold text-sm mb-3">{item ? 'Edit Batch' : 'Buat Batch'}</h3>
+        <form onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="space-y-3 text-xs">
+          <input type="text" required placeholder="Nama Batch" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full px-3 py-2 border rounded-lg" />
+          <div><label className="text-[10px] font-bold text-slate-500">Tgl Mulai PO</label><input type="date" required value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} className="w-full px-3 py-2 border rounded-lg" /></div>
+          <div><label className="text-[10px] font-bold text-slate-500">Tgl Tutup PO</label><input type="date" required value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})} className="w-full px-3 py-2 border rounded-lg" /></div>
+          <div><label className="text-[10px] font-bold text-emerald-600">Tgl Ready / Distribusi</label><input type="date" required value={form.readyDate} onChange={e => setForm({...form, readyDate: e.target.value})} className="w-full px-3 py-2 border border-emerald-300 rounded-lg" /></div>
+          <button type="submit" className="w-full py-2 bg-indigo-600 text-white font-bold rounded-lg">Simpan</button>
         </form>
       </div>
     </div>
   );
 }
 
-function ModalClassForm({ item, onClose, onSave }) {
-  const [form, setForm] = useState(item || { name:'', phone:'' });
+function ModalProductForm({ item, tenants, onClose, onSave }) {
+  const [form, setForm] = useState({
+    name: item?.name || '', tenantId: item?.tenantId || tenants[0]?.id || '',
+    priceOwner: item?.priceOwner || 0, priceOrganizer: item?.priceOrganizer || 0,
+    imageUrl: item?.imageUrl || '', description: item?.description || ''
+  });
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.src = ev.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 400;
+        const scale = img.width > MAX_WIDTH ? MAX_WIDTH / img.width : 1;
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        setForm({...form, imageUrl: canvas.toDataURL('image/jpeg', 0.6)});
+      }
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-2xl relative text-xs">
-        <button onClick={onClose} className="absolute top-4 right-4"><X className="w-5 h-5 text-slate-400"/></button>
-        <h3 className="font-bold text-sm sm:text-base mb-4">{item?'Edit Kelas':'Kelas Baru'}</h3>
-        <form onSubmit={e => {e.preventDefault(); onSave(form)}} className="space-y-3">
-          <div><label className="font-bold mb-1 block">Nama Kelas</label><input required placeholder="TK B1" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
-          <div><label className="font-bold mb-1 block">WA PIC (628...)</label><input required placeholder="62812345..." value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl mt-2 shadow-sm">Simpan Kelas</button>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60">
+      <div className="bg-white rounded-xl w-full max-w-xs p-5 relative overflow-y-auto max-h-[90vh]">
+        <button onClick={onClose} className="absolute top-4 right-4"><X className="w-4 h-4" /></button>
+        <h3 className="font-bold text-sm mb-3">{item ? 'Edit Produk' : 'Tambah Produk'}</h3>
+        <form onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="space-y-3 text-xs">
+          <input type="text" required placeholder="Nama Produk" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full px-3 py-2 border rounded-lg" />
+          <select value={form.tenantId} onChange={e => setForm({...form, tenantId: e.target.value})} className="w-full px-3 py-2 border rounded-lg">
+            {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          <div className="flex gap-2">
+            <div><label className="text-[10px] font-bold text-emerald-600">Hrg Owner</label><input type="number" required value={form.priceOwner} onChange={e => setForm({...form, priceOwner: e.target.value})} className="w-full px-3 py-2 border rounded-lg" /></div>
+            <div><label className="text-[10px] font-bold text-indigo-600">Mrgn Panitia</label><input type="number" required value={form.priceOrganizer} onChange={e => setForm({...form, priceOrganizer: e.target.value})} className="w-full px-3 py-2 border rounded-lg" /></div>
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 mb-1 block">Upload Foto (Opsional)</label>
+            {form.imageUrl && <img src={form.imageUrl} alt="preview" className="w-16 h-16 object-cover rounded-lg mb-2 border" />}
+            <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full text-[10px]" />
+          </div>
+          <button type="submit" className="w-full py-2 bg-indigo-600 text-white font-bold rounded-lg">Simpan</button>
         </form>
       </div>
     </div>
