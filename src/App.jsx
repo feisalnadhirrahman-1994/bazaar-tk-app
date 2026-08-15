@@ -33,9 +33,12 @@ import {
   Layers,
   Copy,
   Printer,
+  Check,
+  Save,
+  Building,
   Download,
   FileText,
-  Check
+  Share2
 } from 'lucide-react';
 
 const INITIAL_TENANTS = [
@@ -121,6 +124,16 @@ const INITIAL_BATCHES = [
   }
 ];
 
+const INITIAL_CLASSES = [
+  { id: 'c1', name: 'Little Owl', phone: '628123456781' },
+  { id: 'c2', name: 'Playgroup / KB', phone: '628123456782' },
+  { id: 'c3', name: 'TK A1', phone: '628123456783' },
+  { id: 'c4', name: 'TK A2', phone: '628123456784' },
+  { id: 'c5', name: 'TK B1', phone: '628123456785' },
+  { id: 'c6', name: 'TK B2', phone: '628123456786' },
+  { id: 'c7', name: 'Umum / Tamu', phone: '628123456780' }
+];
+
 const INITIAL_ORDERS = [
   {
     orderId: 'BZ-101101',
@@ -152,84 +165,74 @@ const INITIAL_ORDERS = [
   }
 ];
 
-const INITIAL_KELAS_LIST = [
-  'Little Owl',
-  'Playgroup / KB',
-  'TK A1',
-  'TK A2',
-  'TK B1',
-  'TK B2',
-  'Umum / Tamu'
-];
-
-const INITIAL_CLASS_PIC_MAP = {
-  'Little Owl': '628123456781',
-  'Playgroup / KB': '628123456782',
-  'TK A1': '628123456783',
-  'TK A2': '628123456784',
-  'TK B1': '628123456785',
-  'TK B2': '628123456786',
-  'Umum / Tamu': '628123456780'
-};
-
 export default function App() {
   const [activeTab, setActiveTab] = useState('shop');
   const [adminSubTab, setAdminSubTab] = useState('batch_reports');
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   
-  // State Login Admin
+  // Login Form State
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
+
+  // Toast Notification State
+  const [toastMessage, setToastMessage] = useState('');
+
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(''), 3000);
+  };
+
+  // Persistent Auth Credentials
   const [adminAuth, setAdminAuth] = useState(() => {
-    const saved = localStorage.getItem('bazaar_admin_auth');
+    const saved = localStorage.getItem('ld_bazaar_admin_auth');
     return saved ? JSON.parse(saved) : { username: 'admin', password: 'admin123' };
   });
 
-  // State Persistent Storage (LocalStorage Sync)
+  // Persistent Settings
+  const [adminPhone, setAdminPhone] = useState(() => {
+    return localStorage.getItem('ld_bazaar_admin_phone') || '628123456780';
+  });
+
+  const [sheetWebhookUrl, setSheetWebhookUrl] = useState(() => {
+    return localStorage.getItem('ld_bazaar_sheet_webhook') || '';
+  });
+
+  // Dynamic Custom Classes List
+  const [classesList, setClassesList] = useState(() => {
+    const saved = localStorage.getItem('ld_bazaar_classes');
+    return saved ? JSON.parse(saved) : INITIAL_CLASSES;
+  });
+
+  // Persistent Core Data State
   const [tenants, setTenants] = useState(() => {
-    const saved = localStorage.getItem('bazaar_tenants');
+    const saved = localStorage.getItem('ld_bazaar_tenants');
     return saved ? JSON.parse(saved) : INITIAL_TENANTS;
   });
 
   const [products, setProducts] = useState(() => {
-    const saved = localStorage.getItem('bazaar_products');
+    const saved = localStorage.getItem('ld_bazaar_products');
     return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
   });
 
   const [batches, setBatches] = useState(() => {
-    const saved = localStorage.getItem('bazaar_batches');
+    const saved = localStorage.getItem('ld_bazaar_batches');
     return saved ? JSON.parse(saved) : INITIAL_BATCHES;
   });
 
   const [orders, setOrders] = useState(() => {
-    const saved = localStorage.getItem('bazaar_orders');
+    const saved = localStorage.getItem('ld_bazaar_orders');
     return saved ? JSON.parse(saved) : INITIAL_ORDERS;
   });
 
-  const [classPicMap, setClassPicMap] = useState(() => {
-    const saved = localStorage.getItem('bazaar_class_pics');
-    return saved ? JSON.parse(saved) : INITIAL_CLASS_PIC_MAP;
-  });
-
-  const [adminPhone, setAdminPhone] = useState(() => {
-    return localStorage.getItem('bazaar_admin_phone') || '628123456780';
-  });
-
-  // State Webhook Google Sheets
-  const [sheetWebhookUrl, setSheetWebhookUrl] = useState(() => {
-    return localStorage.getItem('bazaar_sheet_webhook') || '';
-  });
-
-  // State Keranjang Pembeli
+  // State Keranjang & Checkout
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [selectedTenantFilter, setSelectedTenantFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Form Checkout State
   const [checkoutData, setCheckoutData] = useState({
     namaAnak: '',
-    kelas: INITIAL_KELAS_LIST[0],
+    kelas: classesList[0]?.name || 'TK A1',
     namaOrtu: '',
     catatan: ''
   });
@@ -240,20 +243,31 @@ export default function App() {
   const [productModal, setProductModal] = useState({ isOpen: false, item: null });
   const [tenantModal, setTenantModal] = useState({ isOpen: false, item: null });
   const [batchModal, setBatchModal] = useState({ isOpen: false, item: null });
+  const [classModal, setClassModal] = useState({ isOpen: false, item: null });
 
-  // State Filter Laporan Batch
+  // Config Import / Export Modal
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importConfigJson, setImportConfigJson] = useState('');
+
+  // Laporan Filters
   const [reportSelectedBatchId, setReportSelectedBatchId] = useState('b1');
   const [reportSelectedStatus, setReportSelectedStatus] = useState('Paid');
 
-  // Sync state into LocalStorage
-  useEffect(() => { localStorage.setItem('bazaar_tenants', JSON.stringify(tenants)); }, [tenants]);
-  useEffect(() => { localStorage.setItem('bazaar_products', JSON.stringify(products)); }, [products]);
-  useEffect(() => { localStorage.setItem('bazaar_batches', JSON.stringify(batches)); }, [batches]);
-  useEffect(() => { localStorage.setItem('bazaar_orders', JSON.stringify(orders)); }, [orders]);
-  useEffect(() => { localStorage.setItem('bazaar_class_pics', JSON.stringify(classPicMap)); }, [classPicMap]);
-  useEffect(() => { localStorage.setItem('bazaar_admin_auth', JSON.stringify(adminAuth)); }, [adminAuth]);
-  useEffect(() => { localStorage.setItem('bazaar_admin_phone', adminPhone); }, [adminPhone]);
-  useEffect(() => { localStorage.setItem('bazaar_sheet_webhook', sheetWebhookUrl); }, [sheetWebhookUrl]);
+  useEffect(() => { localStorage.setItem('ld_bazaar_tenants', JSON.stringify(tenants)); }, [tenants]);
+  useEffect(() => { localStorage.setItem('ld_bazaar_products', JSON.stringify(products)); }, [products]);
+  useEffect(() => { localStorage.setItem('ld_bazaar_batches', JSON.stringify(batches)); }, [batches]);
+  useEffect(() => { localStorage.setItem('ld_bazaar_orders', JSON.stringify(orders)); }, [orders]);
+  useEffect(() => { localStorage.setItem('ld_bazaar_classes', JSON.stringify(classesList)); }, [classesList]);
+  useEffect(() => { localStorage.setItem('ld_bazaar_admin_auth', JSON.stringify(adminAuth)); }, [adminAuth]);
+  useEffect(() => { localStorage.setItem('ld_bazaar_admin_phone', adminPhone); }, [adminPhone]);
+  useEffect(() => { localStorage.setItem('ld_bazaar_sheet_webhook', sheetWebhookUrl); }, [sheetWebhookUrl]);
+
+  // Keep checkout default class valid
+  useEffect(() => {
+    if (classesList.length > 0 && !classesList.some(c => c.name === checkoutData.kelas)) {
+      setCheckoutData(prev => ({ ...prev, kelas: classesList[0].name }));
+    }
+  }, [classesList]);
 
   const activeBatch = useMemo(() => {
     const explicitActive = batches.find((b) => b.isActive);
@@ -286,6 +300,7 @@ export default function App() {
       setIsAdminLoggedIn(true);
       setLoginError('');
       setLoginForm({ username: '', password: '' });
+      showToast('Login Admin Berhasil!');
     } else {
       setLoginError('Username atau Password salah!');
     }
@@ -363,7 +378,7 @@ export default function App() {
 
     setOrders((prev) => [orderPayload, ...prev]);
 
-    // Kirim data transaksi ke Google Sheets Webhook jika URL terisi
+    // Send payload to Google Sheets Webhook if available
     if (sheetWebhookUrl) {
       try {
         fetch(sheetWebhookUrl, {
@@ -376,15 +391,17 @@ export default function App() {
           })
         });
       } catch (err) {
-        console.warn('Webhook Google Sheets Error:', err);
+        console.warn('Webhook error:', err);
       }
     }
 
-    const picPhoneForClass = classPicMap[checkoutData.kelas] || adminPhone;
+    // Find class PIC phone number
+    const targetClassObj = classesList.find((c) => c.name === checkoutData.kelas);
+    const picPhoneForClass = targetClassObj?.phone || adminPhone;
     let cleanPhone = picPhoneForClass.replace(/[^0-9]/g, '');
     if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
 
-    let waText = `*PEMESANAN BAZAAR TK (${activeBatch.name})*\n`;
+    let waText = `*PEMESANAN BAZAAR DANUS PTA LITTLE DARBI (${activeBatch.name})*\n`;
     waText += `-----------------------------------\n`;
     waText += `*No. Pesanan:* ${newOrderId}\n`;
     waText += `*Nama Anak:* ${checkoutData.namaAnak}\n`;
@@ -409,7 +426,7 @@ export default function App() {
     setCart([]);
     setIsCheckoutModalOpen(false);
     setIsCartOpen(false);
-    setCheckoutData({ namaAnak: '', kelas: INITIAL_KELAS_LIST[0], namaOrtu: '', catatan: '' });
+    setCheckoutData({ namaAnak: '', kelas: classesList[0]?.name || 'TK A1', namaOrtu: '', catatan: '' });
     setIsSubmitting(false);
 
     window.open(waUrl, '_blank');
@@ -485,7 +502,7 @@ export default function App() {
     if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
 
     const currentBatch = batches.find((b) => b.id === reportSelectedBatchId);
-    let text = `*REKAP PESANAN BAZAAR - ${tenantReport.tenantName.toUpperCase()}*\n`;
+    let text = `*REKAP PESANAN BAZAAR DANUS PTA LITTLE DARBI - ${tenantReport.tenantName.toUpperCase()}*\n`;
     text += `*Periode:* ${currentBatch?.name || '-'}\n`;
     text += `*Filter Status:* ${reportSelectedStatus}\n`;
     text += `-----------------------------------\n\n`;
@@ -539,7 +556,7 @@ export default function App() {
         <style>
           body { font-family: 'Helvetica Neue', Arial, sans-serif; padding: 25px; color: #1e293b; line-height: 1.4; }
           .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 20px; }
-          .header h1 { margin: 0; font-size: 20px; color: #0f172a; text-transform: uppercase; }
+          .header h1 { margin: 0; font-size: 18px; color: #0f172a; text-transform: uppercase; }
           .header p { margin: 3px 0; font-size: 12px; color: #64748b; }
           .meta-grid { display: flex; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 12px; }
           .meta-grid div strong { color: #0f172a; }
@@ -552,14 +569,13 @@ export default function App() {
           .sig-space { height: 60px; }
           @media print {
             body { padding: 0; }
-            .no-print { display: none; }
           }
         </style>
       </head>
       <body>
         <div class="header">
           <h1>LAPORAN REKAPITULASI PRODUKSI VENDOR</h1>
-          <p>BAZAAR TAHUNAN TK CERIA</p>
+          <p>BAZAAR DANUS PTA LITTLE DARBI</p>
         </div>
 
         <div class="meta-grid">
@@ -632,7 +648,7 @@ export default function App() {
 
         <div class="signatures">
           <div>
-            <p>Panitia Bazaar TK,</p>
+            <p>Panitia Bazaar PTA,</p>
             <div class="sig-space"></div>
             <p>_______________________</p>
           </div>
@@ -656,13 +672,51 @@ export default function App() {
     printWindow.document.close();
   };
 
-  const formatIndoDate = (dateStr) => {
-    if (!dateStr) return '-';
-    return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+  const exportConfigJSON = () => {
+    const configData = {
+      adminAuth,
+      adminPhone,
+      sheetWebhookUrl,
+      classesList,
+      tenants,
+      products,
+      batches
+    };
+    const jsonStr = JSON.stringify(configData, null, 2);
+    navigator.clipboard.writeText(jsonStr);
+    showToast('Kode Konfigurasi telah disalin ke Clipboard! Siap Ditempel.');
+  };
+
+  const handleImportConfig = (e) => {
+    e.preventDefault();
+    try {
+      const parsed = JSON.parse(importConfigJson);
+      if (parsed.adminAuth) setAdminAuth(parsed.adminAuth);
+      if (parsed.adminPhone) setAdminPhone(parsed.adminPhone);
+      if (parsed.sheetWebhookUrl !== undefined) setSheetWebhookUrl(parsed.sheetWebhookUrl);
+      if (parsed.classesList) setClassesList(parsed.classesList);
+      if (parsed.tenants) setTenants(parsed.tenants);
+      if (parsed.products) setProducts(parsed.products);
+      if (parsed.batches) setBatches(parsed.batches);
+
+      showToast('Konfigurasi & Data Berhasil Diimport!');
+      setIsImportModalOpen(false);
+      setImportConfigJson('');
+    } catch (err) {
+      alert('Format JSON Konfigurasi tidak valid! Pastikan menyalin teks kode konfigurasi yang benar.');
+    }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-24">
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-24 relative">
+      {/* Toast Banner Notification */}
+      {toastMessage && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-2xl text-xs font-bold flex items-center space-x-2 animate-bounce">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       {/* HEADER UTAMA */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md shadow-sm border-b border-slate-200">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -671,7 +725,9 @@ export default function App() {
               <School className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="font-bold text-lg leading-tight text-slate-900">Bazaar TK Ceria</h1>
+              <h1 className="font-extrabold text-base sm:text-lg leading-tight text-slate-900">
+                Bazaar DANUS PTA Little Darbi
+              </h1>
               <p className="text-xs text-slate-500">Pemesanan Online Stand & Produk</p>
             </div>
           </div>
@@ -716,7 +772,7 @@ export default function App() {
                       Batas: <strong>{formatIndoDate(activeBatch.startDate)}</strong> s/d <strong>{formatIndoDate(activeBatch.endDate)}</strong>
                     </span>
                   </div>
-                  <h2 className="text-lg sm:text-xl font-black mt-1">Pesan Makanan & Souvenir Bazaar TK</h2>
+                  <h2 className="text-lg sm:text-xl font-black mt-1">Pesan Makanan & Souvenir Bazaar DANUS</h2>
                   <p className="text-amber-100 text-xs">Pesanan akan diproses sesuai periode {activeBatch.name}.</p>
                 </div>
               </div>
@@ -967,8 +1023,8 @@ export default function App() {
                   onChange={(e) => setCheckoutData({ ...checkoutData, kelas: e.target.value })}
                   className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
                 >
-                  {INITIAL_KELAS_LIST.map((k) => (
-                    <option key={k} value={k}>{k}</option>
+                  {classesList.map((c) => (
+                    <option key={c.id} value={c.name}>{c.name}</option>
                   ))}
                 </select>
               </div>
@@ -1032,8 +1088,8 @@ export default function App() {
                 <div className="bg-indigo-100 text-indigo-700 w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-sm">
                   <ShieldCheck className="w-6 h-6" />
                 </div>
-                <h2 className="text-xl font-black text-slate-900">Login Admin Panitia</h2>
-                <p className="text-xs text-slate-500 mt-1">Masukkan Username & Password untuk mengelola sistem.</p>
+                <h2 className="text-xl font-black text-slate-900">Login Admin Panitia PTA</h2>
+                <p className="text-xs text-slate-500 mt-1">Bazaar DANUS PTA Little Darbi</p>
               </div>
 
               {loginError && (
@@ -1080,7 +1136,7 @@ export default function App() {
                   </div>
                   <div>
                     <span className="text-[10px] text-indigo-300 font-bold uppercase tracking-wider block">Sesi Login Aktif</span>
-                    <h3 className="font-bold text-sm">Panel Admin Bazaar TK</h3>
+                    <h3 className="font-bold text-sm">Panel Admin DANUS PTA Little Darbi</h3>
                   </div>
                 </div>
                 <button onClick={() => setIsAdminLoggedIn(false)} className="px-3 py-1.5 bg-red-500/80 hover:bg-red-600 text-white rounded-xl text-xs font-semibold">
@@ -1088,7 +1144,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Sub Navigasi Admin */}
               <div className="flex items-center space-x-2 border-b border-slate-200 pb-3 overflow-x-auto scrollbar-none">
                 <button
                   onClick={() => setAdminSubTab('batch_reports')}
@@ -1147,7 +1202,7 @@ export default function App() {
                   }`}
                 >
                   <Users className="w-4 h-4" />
-                  <span>Routing WA Kelas</span>
+                  <span>Routing WA Kelas ({classesList.length})</span>
                 </button>
 
                 <button
@@ -1162,11 +1217,10 @@ export default function App() {
               </div>
 
               {/* ------------------------------------------------------------- */}
-              {/* SUBTAB 1: REKAPITULASI TENANT & ACTION BUTTONS */}
+              {/* SUBTAB 1: REKAPITULASI TENANT & BATCH REPORTS */}
               {/* ------------------------------------------------------------- */}
               {adminSubTab === 'batch_reports' && (
                 <div className="space-y-6">
-                  {/* BARIS FILTER */}
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4 justify-between sm:items-center">
                     <div>
                       <h3 className="font-bold text-slate-900 text-base">Laporan Rekapitulasi Per Stand</h3>
@@ -1203,14 +1257,12 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* KARTU TENANT & DUA TOMBOL AKSI */}
                   <div className="space-y-6">
                     {batchReportData.map((tenantRep) => {
                       const itemNames = Object.keys(tenantRep.itemTotalsMap);
 
                       return (
                         <div key={tenantRep.tenantId} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                          {/* Header Tenant */}
                           <div className="p-4 bg-slate-900 text-white flex flex-col sm:flex-row justify-between sm:items-center gap-3">
                             <div>
                               <span className="text-[10px] bg-amber-500 text-white font-black px-2 py-0.5 rounded uppercase tracking-wider">
@@ -1222,7 +1274,6 @@ export default function App() {
                               </p>
                             </div>
 
-                            {/* DUA TOMBOL AKSI UTAMA: DIRECT WA & DOWNLOAD PDF */}
                             <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
                               <button
                                 onClick={() => sendDirectWAToTenant(tenantRep)}
@@ -1243,7 +1294,6 @@ export default function App() {
                           </div>
 
                           <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {/* Detail Pemesan */}
                             <div className="md:col-span-2 space-y-3">
                               <h5 className="font-bold text-xs uppercase tracking-wider text-slate-400">
                                 📋 Detail Pesanan Masuk ({tenantRep.customerOrdersDetail.length} Pembeli)
@@ -1276,7 +1326,6 @@ export default function App() {
                               )}
                             </div>
 
-                            {/* Summary Dapur */}
                             <div className="bg-amber-50/70 p-4 rounded-xl border border-amber-200 flex flex-col justify-between">
                               <div>
                                 <h5 className="font-bold text-xs uppercase tracking-wider text-amber-900 mb-3 flex items-center">
@@ -1319,7 +1368,7 @@ export default function App() {
               )}
 
               {/* ------------------------------------------------------------- */}
-              {/* SUBTAB 2: KELOLA STAND / TENANT & NO WA */}
+              {/* SUBTAB 2: KELOLA STAND / TENANT */}
               {/* ------------------------------------------------------------- */}
               {adminSubTab === 'tenants' && (
                 <div className="space-y-4">
@@ -1355,11 +1404,11 @@ export default function App() {
                             </span>
                           </div>
                           <div className="pt-3 border-t border-slate-100 flex justify-end space-x-2">
-                            <button onClick={() => setTenantModal({ isOpen: true, item: t })} className="px-2.5 py-1 text-xs text-blue-600 bg-blue-50 rounded-lg font-semibold">
-                              Edit
+                            <button onClick={() => setTenantModal({ isOpen: true, item: t })} className="px-2.5 py-1 text-xs text-blue-600 bg-blue-50 rounded-lg font-semibold flex items-center">
+                              <Edit3 className="w-3 h-3 mr-1" /> Edit
                             </button>
-                            <button onClick={() => setTenants(tenants.filter((item) => item.id !== t.id))} className="px-2.5 py-1 text-xs text-red-600 bg-red-50 rounded-lg font-semibold">
-                              Hapus
+                            <button onClick={() => setTenants(tenants.filter((item) => item.id !== t.id))} className="px-2.5 py-1 text-xs text-red-600 bg-red-50 rounded-lg font-semibold flex items-center">
+                              <Trash2 className="w-3 h-3 mr-1" /> Hapus
                             </button>
                           </div>
                         </div>
@@ -1369,7 +1418,9 @@ export default function App() {
                 </div>
               )}
 
-              {/* SUBTAB 3: BATCHES */}
+              {/* ------------------------------------------------------------- */}
+              {/* SUBTAB 3: KELOLA BATCH PERIODE */}
+              {/* ------------------------------------------------------------- */}
               {adminSubTab === 'batches' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1403,53 +1454,107 @@ export default function App() {
                 </div>
               )}
 
-              {/* SUBTAB 4: PRODUCTS */}
+              {/* ------------------------------------------------------------- */}
+              {/* SUBTAB 4: SETUP PRODUK & HARGA (FIXED RESPONSIVE TABLE & ACTIONS) */}
+              {/* ------------------------------------------------------------- */}
               {adminSubTab === 'products' && (
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h3 className="font-bold text-slate-900 text-base">Setup Produk & Split Harga</h3>
-                    <button onClick={() => setProductModal({ isOpen: true, item: null })} className="px-3.5 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center space-x-1">
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-base">Database Produk & Split Harga</h3>
+                      <p className="text-xs text-slate-500">
+                        Atur produk, foto thumbnail, serta 2 komponen harga (Harga Owner + Margin Panitia).
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setProductModal({ isOpen: true, item: null })}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center space-x-1.5 shadow-md"
+                    >
                       <Plus className="w-4 h-4" />
-                      <span>Tambah Produk</span>
+                      <span>Tambah Produk Baru</span>
                     </button>
                   </div>
-                  <div className="bg-white rounded-2xl border overflow-hidden text-xs">
-                    <table className="w-full text-left">
-                      <thead className="bg-slate-100 text-[10px] uppercase text-slate-500">
-                        <tr>
-                          <th className="p-3">Produk</th>
-                          <th className="p-3">Stand</th>
-                          <th className="p-3">Harga Owner</th>
-                          <th className="p-3">Margin Panitia</th>
-                          <th className="p-3">Harga Jual</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {products.map((p) => {
-                          const tenant = tenants.find((t) => t.id === p.tenantId);
-                          return (
-                            <tr key={p.id}>
-                              <td className="p-3 font-bold">{p.name}</td>
-                              <td className="p-3 text-slate-500">{tenant?.name}</td>
-                              <td className="p-3 text-emerald-700">{formatRupiah(p.priceOwner)}</td>
-                              <td className="p-3 text-indigo-700">+ {formatRupiah(p.priceOrganizer)}</td>
-                              <td className="p-3 font-black text-amber-600">{formatRupiah(p.priceOwner + p.priceOrganizer)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+
+                  {/* Responsive Scrollable Table Wrapper */}
+                  <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                    <div className="overflow-x-auto w-full">
+                      <table className="w-full text-left text-xs min-w-[700px]">
+                        <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] tracking-wider">
+                          <tr>
+                            <th className="p-3.5 w-14">Foto</th>
+                            <th className="p-3.5">Nama Produk</th>
+                            <th className="p-3.5">Stand / Tenant</th>
+                            <th className="p-3.5 text-emerald-700">Harga Owner</th>
+                            <th className="p-3.5 text-indigo-700">Margin Panitia</th>
+                            <th className="p-3.5 font-bold text-amber-700">Harga Jual</th>
+                            <th className="p-3.5 text-center w-28 bg-slate-100">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {products.map((p) => {
+                            const tenant = tenants.find((t) => t.id === p.tenantId);
+                            const sellingPrice = p.priceOwner + p.priceOrganizer;
+                            return (
+                              <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                                <td className="p-3">
+                                  {p.imageUrl ? (
+                                    <img src={p.imageUrl} alt={p.name} className="w-10 h-10 object-cover rounded-lg border border-slate-200 shrink-0" />
+                                  ) : (
+                                    <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 shrink-0">
+                                      <ImageIcon className="w-5 h-5" />
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="p-3 font-bold text-slate-900">
+                                  <span className="block">{p.name}</span>
+                                  <span className="text-[10px] text-slate-400 font-normal">{p.category}</span>
+                                </td>
+                                <td className="p-3 font-medium text-slate-600">{tenant?.name || '-'}</td>
+                                <td className="p-3 text-emerald-700 font-semibold">{formatRupiah(p.priceOwner)}</td>
+                                <td className="p-3 text-indigo-700 font-semibold">+ {formatRupiah(p.priceOrganizer)}</td>
+                                <td className="p-3 font-black text-amber-600 text-sm">{formatRupiah(sellingPrice)}</td>
+                                <td className="p-3 text-center">
+                                  <div className="flex items-center justify-center space-x-1">
+                                    <button
+                                      onClick={() => setProductModal({ isOpen: true, item: p })}
+                                      className="p-1.5 text-blue-600 hover:bg-blue-50 bg-blue-50/50 rounded-lg font-semibold flex items-center"
+                                      title="Edit Produk"
+                                    >
+                                      <Edit3 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        if (confirm(`Yakin ingin menghapus produk "${p.name}"?`)) {
+                                          setProducts(products.filter((item) => item.id !== p.id));
+                                          showToast(`Produk "${p.name}" berhasil dihapus.`);
+                                        }
+                                      }}
+                                      className="p-1.5 text-red-600 hover:bg-red-50 bg-red-50/50 rounded-lg font-semibold flex items-center"
+                                      title="Hapus Produk"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* SUBTAB 5: ORDERS */}
+              {/* ------------------------------------------------------------- */}
+              {/* SUBTAB 5: SEMUA PESANAN MASUK */}
+              {/* ------------------------------------------------------------- */}
               {adminSubTab === 'orders' && (
                 <div className="space-y-4">
                   <h3 className="font-bold text-slate-900 text-base">Semua Pesanan Masuk ({orders.length})</h3>
                   <div className="space-y-3">
                     {orders.map((ord) => (
-                      <div key={ord.orderId} className="bg-white p-4 rounded-2xl border text-xs space-y-2">
+                      <div key={ord.orderId} className="bg-white p-4 rounded-2xl border border-slate-200 text-xs space-y-2 shadow-sm">
                         <div className="flex justify-between font-bold">
                           <span className="text-indigo-700">{ord.orderId} - {ord.customer.namaAnak} ({ord.customer.kelas})</span>
                           <select
@@ -1480,81 +1585,182 @@ export default function App() {
                 </div>
               )}
 
-              {/* SUBTAB 6: ROUTING WA KELAS */}
+              {/* ------------------------------------------------------------- */}
+              {/* SUBTAB 6: DYNAMIC CLASS MANAGEMENT & ROUTING WA KELAS */}
+              {/* ------------------------------------------------------------- */}
               {adminSubTab === 'class_pics' && (
-                <div className="bg-white p-6 rounded-2xl border border-slate-200 space-y-4 text-xs shadow-sm">
-                  <div>
-                    <h3 className="font-bold text-base text-slate-900">Setup Routing WA per Kelas</h3>
-                    <p className="text-slate-500">Masukkan nomor WhatsApp PIC/Wali Kelas yang menerima order sesuai kelas anak.</p>
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 space-y-6 shadow-sm">
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                    <div>
+                      <h3 className="font-bold text-base text-slate-900">Kelola Daftar Kelas & Routing WA PIC</h3>
+                      <p className="text-xs text-slate-500">
+                        Anda dapat menambah, mengubah nama kelas, atau menghapus kelas, serta mengatur nomor WA PIC/Wali Kelas.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setClassModal({ isOpen: true, item: null })}
+                      className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1 shadow-sm self-start sm:self-auto"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Tambah Kelas Baru</span>
+                    </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {INITIAL_KELAS_LIST.map((k) => (
-                      <div key={k} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-                        <label className="font-bold text-slate-800 block">{k}</label>
-                        <input
-                          type="text"
-                          placeholder="628123456789"
-                          value={classPicMap[k] || ''}
-                          onChange={(e) => setClassPicMap({ ...classPicMap, [k]: e.target.value })}
-                          className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs"
-                        />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    {classesList.map((c) => (
+                      <div key={c.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 flex flex-col justify-between">
+                        <div>
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="font-bold text-slate-900 text-sm flex items-center">
+                              <School className="w-3.5 h-3.5 mr-1 text-amber-600" /> {c.name}
+                            </span>
+                            <div className="flex items-center space-x-1">
+                              <button
+                                onClick={() => setClassModal({ isOpen: true, item: c })}
+                                className="p-1 text-blue-600 hover:bg-blue-100 rounded"
+                                title="Edit Kelas"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (classesList.length <= 1) return alert('Sistem harus memiliki minimal 1 kelas!');
+                                  if (confirm(`Hapus kelas "${c.name}"?`)) {
+                                    setClassesList(classesList.filter((item) => item.id !== c.id));
+                                    showToast(`Kelas ${c.name} dihapus.`);
+                                  }
+                                }}
+                                className="p-1 text-red-600 hover:bg-red-100 rounded"
+                                title="Hapus Kelas"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] text-slate-500 font-bold block">No. WA PIC / Wali Kelas:</label>
+                            <input
+                              type="text"
+                              placeholder="628123456789"
+                              value={c.phone}
+                              onChange={(e) => {
+                                const newPhone = e.target.value;
+                                setClassesList(classesList.map((item) => item.id === c.id ? { ...item, phone: newPhone } : item));
+                              }}
+                              className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs"
+                            />
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* SUBTAB 7: INTEGRASI WEBHOOK GOOGLE SHEET & SANDI */}
+              {/* ------------------------------------------------------------- */}
+              {/* SUBTAB 7: INTEGRASI WEBHOOK & SAVE SETTINGS BUTTON */}
+              {/* ------------------------------------------------------------- */}
               {adminSubTab === 'settings' && (
-                <div className="max-w-xl bg-white rounded-2xl border border-slate-200 p-6 space-y-5 shadow-sm text-xs">
-                  <div>
-                    <h3 className="font-bold text-base text-slate-900">Integrasi Google Sheets & Sandi Admin</h3>
-                    <p className="text-slate-500">Tempelkan URL Apps Script di bawah agar pesanan otomatis tercatat di Google Sheet.</p>
+                <div className="space-y-6">
+                  <div className="max-w-xl bg-white rounded-2xl border border-slate-200 p-6 space-y-5 shadow-sm text-xs">
+                    <div>
+                      <h3 className="font-bold text-base text-slate-900">Pengaturan Webhook & Akun Admin</h3>
+                      <p className="text-slate-500">Sesuaikan kredensial login admin, nomor WA utama, dan webhook Google Sheet.</p>
+                    </div>
+
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        // Save directly to LocalStorage
+                        localStorage.setItem('ld_bazaar_sheet_webhook', sheetWebhookUrl);
+                        localStorage.setItem('ld_bazaar_admin_phone', adminPhone);
+                        localStorage.setItem('ld_bazaar_admin_auth', JSON.stringify(adminAuth));
+                        showToast('Semua Pengaturan Berhasil Disimpan!');
+                      }}
+                      className="space-y-4"
+                    >
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Google Sheets Webhook URL</label>
+                        <input
+                          type="url"
+                          placeholder="https://script.google.com/macros/s/.../exec"
+                          value={sheetWebhookUrl}
+                          onChange={(e) => setSheetWebhookUrl(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                        />
+                        <span className="text-[10px] text-slate-400 mt-1 block">
+                          Setiap kali customer checkout, data pesanan otomatis terkirim ke spreadsheet ini.
+                        </span>
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-100">
+                        <label className="block font-bold text-slate-700 mb-1">No. WA Admin Utama (Fallback)</label>
+                        <input
+                          type="text"
+                          value={adminPhone}
+                          onChange={(e) => setAdminPhone(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+                        />
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-100">
+                        <label className="block font-bold text-slate-700 mb-1">Username Admin Login</label>
+                        <input
+                          type="text"
+                          value={adminAuth.username}
+                          onChange={(e) => setAdminAuth({ ...adminAuth, username: e.target.value })}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">Password Admin Login</label>
+                        <input
+                          type="password"
+                          value={adminAuth.password}
+                          onChange={(e) => setAdminAuth({ ...adminAuth, password: e.target.value })}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+                        />
+                      </div>
+
+                      {/* TOMBOL SIMPAN PENGATURAN EKSPLISIT */}
+                      <button
+                        type="submit"
+                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md flex items-center justify-center space-x-2 text-sm transition-all"
+                      >
+                        <Save className="w-4 h-4" />
+                        <span>Simpan Semua Pengaturan</span>
+                      </button>
+                    </form>
                   </div>
 
-                  <div className="space-y-4">
+                  {/* CROSS-DEVICE CONFIGURATION BACKUP & SYNC TOOL */}
+                  <div className="max-w-xl bg-white rounded-2xl border border-slate-200 p-6 space-y-4 shadow-sm text-xs">
                     <div>
-                      <label className="block font-bold text-slate-700 mb-1">Google Sheets Webhook URL</label>
-                      <input
-                        type="url"
-                        placeholder="https://script.google.com/macros/s/.../exec"
-                        value={sheetWebhookUrl}
-                        onChange={(e) => setSheetWebhookUrl(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
-                      />
-                      <span className="text-[10px] text-slate-400 mt-1 block">
-                        Setiap kali customer checkout, data pesanan otomatis terkirim ke spreadsheet ini.
-                      </span>
+                      <h4 className="font-bold text-sm text-slate-900 flex items-center">
+                        <Share2 className="w-4 h-4 mr-1.5 text-indigo-600" /> Transfer / Sync Konfigurasi ke Device / Browser Lain
+                      </h4>
+                      <p className="text-slate-500 mt-1">
+                        Agar pengaturan (Webhook URL, Password Admin, Routing Kelas, & Produk) dapat digunakan di HP/Laptop lain, Anda dapat mengeksport kode konfigurasi lalu menempelkannya di device lain.
+                      </p>
                     </div>
 
-                    <div className="pt-3 border-t border-slate-100">
-                      <label className="block font-bold text-slate-700 mb-1">No. WA Admin Utama (Fallback)</label>
-                      <input
-                        type="text"
-                        value={adminPhone}
-                        onChange={(e) => setAdminPhone(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
-                      />
-                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={exportConfigJSON}
+                        className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold flex items-center space-x-1.5 border border-indigo-200"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Salin Teks Konfigurasi (Export)</span>
+                      </button>
 
-                    <div className="pt-3 border-t border-slate-100">
-                      <label className="block font-bold text-slate-700 mb-1">Username Admin Login</label>
-                      <input
-                        type="text"
-                        value={adminAuth.username}
-                        onChange={(e) => setAdminAuth({ ...adminAuth, username: e.target.value })}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block font-bold text-slate-700 mb-1">Password Admin Login</label>
-                      <input
-                        type="password"
-                        value={adminAuth.password}
-                        onChange={(e) => setAdminAuth({ ...adminAuth, password: e.target.value })}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
-                      />
+                      <button
+                        onClick={() => setIsImportModalOpen(true)}
+                        className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold flex items-center space-x-1.5 border border-slate-300"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Tempel Konfigurasi (Import)</span>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1573,15 +1779,17 @@ export default function App() {
           onSave={(formData) => {
             if (productModal.item) {
               setProducts(products.map((p) => (p.id === productModal.item.id ? { ...p, ...formData } : p)));
+              showToast('Produk berhasil diperbarui.');
             } else {
               setProducts([...products, { ...formData, id: 'p-' + Date.now(), available: true }]);
+              showToast('Produk baru berhasil ditambahkan.');
             }
             setProductModal({ isOpen: false, item: null });
           }}
         />
       )}
 
-      {/* MODAL EDIT / TAMBAH TENANT (INCLUDE PHONE NUMBER) */}
+      {/* MODAL TENANT */}
       {tenantModal.isOpen && (
         <ModalTenantForm
           item={tenantModal.item}
@@ -1589,24 +1797,126 @@ export default function App() {
           onSave={(formData) => {
             if (tenantModal.item) {
               setTenants(tenants.map((t) => (t.id === tenantModal.item.id ? { ...t, ...formData } : t)));
+              showToast('Data Stand diperbarui.');
             } else {
               setTenants([...tenants, { ...formData, id: 't-' + Date.now() }]);
+              showToast('Stand baru ditambahkan.');
             }
             setTenantModal({ isOpen: false, item: null });
           }}
         />
       )}
 
-      {/* MODAL BATCH FORM */}
+      {/* MODAL BATCH */}
       {batchModal.isOpen && (
         <ModalBatchForm
           onClose={() => setBatchModal({ isOpen: false, item: null })}
           onSave={(formData) => {
             setBatches([...batches, { ...formData, id: 'b-' + Date.now(), isActive: false }]);
+            showToast('Batch baru dibuat.');
             setBatchModal({ isOpen: false, item: null });
           }}
         />
       )}
+
+      {/* MODAL EDIT / TAMBAH KELAS */}
+      {classModal.isOpen && (
+        <ModalClassForm
+          item={classModal.item}
+          onClose={() => setClassModal({ isOpen: false, item: null })}
+          onSave={(formData) => {
+            if (classModal.item) {
+              setClassesList(classesList.map((c) => (c.id === classModal.item.id ? { ...c, ...formData } : c)));
+              showToast('Data Kelas diperbarui.');
+            } else {
+              setClassesList([...classesList, { ...formData, id: 'c-' + Date.now() }]);
+              showToast('Kelas baru ditambahkan.');
+            }
+            setClassModal({ isOpen: false, item: null });
+          }}
+        />
+      )}
+
+      {/* MODAL IMPORT CONFIG */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative text-xs space-y-3">
+            <button onClick={() => setIsImportModalOpen(false)} className="absolute top-4 right-4 text-slate-400">
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-base font-bold text-slate-900">Import Konfigurasi / Sync Device</h3>
+            <p className="text-slate-500">Tempelkan teks kode JSON konfigurasi dari device lain di bawah ini:</p>
+
+            <form onSubmit={handleImportConfig} className="space-y-3">
+              <textarea
+                rows={6}
+                required
+                placeholder='{"adminPhone": "628...", ...}'
+                value={importConfigJson}
+                onChange={(e) => setImportConfigJson(e.target.value)}
+                className="w-full p-3 bg-slate-50 border rounded-xl font-mono text-[10px]"
+              />
+              <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">
+                Terapkan Konfigurasi
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ModalClassForm({ item, onClose, onSave }) {
+  const [name, setName] = useState(item?.name || '');
+  const [phone, setPhone] = useState(item?.phone || '');
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+      <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative text-xs space-y-3">
+        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400">
+          <X className="w-5 h-5" />
+        </button>
+        <h3 className="text-base font-bold text-slate-900">
+          {item ? 'Edit Kelas' : 'Tambah Kelas Baru'}
+        </h3>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSave({ name, phone });
+          }}
+          className="space-y-3"
+        >
+          <div>
+            <label className="block font-semibold mb-1">Nama Kelas</label>
+            <input
+              type="text"
+              required
+              placeholder="Contoh: TK A3 / Little Owl 2"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
+            />
+          </div>
+
+          <div>
+            <label className="block font-semibold mb-1">No. WA PIC Kelas</label>
+            <input
+              type="text"
+              required
+              placeholder="Contoh: 628123456789"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
+            />
+          </div>
+
+          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">
+            Simpan Kelas
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
@@ -1618,11 +1928,11 @@ function ModalTenantForm({ item, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative">
+      <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative text-xs space-y-3">
         <button onClick={onClose} className="absolute top-4 right-4 text-slate-400">
           <X className="w-5 h-5" />
         </button>
-        <h3 className="text-base font-bold text-slate-900 mb-4">
+        <h3 className="text-base font-bold text-slate-900">
           {item ? 'Edit Stand/Tenant' : 'Tambah Stand Baru'}
         </h3>
 
@@ -1631,7 +1941,7 @@ function ModalTenantForm({ item, onClose, onSave }) {
             e.preventDefault();
             onSave({ name, owner, phone });
           }}
-          className="space-y-3 text-xs"
+          className="space-y-3"
         >
           <div>
             <label className="block font-semibold mb-1">Nama Stand / Tenant</label>
@@ -1667,12 +1977,9 @@ function ModalTenantForm({ item, onClose, onSave }) {
               onChange={(e) => setPhone(e.target.value)}
               className="w-full px-3 py-2 bg-slate-50 border border-emerald-200 rounded-xl"
             />
-            <span className="text-[10px] text-slate-400 mt-1 block">
-              Nomor ini digunakan untuk mengirim rekap pesanan langsung via WA.
-            </span>
           </div>
 
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md mt-2">
+          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">
             Simpan Stand
           </button>
         </form>
@@ -1694,18 +2001,20 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative text-xs space-y-3">
         <button onClick={onClose} className="absolute top-4 right-4 text-slate-400">
           <X className="w-5 h-5" />
         </button>
-        <h3 className="text-base font-bold text-slate-900 mb-4">Setup Produk Baru</h3>
+        <h3 className="text-base font-bold text-slate-900">
+          {item ? 'Edit Produk' : 'Setup Produk Baru'}
+        </h3>
 
         <form
           onSubmit={(e) => {
             e.preventDefault();
             onSave({ ...form, priceOwner: Number(form.priceOwner), priceOrganizer: Number(form.priceOrganizer) });
           }}
-          className="space-y-3 text-xs"
+          className="space-y-3"
         >
           <div>
             <label className="block font-semibold mb-1">Nama Produk</label>
@@ -1764,7 +2073,7 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
             />
           </div>
 
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md mt-2">
+          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">
             Simpan Produk
           </button>
         </form>
@@ -1783,18 +2092,18 @@ function ModalBatchForm({ onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative">
+      <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative text-xs space-y-3">
         <button onClick={onClose} className="absolute top-4 right-4 text-slate-400">
           <X className="w-5 h-5" />
         </button>
-        <h3 className="text-base font-bold text-slate-900 mb-4">Buat Batch Periode Baru</h3>
+        <h3 className="text-base font-bold text-slate-900">Buat Batch Periode Baru</h3>
 
         <form
           onSubmit={(e) => {
             e.preventDefault();
             onSave(form);
           }}
-          className="space-y-3 text-xs"
+          className="space-y-3"
         >
           <div>
             <label className="block font-semibold mb-1">Nama Batch</label>
@@ -1830,7 +2139,7 @@ function ModalBatchForm({ onClose, onSave }) {
             />
           </div>
 
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md mt-2">
+          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">
             Simpan Batch
           </button>
         </form>
