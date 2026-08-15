@@ -256,7 +256,111 @@ export default function App() {
   useEffect(() => { localStorage.setItem('bazaar_sheet_webhook', sheetWebhookUrl); }, [sheetWebhookUrl]);
 
   const activeBatch = useMemo(() => {
-<!-- ... existing code ... />
+    const explicitActive = batches.find((b) => b.isActive);
+    if (explicitActive) return explicitActive;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    return batches.find((b) => todayStr >= b.startDate && todayStr <= b.endDate) || null;
+  }, [batches]);
+
+  const orderStatusInfo = useMemo(() => {
+    if (!activeBatch) {
+      return { isOpen: false, reason: 'Saat ini belum ada Periode Batch Pemesanan yang dibuka oleh Admin.' };
+    }
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (todayStr < activeBatch.startDate) {
+      return { isOpen: false, reason: `Pemesanan ${activeBatch.name} baru dibuka pada ${activeBatch.startDate}.` };
+    }
+    if (todayStr > activeBatch.endDate) {
+      return { isOpen: false, reason: `Pemesanan ${activeBatch.name} telah berakhir pada ${activeBatch.endDate}.` };
+    }
+    return { isOpen: true, reason: `Sedang Dibuka: ${activeBatch.name}` };
+  }, [activeBatch]);
+
+  const formatRupiah = (num) => {
+    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num || 0);
+  };
+
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+    if (loginForm.username.trim() === adminAuth.username && loginForm.password.trim() === adminAuth.password) {
+      setIsAdminLoggedIn(true);
+      setLoginError('');
+      setLoginForm({ username: '', password: '' });
+    } else {
+      setLoginError('Username atau Password salah!');
+    }
+  };
+
+  const addToCart = (product) => {
+    if (!orderStatusInfo.isOpen) return;
+    setCart((prev) => {
+      const existing = prev.find((item) => item.id === product.id);
+      if (existing) {
+        return prev.map((item) => item.id === product.id ? { ...item, qty: item.qty + 1 } : item);
+      }
+      return [...prev, { ...product, qty: 1 }];
+    });
+  };
+
+  const updateCartQty = (productId, delta) => {
+    setCart((prev) =>
+      prev
+        .map((item) => {
+          if (item.id === productId) {
+            const newQty = item.qty + delta;
+            return newQty > 0 ? { ...item, qty: newQty } : null;
+          }
+          return item;
+        })
+        .filter(Boolean)
+    );
+  };
+
+  const cartSummary = useMemo(() => {
+    return cart.reduce(
+      (acc, item) => {
+        const itemSellingPrice = item.priceOwner + item.priceOrganizer;
+        acc.totalSellingPrice += itemSellingPrice * item.qty;
+        acc.totalOwnerPrice += item.priceOwner * item.qty;
+        acc.totalOrganizerPrice += item.priceOrganizer * item.qty;
+        acc.totalItems += item.qty;
+        return acc;
+      },
+      { totalSellingPrice: 0, totalOwnerPrice: 0, totalOrganizerPrice: 0, totalItems: 0 }
+    );
+  }, [cart]);
+
+  const handleCheckoutSubmit = async (e) => {
+    e.preventDefault();
+    if (!orderStatusInfo.isOpen || !activeBatch) return alert(orderStatusInfo.reason);
+    if (!checkoutData.namaAnak.trim() || cart.length === 0) return;
+
+    setIsSubmitting(true);
+    const newOrderId = 'BZ-' + Math.floor(100000 + Math.random() * 900000);
+    const orderDate = new Date().toISOString();
+
+    const orderPayload = {
+      orderId: newOrderId,
+      batchId: activeBatch.id,
+      date: orderDate,
+      customer: { ...checkoutData },
+      items: cart.map((item) => ({
+        id: item.id,
+        name: item.name,
+        tenantId: item.tenantId,
+        tenantName: tenants.find((t) => t.id === item.tenantId)?.name || 'Tenant',
+        priceOwner: item.priceOwner,
+        priceOrganizer: item.priceOrganizer,
+        sellingPrice: item.priceOwner + item.priceOrganizer,
+        qty: item.qty,
+        subtotal: (item.priceOwner + item.priceOrganizer) * item.qty
+      })),
+      totalAmount: cartSummary.totalSellingPrice,
+      totalOwnerShare: cartSummary.totalOwnerPrice,
+      totalOrganizerShare: cartSummary.totalOrganizerPrice,
+      status: 'Unpaid'
+    };
+
     setOrders((prev) => [orderPayload, ...prev]);
 
     // Kirim data transaksi ke Google Sheets Webhook jika URL terisi
@@ -1265,7 +1369,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* SUBTAB LAINNYA: BATCHES, PRODUCTS, ORDERS */}
+              {/* SUBTAB 3: BATCHES */}
               {adminSubTab === 'batches' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1294,7 +1398,89 @@ export default function App() {
                           </button>
                         </div>
                       </div>
-              {/* SUBTAB ROUTING WA KELAS */}
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* SUBTAB 4: PRODUCTS */}
+              {adminSubTab === 'products' && (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-bold text-slate-900 text-base">Setup Produk & Split Harga</h3>
+                    <button onClick={() => setProductModal({ isOpen: true, item: null })} className="px-3.5 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center space-x-1">
+                      <Plus className="w-4 h-4" />
+                      <span>Tambah Produk</span>
+                    </button>
+                  </div>
+                  <div className="bg-white rounded-2xl border overflow-hidden text-xs">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-100 text-[10px] uppercase text-slate-500">
+                        <tr>
+                          <th className="p-3">Produk</th>
+                          <th className="p-3">Stand</th>
+                          <th className="p-3">Harga Owner</th>
+                          <th className="p-3">Margin Panitia</th>
+                          <th className="p-3">Harga Jual</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {products.map((p) => {
+                          const tenant = tenants.find((t) => t.id === p.tenantId);
+                          return (
+                            <tr key={p.id}>
+                              <td className="p-3 font-bold">{p.name}</td>
+                              <td className="p-3 text-slate-500">{tenant?.name}</td>
+                              <td className="p-3 text-emerald-700">{formatRupiah(p.priceOwner)}</td>
+                              <td className="p-3 text-indigo-700">+ {formatRupiah(p.priceOrganizer)}</td>
+                              <td className="p-3 font-black text-amber-600">{formatRupiah(p.priceOwner + p.priceOrganizer)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* SUBTAB 5: ORDERS */}
+              {adminSubTab === 'orders' && (
+                <div className="space-y-4">
+                  <h3 className="font-bold text-slate-900 text-base">Semua Pesanan Masuk ({orders.length})</h3>
+                  <div className="space-y-3">
+                    {orders.map((ord) => (
+                      <div key={ord.orderId} className="bg-white p-4 rounded-2xl border text-xs space-y-2">
+                        <div className="flex justify-between font-bold">
+                          <span className="text-indigo-700">{ord.orderId} - {ord.customer.namaAnak} ({ord.customer.kelas})</span>
+                          <select
+                            value={ord.status}
+                            onChange={(e) => {
+                              const newSt = e.target.value;
+                              setOrders(orders.map((o) => (o.orderId === ord.orderId ? { ...o, status: newSt } : o)));
+                            }}
+                            className="bg-slate-100 font-bold px-2 py-1 rounded"
+                          >
+                            <option value="Unpaid">Unpaid</option>
+                            <option value="Paid">Paid</option>
+                            <option value="Selesai">Selesai</option>
+                            <option value="Void">Void</option>
+                          </select>
+                        </div>
+                        <div className="space-y-0.5 text-slate-600">
+                          {ord.items.map((i, idx) => (
+                            <div key={idx} className="flex justify-between">
+                              <span>{i.name} (x{i.qty})</span>
+                              <span>{formatRupiah(i.subtotal)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* SUBTAB 6: ROUTING WA KELAS */}
               {adminSubTab === 'class_pics' && (
                 <div className="bg-white p-6 rounded-2xl border border-slate-200 space-y-4 text-xs shadow-sm">
                   <div>
@@ -1318,7 +1504,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* SUBTAB INTEGRASI WEBHOOK GOOGLE SHEET & SANDI */}
+              {/* SUBTAB 7: INTEGRASI WEBHOOK GOOGLE SHEET & SANDI */}
               {adminSubTab === 'settings' && (
                 <div className="max-w-xl bg-white rounded-2xl border border-slate-200 p-6 space-y-5 shadow-sm text-xs">
                   <div>
