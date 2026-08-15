@@ -33,23 +33,17 @@ import {
   Layers,
   Copy,
   Printer,
-  Check,
   Save,
-  Building,
-  Download,
-  FileText,
+  RefreshCw,
+  Cloud,
+  CloudCheck,
   Share2
 } from 'lucide-react';
 
-// Helper Format Tanggal Indonesia (Global Scope)
 const formatIndoDate = (dateStr) => {
   if (!dateStr) return '-';
   try {
-    return new Date(dateStr).toLocaleDateString('id-ID', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric'
-    });
+    return new Date(dateStr).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
   } catch (e) {
     return dateStr;
   }
@@ -94,28 +88,6 @@ const INITIAL_PRODUCTS = [
     category: 'Makanan',
     imageUrl: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=400&q=80',
     available: true
-  },
-  { 
-    id: 'p4', 
-    tenantId: 't2', 
-    name: 'Sosis Ayam Bakar Jumbo', 
-    priceOwner: 10000, 
-    priceOrganizer: 2500, 
-    description: 'Sosis ayam bakar dengan saus keju & meises',
-    category: 'Makanan',
-    imageUrl: 'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?auto=format&fit=crop&w=400&q=80',
-    available: true
-  },
-  { 
-    id: 'p5', 
-    tenantId: 't3', 
-    name: 'Sticker Custom Nama Anak', 
-    priceOwner: 15000, 
-    priceOrganizer: 5000, 
-    description: '1 lembar sticker anti air nama anak',
-    category: 'Souvenir',
-    imageUrl: 'https://images.unsplash.com/photo-1572375992501-4b0892d50c69?auto=format&fit=crop&w=400&q=80',
-    available: true
   }
 ];
 
@@ -127,14 +99,6 @@ const INITIAL_BATCHES = [
     endDate: '2026-08-15',
     isActive: true,
     description: 'Gelombang pertama pemesanan makanan bazaar'
-  },
-  {
-    id: 'b2',
-    name: 'Batch 2 - Pre-Order Susulan',
-    startDate: '2026-08-16',
-    endDate: '2026-08-25',
-    isActive: false,
-    description: 'Gelombang kedua penambahan pesanan'
   }
 ];
 
@@ -148,61 +112,26 @@ const INITIAL_CLASSES = [
   { id: 'c7', name: 'Umum / Tamu', phone: '628123456780' }
 ];
 
-const INITIAL_ORDERS = [
-  {
-    orderId: 'BZ-101101',
-    batchId: 'b1',
-    date: '2026-08-05T09:30:00.000Z',
-    customer: { namaAnak: 'Kafaa', kelas: 'TK A1', namaOrtu: 'Mama Kafaa', catatan: '' },
-    items: [
-      { id: 'p4', name: 'Sosis Ayam Bakar Jumbo', tenantId: 't2', tenantName: 'Stand Dapur Bu Guru', priceOwner: 10000, priceOrganizer: 2500, sellingPrice: 12500, qty: 1, subtotal: 12500 },
-      { id: 'p1', name: 'Es Lilin Buah Segar', tenantId: 't1', tenantName: 'Stand Snack & Es Ceria', priceOwner: 8000, priceOrganizer: 2000, sellingPrice: 10000, qty: 1, subtotal: 10000 }
-    ],
-    totalAmount: 22500,
-    totalOwnerShare: 18000,
-    totalOrganizerShare: 4500,
-    status: 'Paid'
-  },
-  {
-    orderId: 'BZ-101102',
-    batchId: 'b1',
-    date: '2026-08-06T11:15:00.000Z',
-    customer: { namaAnak: 'Reza', kelas: 'Little Owl', namaOrtu: 'Mama Reza', catatan: 'Tanpa pedas' },
-    items: [
-      { id: 'p4', name: 'Sosis Ayam Bakar Jumbo', tenantId: 't2', tenantName: 'Stand Dapur Bu Guru', priceOwner: 10000, priceOrganizer: 2500, sellingPrice: 12500, qty: 2, subtotal: 25000 },
-      { id: 'p2', name: 'Donat Toping Cokelat & Keju', tenantId: 't1', tenantName: 'Stand Snack & Es Ceria', priceOwner: 12000, priceOrganizer: 3000, sellingPrice: 15000, qty: 2, subtotal: 30000 }
-    ],
-    totalAmount: 55000,
-    totalOwnerShare: 44000,
-    totalOrganizerShare: 11000,
-    status: 'Paid'
-  }
-];
-
 export default function App() {
   const [activeTab, setActiveTab] = useState('shop');
   const [adminSubTab, setAdminSubTab] = useState('batch_reports');
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   
-  // Login Form State
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
-
-  // Toast Notification State
   const [toastMessage, setToastMessage] = useState('');
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
 
   const showToast = (msg) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(''), 3000);
+    setTimeout(() => setToastMessage(''), 3500);
   };
 
-  // Persistent Auth Credentials
   const [adminAuth, setAdminAuth] = useState(() => {
     const saved = localStorage.getItem('ld_bazaar_admin_auth');
     return saved ? JSON.parse(saved) : { username: 'admin', password: 'admin123' };
   });
 
-  // Persistent Settings
   const [adminPhone, setAdminPhone] = useState(() => {
     return localStorage.getItem('ld_bazaar_admin_phone') || '628123456780';
   });
@@ -211,13 +140,11 @@ export default function App() {
     return localStorage.getItem('ld_bazaar_sheet_webhook') || '';
   });
 
-  // Dynamic Custom Classes List
   const [classesList, setClassesList] = useState(() => {
     const saved = localStorage.getItem('ld_bazaar_classes');
     return saved ? JSON.parse(saved) : INITIAL_CLASSES;
   });
 
-  // Persistent Core Data State
   const [tenants, setTenants] = useState(() => {
     const saved = localStorage.getItem('ld_bazaar_tenants');
     return saved ? JSON.parse(saved) : INITIAL_TENANTS;
@@ -235,7 +162,7 @@ export default function App() {
 
   const [orders, setOrders] = useState(() => {
     const saved = localStorage.getItem('ld_bazaar_orders');
-    return saved ? JSON.parse(saved) : INITIAL_ORDERS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   // State Keranjang & Checkout
@@ -259,14 +186,11 @@ export default function App() {
   const [batchModal, setBatchModal] = useState({ isOpen: false, item: null });
   const [classModal, setClassModal] = useState({ isOpen: false, item: null });
 
-  // Config Import / Export Modal
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [importConfigJson, setImportConfigJson] = useState('');
-
   // Laporan Filters
   const [reportSelectedBatchId, setReportSelectedBatchId] = useState('b1');
   const [reportSelectedStatus, setReportSelectedStatus] = useState('Paid');
 
+  // LocalStorage Persist
   useEffect(() => { localStorage.setItem('ld_bazaar_tenants', JSON.stringify(tenants)); }, [tenants]);
   useEffect(() => { localStorage.setItem('ld_bazaar_products', JSON.stringify(products)); }, [products]);
   useEffect(() => { localStorage.setItem('ld_bazaar_batches', JSON.stringify(batches)); }, [batches]);
@@ -276,12 +200,72 @@ export default function App() {
   useEffect(() => { localStorage.setItem('ld_bazaar_admin_phone', adminPhone); }, [adminPhone]);
   useEffect(() => { localStorage.setItem('ld_bazaar_sheet_webhook', sheetWebhookUrl); }, [sheetWebhookUrl]);
 
-  // Keep checkout default class valid
-  useEffect(() => {
-    if (classesList.length > 0 && !classesList.some(c => c.name === checkoutData.kelas)) {
-      setCheckoutData(prev => ({ ...prev, kelas: classesList[0].name }));
+  // AUTOMATIC 2-WAY FETCH FROM GOOGLE SHEETS ON LAUNCH
+  const fetchCloudData = async (silent = false) => {
+    if (!sheetWebhookUrl) return;
+    setIsCloudSyncing(true);
+    try {
+      const res = await fetch(sheetWebhookUrl);
+      const json = await res.json();
+      if (json.status === 'success' && json.data) {
+        if (json.data.products && json.data.products.length > 0) setProducts(json.data.products);
+        if (json.data.tenants && json.data.tenants.length > 0) setTenants(json.data.tenants);
+        if (json.data.batches && json.data.batches.length > 0) setBatches(json.data.batches);
+        if (json.data.classes && json.data.classes.length > 0) setClassesList(json.data.classes);
+        if (json.data.orders && json.data.orders.length > 0) setOrders(json.data.orders);
+        if (json.data.settings) {
+          if (json.data.settings.adminPhone) setAdminPhone(json.data.settings.adminPhone);
+          if (json.data.settings.adminAuth) {
+            try {
+              setAdminAuth(typeof json.data.settings.adminAuth === 'string' ? JSON.parse(json.data.settings.adminAuth) : json.data.settings.adminAuth);
+            } catch(e) {}
+          }
+        }
+        if (!silent) showToast('Data Berhasil Disinkronkan dari Google Sheets Cloud!');
+      }
+    } catch (e) {
+      console.warn('Google Sheets Fetch Error:', e);
+    } finally {
+      setIsCloudSyncing(false);
     }
-  }, [classesList]);
+  };
+
+  useEffect(() => {
+    if (sheetWebhookUrl) {
+      fetchCloudData(true);
+    }
+  }, [sheetWebhookUrl]);
+
+  // PUSH ALL DATA TO GOOGLE SHEETS CLOUD
+  const syncPushToCloud = async (overrideData = {}) => {
+    if (!sheetWebhookUrl) return;
+    setIsCloudSyncing(true);
+    try {
+      const payload = {
+        action: 'syncAll',
+        products: overrideData.products || products,
+        tenants: overrideData.tenants || tenants,
+        batches: overrideData.batches || batches,
+        classes: overrideData.classes || classesList,
+        settings: {
+          adminPhone,
+          adminAuth
+        }
+      };
+
+      await fetch(sheetWebhookUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      showToast('Perubahan Berhasil Disimpan ke Google Sheets Cloud!');
+    } catch (err) {
+      console.warn('Sync Push Error:', err);
+    } finally {
+      setIsCloudSyncing(false);
+    }
+  };
 
   const activeBatch = useMemo(() => {
     const explicitActive = batches.find((b) => b.isActive);
@@ -392,7 +376,7 @@ export default function App() {
 
     setOrders((prev) => [orderPayload, ...prev]);
 
-    // Send payload to Google Sheets Webhook if available
+    // Send order to Google Sheets
     if (sheetWebhookUrl) {
       try {
         fetch(sheetWebhookUrl, {
@@ -400,16 +384,15 @@ export default function App() {
           mode: 'no-cors',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            ...orderPayload,
-            formattedItemsText: orderPayload.items.map((i) => `${i.name} (x${i.qty})`).join(', ')
+            action: 'checkout',
+            ...orderPayload
           })
         });
       } catch (err) {
-        console.warn('Webhook error:', err);
+        console.warn('Webhook order send error:', err);
       }
     }
 
-    // Find class PIC phone number
     const targetClassObj = classesList.find((c) => c.name === checkoutData.kelas);
     const picPhoneForClass = targetClassObj?.phone || adminPhone;
     let cleanPhone = picPhoneForClass.replace(/[^0-9]/g, '');
@@ -461,7 +444,7 @@ export default function App() {
       filtered = filtered.filter((o) => o.status === reportSelectedStatus);
     }
 
-    const tenantReports = tenants.map((tenant) => {
+    return tenants.map((tenant) => {
       const customerOrdersDetail = [];
       const itemTotalsMap = {};
       let tenantTotalGross = 0;
@@ -480,11 +463,8 @@ export default function App() {
           });
 
           tenantItemsInOrder.forEach((it) => {
-            if (!itemTotalsMap[it.name]) {
-              itemTotalsMap[it.name] = 0;
-            }
+            if (!itemTotalsMap[it.name]) itemTotalsMap[it.name] = 0;
             itemTotalsMap[it.name] += it.qty;
-
             tenantTotalGross += it.subtotal;
             tenantTotalOwnerShare += it.priceOwner * it.qty;
           });
@@ -502,228 +482,22 @@ export default function App() {
         tenantTotalOwnerShare
       };
     });
-
-    return tenantReports;
   }, [orders, reportSelectedBatchId, reportSelectedStatus, tenants]);
 
-  const sendDirectWAToTenant = (tenantReport) => {
-    if (!tenantReport.tenantPhone) {
-      alert(`Nomor WhatsApp untuk ${tenantReport.tenantName} belum diisi. Silakan edit nomor HP di menu 'Kelola Stand / Tenant'.`);
-      return;
-    }
-
-    let cleanPhone = tenantReport.tenantPhone.replace(/[^0-9]/g, '');
-    if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
-
-    const currentBatch = batches.find((b) => b.id === reportSelectedBatchId);
-    let text = `*REKAP PESANAN BAZAAR DANUS PTA LITTLE DARBI - ${tenantReport.tenantName.toUpperCase()}*\n`;
-    text += `*Periode:* ${currentBatch?.name || '-'}\n`;
-    text += `*Filter Status:* ${reportSelectedStatus}\n`;
-    text += `-----------------------------------\n\n`;
-
-    text += `*📌 RINCIAN PESANAN PEMBELI:*\n`;
-    if (tenantReport.customerOrdersDetail.length === 0) {
-      text += `(Belum ada pesanan masuk)\n`;
-    } else {
-      tenantReport.customerOrdersDetail.forEach((cust, idx) => {
-        text += `${idx + 1}. *${cust.namaAnak}* (${cust.kelas})\n`;
-        if (cust.namaOrtu !== '-') text += `   Ortu: ${cust.namaOrtu}\n`;
-        cust.items.forEach((it) => {
-          text += `   - ${it.name} (x${it.qty})\n`;
-        });
-        if (cust.catatan) text += `   Catatan: _${cust.catatan}_\n`;
-      });
-    }
-
-    text += `\n-----------------------------------\n`;
-    text += `*📦 SUMMARY PRODUKSI (RINGKASAN DAPUR):*\n`;
-    const itemNames = Object.keys(tenantReport.itemTotalsMap);
-    if (itemNames.length === 0) {
-      text += `(Kosong)\n`;
-    } else {
-      itemNames.forEach((name) => {
-        text += `• *${name}*: ${tenantReport.itemTotalsMap[name]} pcs\n`;
-      });
-    }
-
-    text += `-----------------------------------\n`;
-    text += `*TOTAL HAK VENDOR: ${formatRupiah(tenantReport.tenantTotalOwnerShare)}*\n`;
-    text += `-----------------------------------\n`;
-    text += `Mohon dapat disiapkan sesuai ringkasan produksi di atas. Terima kasih! 🙏`;
-
-    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
-    window.open(waUrl, '_blank');
-  };
-
-  const printTenantPDF = (tenantReport) => {
-    const currentBatch = batches.find((b) => b.id === reportSelectedBatchId);
-    const itemNames = Object.keys(tenantReport.itemTotalsMap);
-
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return alert('Popup terblokir oleh browser. Izinkan popup untuk mencetak PDF.');
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Rekap Vendor - ${tenantReport.tenantName}</title>
-        <style>
-          body { font-family: 'Helvetica Neue', Arial, sans-serif; padding: 25px; color: #1e293b; line-height: 1.4; }
-          .header { text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 20px; }
-          .header h1 { margin: 0; font-size: 18px; color: #0f172a; text-transform: uppercase; }
-          .header p { margin: 3px 0; font-size: 12px; color: #64748b; }
-          .meta-grid { display: flex; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 12px; }
-          .meta-grid div strong { color: #0f172a; }
-          .section-title { font-size: 13px; font-weight: bold; text-transform: uppercase; color: #334155; margin-top: 20px; margin-bottom: 8px; border-left: 4px solid #4f46e5; padding-left: 8px; }
-          table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 15px; }
-          th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; }
-          th { background: #f1f5f9; color: #334155; font-size: 11px; text-transform: uppercase; }
-          .total-box { background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 8px; font-size: 13px; display: flex; justify-content: space-between; font-weight: bold; color: #166534; margin-top: 15px; }
-          .signatures { display: flex; justify-content: space-between; margin-top: 50px; text-align: center; font-size: 12px; }
-          .sig-space { height: 60px; }
-          @media print {
-            body { padding: 0; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>LAPORAN REKAPITULASI PRODUKSI VENDOR</h1>
-          <p>BAZAAR DANUS PTA LITTLE DARBI</p>
-        </div>
-
-        <div class="meta-grid">
-          <div>
-            <strong>Nama Stand:</strong> ${tenantReport.tenantName}<br>
-            <strong>Pemilik Stand:</strong> ${tenantReport.tenantOwner} (${tenantReport.tenantPhone || '-'})
-          </div>
-          <div style="text-align: right;">
-            <strong>Periode Batch:</strong> ${currentBatch?.name || '-'}<br>
-            <strong>Filter Status:</strong> ${reportSelectedStatus} | <strong>Tanggal Cetak:</strong> ${new Date().toLocaleDateString('id-ID')}
-          </div>
-        </div>
-
-        <div class="section-title">1. RINGKASAN TOTAL PRODUKSI (SUMMARY KITCHEN)</div>
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 40px;">No</th>
-              <th>Nama Produk / Menu</th>
-              <th style="text-align: center; width: 120px;">Total Qty Terjual</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${
-              itemNames.length === 0
-                ? '<tr><td colspan="3" style="text-align:center;">Belum ada item dipesan</td></tr>'
-                : itemNames.map((name, i) => `
-                    <tr>
-                      <td>${i + 1}</td>
-                      <td><strong>${name}</strong></td>
-                      <td style="text-align: center; font-weight: bold;">${tenantReport.itemTotalsMap[name]} Pcs</td>
-                    </tr>
-                  `).join('')
-            }
-          </tbody>
-        </table>
-
-        <div class="section-title">2. RINCIAN PEMESANAN PER ANAK / KELAS</div>
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 30px;">No</th>
-              <th>Nama Anak & Kelas</th>
-              <th>Ortu / Kontak</th>
-              <th>Menu Dipesan</th>
-              <th>Catatan Khusus</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${
-              tenantReport.customerOrdersDetail.length === 0
-                ? '<tr><td colspan="5" style="text-align:center;">Belum ada transaksi</td></tr>'
-                : tenantReport.customerOrdersDetail.map((cust, idx) => `
-                    <tr>
-                      <td>${idx + 1}</td>
-                      <td><strong>${cust.namaAnak}</strong><br><small style="color:#64748b">${cust.kelas}</small></td>
-                      <td>${cust.namaOrtu}</td>
-                      <td>${cust.items.map(it => `${it.name} (x${it.qty})`).join('<br>')}</td>
-                      <td><em>${cust.catatan || '-'}</em></td>
-                    </tr>
-                  `).join('')
-            }
-          </tbody>
-        </table>
-
-        <div class="total-box">
-          <span>TOTAL HAK PEMBAYARAN VENDOR:</span>
-          <span>${formatRupiah(tenantReport.tenantTotalOwnerShare)}</span>
-        </div>
-
-        <div class="signatures">
-          <div>
-            <p>Panitia Bazaar PTA,</p>
-            <div class="sig-space"></div>
-            <p>_______________________</p>
-          </div>
-          <div>
-            <p>Pemilik Stand / Vendor,</p>
-            <div class="sig-space"></div>
-            <p><strong>(${tenantReport.tenantOwner})</strong></p>
-          </div>
-        </div>
-
-        <script>
-          window.onload = function() {
-            window.print();
-          };
-        </script>
-      </body>
-      </html>
-    `;
-
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-  };
-
-  const exportConfigJSON = () => {
-    const configData = {
-      adminAuth,
-      adminPhone,
-      sheetWebhookUrl,
-      classesList,
-      tenants,
-      products,
-      batches
-    };
-    const jsonStr = JSON.stringify(configData, null, 2);
-    navigator.clipboard.writeText(jsonStr);
-    showToast('Kode Konfigurasi telah disalin ke Clipboard! Siap Ditempel.');
-  };
-
-  const handleImportConfig = (e) => {
-    e.preventDefault();
-    try {
-      const parsed = JSON.parse(importConfigJson);
-      if (parsed.adminAuth) setAdminAuth(parsed.adminAuth);
-      if (parsed.adminPhone) setAdminPhone(parsed.adminPhone);
-      if (parsed.sheetWebhookUrl !== undefined) setSheetWebhookUrl(parsed.sheetWebhookUrl);
-      if (parsed.classesList) setClassesList(parsed.classesList);
-      if (parsed.tenants) setTenants(parsed.tenants);
-      if (parsed.products) setProducts(parsed.products);
-      if (parsed.batches) setBatches(parsed.batches);
-
-      showToast('Konfigurasi & Data Berhasil Diimport!');
-      setIsImportModalOpen(false);
-      setImportConfigJson('');
-    } catch (err) {
-      alert('Format JSON Konfigurasi tidak valid! Pastikan menyalin teks kode konfigurasi yang benar.');
+  const updateOrderStatusInCloud = (orderId, newStatus) => {
+    setOrders(orders.map((o) => (o.orderId === orderId ? { ...o, status: newStatus } : o)));
+    if (sheetWebhookUrl) {
+      fetch(sheetWebhookUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'updateOrderStatus', orderId, status: newStatus })
+      }).catch(err => console.warn(err));
     }
   };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-24 relative">
-      {/* Toast Banner Notification */}
       {toastMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-2xl text-xs font-bold flex items-center space-x-2 animate-bounce">
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -746,32 +520,44 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center bg-slate-100 p-1 rounded-xl">
-            <button
-              onClick={() => setActiveTab('shop')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-all ${
-                activeTab === 'shop' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <ShoppingBag className="w-4 h-4" />
-              <span>Menu Pembeli</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('admin')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-all ${
-                activeTab === 'admin' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Settings className="w-4 h-4" />
-              <span>Panel Admin</span>
-            </button>
+          <div className="flex items-center space-x-2">
+            {sheetWebhookUrl && (
+              <button
+                onClick={() => fetchCloudData(false)}
+                disabled={isCloudSyncing}
+                className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center space-x-1 shadow-2xs"
+                title="Refresh Data dari Google Sheets Cloud"
+              >
+                <RefreshCw className={`w-4 h-4 ${isCloudSyncing ? 'animate-spin text-indigo-600' : ''}`} />
+                <span className="hidden sm:inline">Sync Cloud</span>
+              </button>
+            )}
+
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl">
+              <button
+                onClick={() => setActiveTab('shop')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-all ${
+                  activeTab === 'shop' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span>Menu Pembeli</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('admin')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-all ${
+                  activeTab === 'admin' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+                <span>Panel Admin</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
-      {/* ========================================================================= */}
-      {/* TAB 1: CATALOG CUSTOMER */}
-      {/* ========================================================================= */}
+      {/* CATALOG CUSTOMER & ADMIN TABS (PERSISTENT LOGIC) */}
       {activeTab === 'shop' && (
         <main className="max-w-5xl mx-auto px-4 pt-6">
           <div className="mb-6">
@@ -854,7 +640,7 @@ export default function App() {
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {filteredProducts.map((prod) => {
                 const tenant = tenants.find((t) => t.id === prod.tenantId);
-                const sellingPrice = prod.priceOwner + prod.priceOrganizer;
+                const sellingPrice = Number(prod.priceOwner || 0) + Number(prod.priceOrganizer || 0);
                 const inCart = cart.find((item) => item.id === prod.id);
 
                 return (
@@ -960,7 +746,7 @@ export default function App() {
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {cart.map((item) => {
                 const tenant = tenants.find((t) => t.id === item.tenantId);
-                const sellingPrice = item.priceOwner + item.priceOrganizer;
+                const sellingPrice = Number(item.priceOwner || 0) + Number(item.priceOrganizer || 0);
                 return (
                   <div key={item.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
                     <div>
@@ -1091,9 +877,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* TAB 2: PANEL ADMIN & LAPORAN */}
-      {/* ========================================================================= */}
+      {/* PANEL ADMIN WITH REALTIME 2-WAY SYNC */}
       {activeTab === 'admin' && (
         <main className="max-w-5xl mx-auto px-4 pt-6">
           {!isAdminLoggedIn ? (
@@ -1230,9 +1014,7 @@ export default function App() {
                 </button>
               </div>
 
-              {/* ------------------------------------------------------------- */}
-              {/* SUBTAB 1: REKAPITULASI TENANT & BATCH REPORTS */}
-              {/* ------------------------------------------------------------- */}
+              {/* BATCH REPORTS */}
               {adminSubTab === 'batch_reports' && (
                 <div className="space-y-6">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4 justify-between sm:items-center">
@@ -1290,19 +1072,22 @@ export default function App() {
 
                             <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
                               <button
-                                onClick={() => sendDirectWAToTenant(tenantRep)}
-                                className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition-all"
+                                onClick={() => {
+                                  let cleanPhone = tenantRep.tenantPhone.replace(/[^0-9]/g, '');
+                                  if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
+                                  const currentBatch = batches.find((b) => b.id === reportSelectedBatchId);
+                                  let text = `*REKAP PESANAN BAZAAR DANUS - ${tenantRep.tenantName.toUpperCase()}*\n`;
+                                  text += `*Periode:* ${currentBatch?.name || '-'}\n\n`;
+                                  itemNames.forEach((name) => {
+                                    text += `• *${name}*: ${tenantRep.itemTotalsMap[name]} pcs\n`;
+                                  });
+                                  text += `\n*TOTAL HAK VENDOR: ${formatRupiah(tenantRep.tenantTotalOwnerShare)}*`;
+                                  window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
+                                }}
+                                className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm"
                               >
                                 <MessageCircle className="w-4 h-4 fill-current" />
                                 <span>Kirim WA ke Tenant</span>
-                              </button>
-
-                              <button
-                                onClick={() => printTenantPDF(tenantRep)}
-                                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition-all"
-                              >
-                                <Printer className="w-4 h-4" />
-                                <span>Cetak / Download PDF</span>
                               </button>
                             </div>
                           </div>
@@ -1331,9 +1116,6 @@ export default function App() {
                                           </div>
                                         ))}
                                       </div>
-                                      {cust.catatan && (
-                                        <p className="text-[10px] text-amber-700 italic">Catatan: {cust.catatan}</p>
-                                      )}
                                     </div>
                                   ))}
                                 </div>
@@ -1343,31 +1125,21 @@ export default function App() {
                             <div className="bg-amber-50/70 p-4 rounded-xl border border-amber-200 flex flex-col justify-between">
                               <div>
                                 <h5 className="font-bold text-xs uppercase tracking-wider text-amber-900 mb-3 flex items-center">
-                                  <Store className="w-3.5 h-3.5 mr-1 text-amber-600" /> Ringkasan Dapur (Total Qty)
+                                  <Store className="w-3.5 h-3.5 mr-1 text-amber-600" /> Ringkasan Dapur
                                 </h5>
 
-                                {itemNames.length === 0 ? (
-                                  <p className="text-xs text-amber-700/60 italic">Belum ada item dipesan.</p>
-                                ) : (
-                                  <div className="space-y-2">
-                                    {itemNames.map((name) => (
-                                      <div key={name} className="flex justify-between items-center bg-white p-2 rounded-lg border border-amber-200 text-xs shadow-2xs">
-                                        <span className="font-medium text-slate-800">{name}</span>
-                                        <span className="font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
-                                          {tenantRep.itemTotalsMap[name]} Pcs
-                                        </span>
-                                      </div>
-                                    ))}
+                                {itemNames.map((name) => (
+                                  <div key={name} className="flex justify-between items-center bg-white p-2 rounded-lg border border-amber-200 text-xs shadow-2xs mb-1">
+                                    <span className="font-medium text-slate-800">{name}</span>
+                                    <span className="font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+                                      {tenantRep.itemTotalsMap[name]} Pcs
+                                    </span>
                                   </div>
-                                )}
+                                ))}
                               </div>
 
                               <div className="mt-4 pt-3 border-t border-amber-200 text-xs">
-                                <div className="flex justify-between font-medium text-slate-600">
-                                  <span>Subtotal Tagihan:</span>
-                                  <span>{formatRupiah(tenantRep.tenantTotalGross)}</span>
-                                </div>
-                                <div className="flex justify-between font-bold text-emerald-700 text-sm mt-0.5">
+                                <div className="flex justify-between font-bold text-emerald-700 text-sm">
                                   <span>Hak Vendor:</span>
                                   <span>{formatRupiah(tenantRep.tenantTotalOwnerShare)}</span>
                                 </div>
@@ -1381,19 +1153,14 @@ export default function App() {
                 </div>
               )}
 
-              {/* ------------------------------------------------------------- */}
-              {/* SUBTAB 2: KELOLA STAND / TENANT */}
-              {/* ------------------------------------------------------------- */}
+              {/* TENANTS MANAGEMENT */}
               {adminSubTab === 'tenants' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <div>
-                      <h3 className="font-bold text-slate-900 text-base">Kelola Stand / Tenant & Kontak WA Vendor</h3>
-                      <p className="text-xs text-slate-500">Pastikan nomor WhatsApp vendor terisi dengan benar (format: 628...).</p>
-                    </div>
+                    <h3 className="font-bold text-slate-900 text-base">Kelola Stand / Tenant & WA Vendor</h3>
                     <button
                       onClick={() => setTenantModal({ isOpen: true, item: null })}
-                      className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1 shadow-sm"
+                      className="px-3.5 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center space-x-1"
                     >
                       <Plus className="w-4 h-4" />
                       <span>Tambah Stand Baru</span>
@@ -1401,40 +1168,35 @@ export default function App() {
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                    {tenants.map((t) => {
-                      const countProduct = products.filter((p) => p.tenantId === t.id).length;
-                      return (
-                        <div key={t.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <h4 className="font-bold text-slate-900 text-sm">{t.name}</h4>
-                              <p className="text-xs text-slate-500 mt-0.5">PJ: {t.owner}</p>
-                              <p className="text-xs font-semibold text-emerald-700 mt-0.5 flex items-center">
-                                <Phone className="w-3 h-3 mr-1" /> WA: {t.phone || '(Belum diisi)'}
-                              </p>
-                            </div>
-                            <span className="text-[10px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-full">
-                              {countProduct} Produk
-                            </span>
-                          </div>
-                          <div className="pt-3 border-t border-slate-100 flex justify-end space-x-2">
-                            <button onClick={() => setTenantModal({ isOpen: true, item: t })} className="px-2.5 py-1 text-xs text-blue-600 bg-blue-50 rounded-lg font-semibold flex items-center">
-                              <Edit3 className="w-3 h-3 mr-1" /> Edit
-                            </button>
-                            <button onClick={() => setTenants(tenants.filter((item) => item.id !== t.id))} className="px-2.5 py-1 text-xs text-red-600 bg-red-50 rounded-lg font-semibold flex items-center">
-                              <Trash2 className="w-3 h-3 mr-1" /> Hapus
-                            </button>
-                          </div>
+                    {tenants.map((t) => (
+                      <div key={t.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                        <h4 className="font-bold text-slate-900 text-sm">{t.name}</h4>
+                        <p className="text-xs text-slate-500">PJ: {t.owner}</p>
+                        <p className="text-xs font-semibold text-emerald-700 flex items-center">
+                          <Phone className="w-3 h-3 mr-1" /> WA: {t.phone || '(Belum diisi)'}
+                        </p>
+                        <div className="pt-2 border-t flex justify-end space-x-2">
+                          <button onClick={() => setTenantModal({ isOpen: true, item: t })} className="px-2.5 py-1 text-xs text-blue-600 bg-blue-50 rounded-lg font-semibold">
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => {
+                              const updated = tenants.filter((item) => item.id !== t.id);
+                              setTenants(updated);
+                              syncPushToCloud({ tenants: updated });
+                            }}
+                            className="px-2.5 py-1 text-xs text-red-600 bg-red-50 rounded-lg font-semibold"
+                          >
+                            Hapus
+                          </button>
                         </div>
-                      );
-                    })}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
 
-              {/* ------------------------------------------------------------- */}
-              {/* SUBTAB 3: KELOLA BATCH PERIODE */}
-              {/* ------------------------------------------------------------- */}
+              {/* BATCHES MANAGEMENT */}
               {adminSubTab === 'batches' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1447,18 +1209,20 @@ export default function App() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {batches.map((b) => (
                       <div key={b.id} className={`bg-white rounded-2xl p-4 border ${b.isActive ? 'border-indigo-500 ring-2 ring-indigo-500/10' : 'border-slate-200'}`}>
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${b.isActive ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>
-                              {b.isActive ? 'BATCH AKTIF' : 'Non-Aktif'}
-                            </span>
-                            <h4 className="font-bold text-slate-900 text-base mt-1">{b.name}</h4>
-                            <p className="text-xs text-slate-500">{b.description}</p>
-                          </div>
-                        </div>
-                        <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center text-xs">
-                          <span className="text-slate-500">Periode: <strong>{formatIndoDate(b.startDate)}</strong> - <strong>{formatIndoDate(b.endDate)}</strong></span>
-                          <button onClick={() => setBatches(batches.map((item) => ({ ...item, isActive: item.id === b.id })))} className={`px-3 py-1 rounded-lg font-bold text-xs ${b.isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'}`}>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${b.isActive ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>
+                          {b.isActive ? 'BATCH AKTIF' : 'Non-Aktif'}
+                        </span>
+                        <h4 className="font-bold text-slate-900 text-base mt-1">{b.name}</h4>
+                        <div className="mt-3 pt-3 border-t flex justify-between items-center text-xs">
+                          <span className="text-slate-500">{formatIndoDate(b.startDate)} - {formatIndoDate(b.endDate)}</span>
+                          <button
+                            onClick={() => {
+                              const updated = batches.map((item) => ({ ...item, isActive: item.id === b.id }));
+                              setBatches(updated);
+                              syncPushToCloud({ batches: updated });
+                            }}
+                            className={`px-3 py-1 rounded-lg font-bold text-xs ${b.isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'}`}
+                          >
                             {b.isActive ? 'Aktif' : 'Set Aktif'}
                           </button>
                         </div>
@@ -1468,116 +1232,91 @@ export default function App() {
                 </div>
               )}
 
-              {/* ------------------------------------------------------------- */}
-              {/* SUBTAB 4: SETUP PRODUK & HARGA (FIXED RESPONSIVE TABLE & ACTIONS) */}
-              {/* ------------------------------------------------------------- */}
+              {/* PRODUCTS SETUP TABLE */}
               {adminSubTab === 'products' && (
                 <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-                    <div>
-                      <h3 className="font-bold text-slate-900 text-base">Database Produk & Split Harga</h3>
-                      <p className="text-xs text-slate-500">
-                        Atur produk, foto thumbnail, serta 2 komponen harga (Harga Owner + Margin Panitia).
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setProductModal({ isOpen: true, item: null })}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center justify-center space-x-1.5 shadow-md"
-                    >
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-bold text-slate-900 text-base">Database Produk & Split Harga</h3>
+                    <button onClick={() => setProductModal({ isOpen: true, item: null })} className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center space-x-1 shadow-md">
                       <Plus className="w-4 h-4" />
                       <span>Tambah Produk Baru</span>
                     </button>
                   </div>
 
-                  {/* Responsive Scrollable Table Wrapper */}
-                  <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                    <div className="overflow-x-auto w-full">
-                      <table className="w-full text-left text-xs min-w-[700px]">
-                        <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] tracking-wider">
-                          <tr>
-                            <th className="p-3.5 w-14">Foto</th>
-                            <th className="p-3.5">Nama Produk</th>
-                            <th className="p-3.5">Stand / Tenant</th>
-                            <th className="p-3.5 text-emerald-700">Harga Owner</th>
-                            <th className="p-3.5 text-indigo-700">Margin Panitia</th>
-                            <th className="p-3.5 font-bold text-amber-700">Harga Jual</th>
-                            <th className="p-3.5 text-center w-28 bg-slate-100">Aksi</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {products.map((p) => {
-                            const tenant = tenants.find((t) => t.id === p.tenantId);
-                            const sellingPrice = p.priceOwner + p.priceOrganizer;
-                            return (
-                              <tr key={p.id} className="hover:bg-slate-50 transition-colors">
-                                <td className="p-3">
-                                  {p.imageUrl ? (
-                                    <img src={p.imageUrl} alt={p.name} className="w-10 h-10 object-cover rounded-lg border border-slate-200 shrink-0" />
-                                  ) : (
-                                    <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 shrink-0">
-                                      <ImageIcon className="w-5 h-5" />
-                                    </div>
-                                  )}
-                                </td>
-                                <td className="p-3 font-bold text-slate-900">
-                                  <span className="block">{p.name}</span>
-                                  <span className="text-[10px] text-slate-400 font-normal">{p.category}</span>
-                                </td>
-                                <td className="p-3 font-medium text-slate-600">{tenant?.name || '-'}</td>
-                                <td className="p-3 text-emerald-700 font-semibold">{formatRupiah(p.priceOwner)}</td>
-                                <td className="p-3 text-indigo-700 font-semibold">+ {formatRupiah(p.priceOrganizer)}</td>
-                                <td className="p-3 font-black text-amber-600 text-sm">{formatRupiah(sellingPrice)}</td>
-                                <td className="p-3 text-center">
-                                  <div className="flex items-center justify-center space-x-1">
-                                    <button
-                                      onClick={() => setProductModal({ isOpen: true, item: p })}
-                                      className="p-1.5 text-blue-600 hover:bg-blue-50 bg-blue-50/50 rounded-lg font-semibold flex items-center"
-                                      title="Edit Produk"
-                                    >
-                                      <Edit3 className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      onClick={() => {
-                                        if (confirm(`Yakin ingin menghapus produk "${p.name}"?`)) {
-                                          setProducts(products.filter((item) => item.id !== p.id));
-                                          showToast(`Produk "${p.name}" berhasil dihapus.`);
-                                        }
-                                      }}
-                                      className="p-1.5 text-red-600 hover:bg-red-50 bg-red-50/50 rounded-lg font-semibold flex items-center"
-                                      title="Hapus Produk"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
+                  <div className="bg-white rounded-2xl border border-slate-200 overflow-x-auto shadow-sm">
+                    <table className="w-full text-left text-xs min-w-[700px]">
+                      <thead className="bg-slate-100 text-slate-600 uppercase text-[10px]">
+                        <tr>
+                          <th className="p-3.5 w-14">Foto</th>
+                          <th className="p-3.5">Nama Produk</th>
+                          <th className="p-3.5">Stand</th>
+                          <th className="p-3.5 text-emerald-700">Harga Owner</th>
+                          <th className="p-3.5 text-indigo-700">Margin Panitia</th>
+                          <th className="p-3.5 font-bold text-amber-700">Harga Jual</th>
+                          <th className="p-3.5 text-center w-28">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {products.map((p) => {
+                          const tenant = tenants.find((t) => t.id === p.tenantId);
+                          const sellingPrice = Number(p.priceOwner || 0) + Number(p.priceOrganizer || 0);
+                          return (
+                            <tr key={p.id} className="hover:bg-slate-50">
+                              <td className="p-3">
+                                {p.imageUrl ? (
+                                  <img src={p.imageUrl} alt={p.name} className="w-10 h-10 object-cover rounded-lg border" />
+                                ) : (
+                                  <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400">
+                                    <ImageIcon className="w-5 h-5" />
                                   </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
+                                )}
+                              </td>
+                              <td className="p-3 font-bold text-slate-900">{p.name}</td>
+                              <td className="p-3 text-slate-600">{tenant?.name || '-'}</td>
+                              <td className="p-3 text-emerald-700 font-semibold">{formatRupiah(p.priceOwner)}</td>
+                              <td className="p-3 text-indigo-700 font-semibold">+ {formatRupiah(p.priceOrganizer)}</td>
+                              <td className="p-3 font-black text-amber-600 text-sm">{formatRupiah(sellingPrice)}</td>
+                              <td className="p-3 text-center">
+                                <div className="flex items-center justify-center space-x-1">
+                                  <button onClick={() => setProductModal({ isOpen: true, item: p })} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg">
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      if (confirm(`Hapus produk ${p.name}?`)) {
+                                        const updated = products.filter((item) => item.id !== p.id);
+                                        setProducts(updated);
+                                        syncPushToCloud({ products: updated });
+                                      }
+                                    }}
+                                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}
 
-              {/* ------------------------------------------------------------- */}
-              {/* SUBTAB 5: SEMUA PESANAN MASUK */}
-              {/* ------------------------------------------------------------- */}
+              {/* ORDERS LIST & STATUS UDPATE */}
               {adminSubTab === 'orders' && (
                 <div className="space-y-4">
                   <h3 className="font-bold text-slate-900 text-base">Semua Pesanan Masuk ({orders.length})</h3>
                   <div className="space-y-3">
                     {orders.map((ord) => (
-                      <div key={ord.orderId} className="bg-white p-4 rounded-2xl border border-slate-200 text-xs space-y-2 shadow-sm">
+                      <div key={ord.orderId} className="bg-white p-4 rounded-2xl border text-xs space-y-2 shadow-sm">
                         <div className="flex justify-between font-bold">
                           <span className="text-indigo-700">{ord.orderId} - {ord.customer.namaAnak} ({ord.customer.kelas})</span>
                           <select
                             value={ord.status}
-                            onChange={(e) => {
-                              const newSt = e.target.value;
-                              setOrders(orders.map((o) => (o.orderId === ord.orderId ? { ...o, status: newSt } : o)));
-                            }}
-                            className="bg-slate-100 font-bold px-2 py-1 rounded"
+                            onChange={(e) => updateOrderStatusInCloud(ord.orderId, e.target.value)}
+                            className="bg-slate-100 font-bold px-2 py-1 rounded border"
                           >
                             <option value="Unpaid">Unpaid</option>
                             <option value="Paid">Paid</option>
@@ -1599,22 +1338,12 @@ export default function App() {
                 </div>
               )}
 
-              {/* ------------------------------------------------------------- */}
-              {/* SUBTAB 6: DYNAMIC CLASS MANAGEMENT & ROUTING WA KELAS */}
-              {/* ------------------------------------------------------------- */}
+              {/* DYNAMIC CLASS MANAGEMENT */}
               {adminSubTab === 'class_pics' && (
-                <div className="bg-white p-6 rounded-2xl border border-slate-200 space-y-6 shadow-sm">
-                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-                    <div>
-                      <h3 className="font-bold text-base text-slate-900">Kelola Daftar Kelas & Routing WA PIC</h3>
-                      <p className="text-xs text-slate-500">
-                        Anda dapat menambah, mengubah nama kelas, atau menghapus kelas, serta mengatur nomor WA PIC/Wali Kelas.
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setClassModal({ isOpen: true, item: null })}
-                      className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1 shadow-sm self-start sm:self-auto"
-                    >
+                <div className="bg-white p-6 rounded-2xl border space-y-4 shadow-sm">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-bold text-base text-slate-900">Kelola Kelas & Routing WA PIC</h3>
+                    <button onClick={() => setClassModal({ isOpen: true, item: null })} className="px-3.5 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center space-x-1">
                       <Plus className="w-4 h-4" />
                       <span>Tambah Kelas Baru</span>
                     </button>
@@ -1622,76 +1351,53 @@ export default function App() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                     {classesList.map((c) => (
-                      <div key={c.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 flex flex-col justify-between">
-                        <div>
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="font-bold text-slate-900 text-sm flex items-center">
-                              <School className="w-3.5 h-3.5 mr-1 text-amber-600" /> {c.name}
-                            </span>
-                            <div className="flex items-center space-x-1">
-                              <button
-                                onClick={() => setClassModal({ isOpen: true, item: c })}
-                                className="p-1 text-blue-600 hover:bg-blue-100 rounded"
-                                title="Edit Kelas"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  if (classesList.length <= 1) return alert('Sistem harus memiliki minimal 1 kelas!');
-                                  if (confirm(`Hapus kelas "${c.name}"?`)) {
-                                    setClassesList(classesList.filter((item) => item.id !== c.id));
-                                    showToast(`Kelas ${c.name} dihapus.`);
-                                  }
-                                }}
-                                className="p-1 text-red-600 hover:bg-red-100 rounded"
-                                title="Hapus Kelas"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[10px] text-slate-500 font-bold block">No. WA PIC / Wali Kelas:</label>
-                            <input
-                              type="text"
-                              placeholder="628123456789"
-                              value={c.phone}
-                              onChange={(e) => {
-                                const newPhone = e.target.value;
-                                setClassesList(classesList.map((item) => item.id === c.id ? { ...item, phone: newPhone } : item));
-                              }}
-                              className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs"
-                            />
-                          </div>
+                      <div key={c.id} className="p-3 bg-slate-50 border rounded-xl space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-slate-900">{c.name}</span>
+                          <button
+                            onClick={() => {
+                              const updated = classesList.filter((item) => item.id !== c.id);
+                              setClassesList(updated);
+                              syncPushToCloud({ classes: updated });
+                            }}
+                            className="text-red-600 hover:bg-red-50 p-1 rounded"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
+                        <input
+                          type="text"
+                          placeholder="No WA PIC"
+                          value={c.phone}
+                          onChange={(e) => {
+                            const newPhone = e.target.value;
+                            const updated = classesList.map((item) => (item.id === c.id ? { ...item, phone: newPhone } : item));
+                            setClassesList(updated);
+                          }}
+                          onBlur={() => syncPushToCloud()}
+                          className="w-full p-2 bg-white border rounded-lg text-xs"
+                        />
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* ------------------------------------------------------------- */}
-              {/* SUBTAB 7: INTEGRASI WEBHOOK & SAVE SETTINGS BUTTON */}
-              {/* ------------------------------------------------------------- */}
+              {/* SETTINGS & CLOUD SYNC CONTROL */}
               {adminSubTab === 'settings' && (
                 <div className="space-y-6">
-                  <div className="max-w-xl bg-white rounded-2xl border border-slate-200 p-6 space-y-5 shadow-sm text-xs">
-                    <div>
-                      <h3 className="font-bold text-base text-slate-900">Pengaturan Webhook & Akun Admin</h3>
-                      <p className="text-slate-500">Sesuaikan kredensial login admin, nomor WA utama, dan webhook Google Sheet.</p>
-                    </div>
+                  <div className="max-w-xl bg-white rounded-2xl border p-6 space-y-4 shadow-sm text-xs">
+                    <h3 className="font-bold text-base text-slate-900">Pengaturan Webhook & Cloud Sync</h3>
 
                     <form
                       onSubmit={(e) => {
                         e.preventDefault();
-                        // Save directly to LocalStorage
                         localStorage.setItem('ld_bazaar_sheet_webhook', sheetWebhookUrl);
                         localStorage.setItem('ld_bazaar_admin_phone', adminPhone);
                         localStorage.setItem('ld_bazaar_admin_auth', JSON.stringify(adminAuth));
-                        showToast('Semua Pengaturan Berhasil Disimpan!');
+                        syncPushToCloud();
                       }}
-                      className="space-y-4"
+                      className="space-y-3"
                     >
                       <div>
                         <label className="block font-bold text-slate-700 mb-1">Google Sheets Webhook URL</label>
@@ -1700,30 +1406,27 @@ export default function App() {
                           placeholder="https://script.google.com/macros/s/.../exec"
                           value={sheetWebhookUrl}
                           onChange={(e) => setSheetWebhookUrl(e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono"
+                          className="w-full px-3 py-2 bg-slate-50 border rounded-xl font-mono text-xs"
                         />
-                        <span className="text-[10px] text-slate-400 mt-1 block">
-                          Setiap kali customer checkout, data pesanan otomatis terkirim ke spreadsheet ini.
-                        </span>
                       </div>
 
-                      <div className="pt-3 border-t border-slate-100">
-                        <label className="block font-bold text-slate-700 mb-1">No. WA Admin Utama (Fallback)</label>
+                      <div>
+                        <label className="block font-bold text-slate-700 mb-1">No. WA Admin Utama</label>
                         <input
                           type="text"
                           value={adminPhone}
                           onChange={(e) => setAdminPhone(e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+                          className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
                         />
                       </div>
 
-                      <div className="pt-3 border-t border-slate-100">
+                      <div>
                         <label className="block font-bold text-slate-700 mb-1">Username Admin Login</label>
                         <input
                           type="text"
                           value={adminAuth.username}
                           onChange={(e) => setAdminAuth({ ...adminAuth, username: e.target.value })}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+                          className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
                         />
                       </div>
 
@@ -1733,49 +1436,19 @@ export default function App() {
                           type="password"
                           value={adminAuth.password}
                           onChange={(e) => setAdminAuth({ ...adminAuth, password: e.target.value })}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+                          className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
                         />
                       </div>
 
-                      {/* TOMBOL SIMPAN PENGATURAN EKSPLISIT */}
                       <button
                         type="submit"
+                        disabled={isCloudSyncing}
                         className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md flex items-center justify-center space-x-2 text-sm transition-all"
                       >
                         <Save className="w-4 h-4" />
-                        <span>Simpan Semua Pengaturan</span>
+                        <span>Simpan & Sync Ke Cloud Google Sheets</span>
                       </button>
                     </form>
-                  </div>
-
-                  {/* CROSS-DEVICE CONFIGURATION BACKUP & SYNC TOOL */}
-                  <div className="max-w-xl bg-white rounded-2xl border border-slate-200 p-6 space-y-4 shadow-sm text-xs">
-                    <div>
-                      <h4 className="font-bold text-sm text-slate-900 flex items-center">
-                        <Share2 className="w-4 h-4 mr-1.5 text-indigo-600" /> Transfer / Sync Konfigurasi ke Device / Browser Lain
-                      </h4>
-                      <p className="text-slate-500 mt-1">
-                        Agar pengaturan (Webhook URL, Password Admin, Routing Kelas, & Produk) dapat digunakan di HP/Laptop lain, Anda dapat mengeksport kode konfigurasi lalu menempelkannya di device lain.
-                      </p>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={exportConfigJSON}
-                        className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold flex items-center space-x-1.5 border border-indigo-200"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>Salin Teks Konfigurasi (Export)</span>
-                      </button>
-
-                      <button
-                        onClick={() => setIsImportModalOpen(true)}
-                        className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold flex items-center space-x-1.5 border border-slate-300"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>Tempel Konfigurasi (Import)</span>
-                      </button>
-                    </div>
                   </div>
                 </div>
               )}
@@ -1791,13 +1464,14 @@ export default function App() {
           tenants={tenants}
           onClose={() => setProductModal({ isOpen: false, item: null })}
           onSave={(formData) => {
+            let updated;
             if (productModal.item) {
-              setProducts(products.map((p) => (p.id === productModal.item.id ? { ...p, ...formData } : p)));
-              showToast('Produk berhasil diperbarui.');
+              updated = products.map((p) => (p.id === productModal.item.id ? { ...p, ...formData } : p));
             } else {
-              setProducts([...products, { ...formData, id: 'p-' + Date.now(), available: true }]);
-              showToast('Produk baru berhasil ditambahkan.');
+              updated = [...products, { ...formData, id: 'p-' + Date.now(), available: true }];
             }
+            setProducts(updated);
+            syncPushToCloud({ products: updated });
             setProductModal({ isOpen: false, item: null });
           }}
         />
@@ -1809,13 +1483,14 @@ export default function App() {
           item={tenantModal.item}
           onClose={() => setTenantModal({ isOpen: false, item: null })}
           onSave={(formData) => {
+            let updated;
             if (tenantModal.item) {
-              setTenants(tenants.map((t) => (t.id === tenantModal.item.id ? { ...t, ...formData } : t)));
-              showToast('Data Stand diperbarui.');
+              updated = tenants.map((t) => (t.id === tenantModal.item.id ? { ...t, ...formData } : t));
             } else {
-              setTenants([...tenants, { ...formData, id: 't-' + Date.now() }]);
-              showToast('Stand baru ditambahkan.');
+              updated = [...tenants, { ...formData, id: 't-' + Date.now() }];
             }
+            setTenants(updated);
+            syncPushToCloud({ tenants: updated });
             setTenantModal({ isOpen: false, item: null });
           }}
         />
@@ -1826,56 +1501,26 @@ export default function App() {
         <ModalBatchForm
           onClose={() => setBatchModal({ isOpen: false, item: null })}
           onSave={(formData) => {
-            setBatches([...batches, { ...formData, id: 'b-' + Date.now(), isActive: false }]);
-            showToast('Batch baru dibuat.');
+            const updated = [...batches, { ...formData, id: 'b-' + Date.now(), isActive: false }];
+            setBatches(updated);
+            syncPushToCloud({ batches: updated });
             setBatchModal({ isOpen: false, item: null });
           }}
         />
       )}
 
-      {/* MODAL EDIT / TAMBAH KELAS */}
+      {/* MODAL KELAS */}
       {classModal.isOpen && (
         <ModalClassForm
           item={classModal.item}
           onClose={() => setClassModal({ isOpen: false, item: null })}
           onSave={(formData) => {
-            if (classModal.item) {
-              setClassesList(classesList.map((c) => (c.id === classModal.item.id ? { ...c, ...formData } : c)));
-              showToast('Data Kelas diperbarui.');
-            } else {
-              setClassesList([...classesList, { ...formData, id: 'c-' + Date.now() }]);
-              showToast('Kelas baru ditambahkan.');
-            }
+            const updated = [...classesList, { ...formData, id: 'c-' + Date.now() }];
+            setClassesList(updated);
+            syncPushToCloud({ classes: updated });
             setClassModal({ isOpen: false, item: null });
           }}
         />
-      )}
-
-      {/* MODAL IMPORT CONFIG */}
-      {isImportModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative text-xs space-y-3">
-            <button onClick={() => setIsImportModalOpen(false)} className="absolute top-4 right-4 text-slate-400">
-              <X className="w-5 h-5" />
-            </button>
-            <h3 className="text-base font-bold text-slate-900">Import Konfigurasi / Sync Device</h3>
-            <p className="text-slate-500">Tempelkan teks kode JSON konfigurasi dari device lain di bawah ini:</p>
-
-            <form onSubmit={handleImportConfig} className="space-y-3">
-              <textarea
-                rows={6}
-                required
-                placeholder='{"adminPhone": "628...", ...}'
-                value={importConfigJson}
-                onChange={(e) => setImportConfigJson(e.target.value)}
-                className="w-full p-3 bg-slate-50 border rounded-xl font-mono text-[10px]"
-              />
-              <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">
-                Terapkan Konfigurasi
-              </button>
-            </form>
-          </div>
-        </div>
       )}
     </div>
   );
@@ -1891,44 +1536,17 @@ function ModalClassForm({ item, onClose, onSave }) {
         <button onClick={onClose} className="absolute top-4 right-4 text-slate-400">
           <X className="w-5 h-5" />
         </button>
-        <h3 className="text-base font-bold text-slate-900">
-          {item ? 'Edit Kelas' : 'Tambah Kelas Baru'}
-        </h3>
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSave({ name, phone });
-          }}
-          className="space-y-3"
-        >
+        <h3 className="text-base font-bold text-slate-900">Tambah Kelas Baru</h3>
+        <form onSubmit={(e) => { e.preventDefault(); onSave({ name, phone }); }} className="space-y-3">
           <div>
             <label className="block font-semibold mb-1">Nama Kelas</label>
-            <input
-              type="text"
-              required
-              placeholder="Contoh: TK A3 / Little Owl 2"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
-            />
+            <input type="text" required placeholder="Contoh: TK A3" value={name} onChange={(e) => setName(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
           </div>
-
           <div>
             <label className="block font-semibold mb-1">No. WA PIC Kelas</label>
-            <input
-              type="text"
-              required
-              placeholder="Contoh: 628123456789"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
-            />
+            <input type="text" required placeholder="628123456789" value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
           </div>
-
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">
-            Simpan Kelas
-          </button>
+          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">Simpan Kelas</button>
         </form>
       </div>
     </div>
@@ -1946,56 +1564,21 @@ function ModalTenantForm({ item, onClose, onSave }) {
         <button onClick={onClose} className="absolute top-4 right-4 text-slate-400">
           <X className="w-5 h-5" />
         </button>
-        <h3 className="text-base font-bold text-slate-900">
-          {item ? 'Edit Stand/Tenant' : 'Tambah Stand Baru'}
-        </h3>
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSave({ name, owner, phone });
-          }}
-          className="space-y-3"
-        >
+        <h3 className="text-base font-bold text-slate-900">{item ? 'Edit Stand/Tenant' : 'Tambah Stand Baru'}</h3>
+        <form onSubmit={(e) => { e.preventDefault(); onSave({ name, owner, phone }); }} className="space-y-3">
           <div>
             <label className="block font-semibold mb-1">Nama Stand / Tenant</label>
-            <input
-              type="text"
-              required
-              placeholder="Contoh: Stand Snack Bu Ningsih"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
-            />
+            <input type="text" required placeholder="Stand Snack Bu Ningsih" value={name} onChange={(e) => setName(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
           </div>
-
           <div>
             <label className="block font-semibold mb-1">Nama Pemilik Stand</label>
-            <input
-              type="text"
-              required
-              placeholder="Contoh: Mama Budi (TK A1)"
-              value={owner}
-              onChange={(e) => setOwner(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
-            />
+            <input type="text" required placeholder="Mama Budi (TK A1)" value={owner} onChange={(e) => setOwner(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
           </div>
-
           <div>
             <label className="block font-semibold mb-1 text-emerald-700">No WhatsApp Pemilik Stand</label>
-            <input
-              type="text"
-              required
-              placeholder="Contoh: 628123456789"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border border-emerald-200 rounded-xl"
-            />
+            <input type="text" required placeholder="628123456789" value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-emerald-200 rounded-xl" />
           </div>
-
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">
-            Simpan Stand
-          </button>
+          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">Simpan Stand</button>
         </form>
       </div>
     </div>
@@ -2019,77 +1602,35 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
         <button onClick={onClose} className="absolute top-4 right-4 text-slate-400">
           <X className="w-5 h-5" />
         </button>
-        <h3 className="text-base font-bold text-slate-900">
-          {item ? 'Edit Produk' : 'Setup Produk Baru'}
-        </h3>
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSave({ ...form, priceOwner: Number(form.priceOwner), priceOrganizer: Number(form.priceOrganizer) });
-          }}
-          className="space-y-3"
-        >
+        <h3 className="text-base font-bold text-slate-900">{item ? 'Edit Produk' : 'Setup Produk Baru'}</h3>
+        <form onSubmit={(e) => { e.preventDefault(); onSave({ ...form, priceOwner: Number(form.priceOwner), priceOrganizer: Number(form.priceOrganizer) }); }} className="space-y-3">
           <div>
             <label className="block font-semibold mb-1">Nama Produk</label>
-            <input
-              type="text"
-              required
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
-            />
+            <input type="text" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
           </div>
-
           <div>
             <label className="block font-semibold mb-1">Stand / Tenant</label>
-            <select
-              value={form.tenantId}
-              onChange={(e) => setForm({ ...form, tenantId: e.target.value })}
-              className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
-            >
+            <select value={form.tenantId} onChange={(e) => setForm({ ...form, tenantId: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl">
               {tenants.map((t) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>
           </div>
-
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block font-semibold mb-1">Harga Owner (Rp)</label>
-              <input
-                type="number"
-                required
-                value={form.priceOwner}
-                onChange={(e) => setForm({ ...form, priceOwner: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
-              />
+              <input type="number" required value={form.priceOwner} onChange={(e) => setForm({ ...form, priceOwner: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
             </div>
             <div>
               <label className="block font-semibold mb-1">Margin Panitia (Rp)</label>
-              <input
-                type="number"
-                required
-                value={form.priceOrganizer}
-                onChange={(e) => setForm({ ...form, priceOrganizer: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
-              />
+              <input type="number" required value={form.priceOrganizer} onChange={(e) => setForm({ ...form, priceOrganizer: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
             </div>
           </div>
-
           <div>
             <label className="block font-semibold mb-1">URL Foto Produk</label>
-            <input
-              type="url"
-              value={form.imageUrl}
-              onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
-              className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
-            />
+            <input type="url" value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
           </div>
-
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">
-            Simpan Produk
-          </button>
+          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">Simpan Produk</button>
         </form>
       </div>
     </div>
@@ -2111,51 +1652,20 @@ function ModalBatchForm({ onClose, onSave }) {
           <X className="w-5 h-5" />
         </button>
         <h3 className="text-base font-bold text-slate-900">Buat Batch Periode Baru</h3>
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            onSave(form);
-          }}
-          className="space-y-3"
-        >
+        <form onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="space-y-3">
           <div>
             <label className="block font-semibold mb-1">Nama Batch</label>
-            <input
-              type="text"
-              required
-              placeholder="Contoh: Batch 3 - Pre Order Agustus"
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
-            />
+            <input type="text" required placeholder="Batch 2" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
           </div>
-
           <div>
             <label className="block font-semibold mb-1">Tanggal Mulai</label>
-            <input
-              type="date"
-              required
-              value={form.startDate}
-              onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-              className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
-            />
+            <input type="date" required value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
           </div>
-
           <div>
             <label className="block font-semibold mb-1">Tanggal Selesai</label>
-            <input
-              type="date"
-              required
-              value={form.endDate}
-              onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-              className="w-full px-3 py-2 bg-slate-50 border rounded-xl"
-            />
+            <input type="date" required value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
           </div>
-
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">
-            Simpan Batch
-          </button>
+          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">Simpan Batch</button>
         </form>
       </div>
     </div>
