@@ -415,10 +415,8 @@ export default function App() {
       status: 'Unpaid'
     };
 
-    // Update state local pesanan
     setOrders((prev) => [orderPayload, ...prev]);
 
-    // Format WhatsApp Message Text with Smile Emoji 😊
     const targetClassObj = classesList.find((c) => c.name === checkoutData.kelas);
     const picPhoneForClass = targetClassObj?.phone || adminPhone;
     let cleanPhone = (picPhoneForClass || '628123456780').replace(/[^0-9]/g, '');
@@ -446,7 +444,6 @@ export default function App() {
 
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
 
-    // Fire non-blocking fetch to Google Sheets Cloud
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
     if (targetUrl) {
       try {
@@ -464,14 +461,12 @@ export default function App() {
       }
     }
 
-    // Reset Form & Redirect Immediately
     setCart([]);
     setIsCheckoutModalOpen(false);
     setIsCartOpen(false);
     setCheckoutData({ namaAnak: '', kelas: classesList[0]?.name || 'TK A1', namaOrtu: '', catatan: '' });
     setIsSubmitting(false);
 
-    // Open WhatsApp URL directly in event loop
     window.open(waUrl, '_blank');
   };
 
@@ -664,7 +659,6 @@ export default function App() {
         </div>
       )}
 
-      {/* HEADER UTAMA */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md shadow-sm border-b border-slate-200">
         <div className="max-w-5xl mx-auto px-4 py-2.5 flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -730,7 +724,7 @@ export default function App() {
                     </span>
                   </div>
                   <h2 className="text-lg sm:text-xl font-black mt-1">Pesan Makanan & Souvenir Bazaar DANUS</h2>
-                  <p className="text-amber-100 text-xs">Pesanan akan dipproses sesuai periode {activeBatch.name}.</p>
+                  <p className="text-amber-100 text-xs">Pesanan akan diproses sesuai periode {activeBatch.name}.</p>
                 </div>
               </div>
             ) : (
@@ -788,7 +782,6 @@ export default function App() {
             </div>
           </div>
 
-          {}
           {isInitialLoading ? (
             <div className="py-16 text-center space-y-3 bg-white rounded-2xl border border-dashed border-slate-200">
               <Loader2 className="w-8 h-8 text-amber-600 animate-spin mx-auto" />
@@ -1077,7 +1070,7 @@ export default function App() {
                   <input
                     type="password"
                     required
-                    placeholder="Password Baru"
+                    placeholder="Password"
                     value={loginForm.password}
                     onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm"
@@ -1105,6 +1098,7 @@ export default function App() {
                 </button>
               </div>
 
+              {}
               <div className="flex items-center space-x-2 border-b border-slate-200 pb-3 overflow-x-auto scrollbar-none">
                 <button
                   onClick={() => setAdminSubTab('batch_reports')}
@@ -1164,7 +1158,20 @@ export default function App() {
                 >
                   <Users className="w-4 h-4" />
                   <span>Routing WA Kelas ({classesList.length})</span>
-              {/* REKAP PER TENANT & BATCH TAB */}
+                </button>
+
+                <button
+                  onClick={() => setAdminSubTab('settings')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 whitespace-nowrap transition-all ${
+                    adminSubTab === 'settings' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <Settings className="w-4 h-4" />
+                  <span>Integrasi Webhook & Sandi</span>
+                </button>
+              </div>
+
+              {}
               {adminSubTab === 'batch_reports' && (
                 <div className="space-y-6">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4 justify-between sm:items-center">
@@ -1471,7 +1478,15 @@ export default function App() {
                                 </div>
                               </td>
                             </tr>
-              {/* ORDERS TAB */}
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {}
               {adminSubTab === 'orders' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1712,6 +1727,7 @@ export default function App() {
         />
       )}
 
+      {}
       {tenantModal.isOpen && (
         <ModalTenantForm
           item={tenantModal.item}
@@ -1730,6 +1746,7 @@ export default function App() {
         />
       )}
 
+      {}
       {batchModal.isOpen && (
         <ModalBatchForm
           item={batchModal.item}
@@ -1750,6 +1767,7 @@ export default function App() {
         />
       )}
 
+      {}
       {classModal.isOpen && (
         <ModalClassForm
           item={classModal.item}
@@ -1763,6 +1781,7 @@ export default function App() {
         />
       )}
 
+      {}
       {deleteConfirmModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl relative text-xs space-y-3">
@@ -1864,7 +1883,7 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      showToast('Ukuran file foto terlalu besar (maksimal 5MB)');
+      alert('Ukuran file foto terlalu besar (maksimal 5MB)');
       return;
     }
 
