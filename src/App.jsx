@@ -24,10 +24,11 @@ import {
   Printer,
   Save,
   Share2,
-  Menu
+  Menu,
+  Download
 } from 'lucide-react';
 
-// URL Google Apps Script terbaru (Pastikan ini sesuai dengan deployment terakhir Anda)
+// URL Google Apps Script terbaru
 const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwMORs9RhRXNQhQf5s0NhxKkT-IDiyu4NcOSXpcHkU3175JdLo5E-l_9166sznyL9U/exec';
 
 const formatIndoDate = (dateStr) => {
@@ -45,7 +46,7 @@ const formatRupiah = (num) => {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num || 0);
 };
 
-// Fungsi pembersih string duplikat misal: "Sosis (x1) (x3)" -> "Sosis"
+// Fungsi pembersih nama produk (misal: "Sosis (x1) (x1)" -> "Sosis")
 const parseAndCleanItem = (rawName) => {
   if (!rawName) return '';
   return rawName.replace(/\(x\d+\)/g, '').trim();
@@ -106,7 +107,7 @@ export default function App() {
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [loginError, setLoginError] = useState('');
   const [toastMessage, setToastMessage] = useState('');
-  const [isCloudSyncing, setIsCloudSyncing] = useState(true);
+  const [isCloudSyncing, setIsCloudSyncing] = useState(true); // Mulai dengan true agar muncul skeleton loading pertama kali
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -140,6 +141,7 @@ export default function App() {
     namaOrtu: '',
     catatan: ''
   });
+  
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -176,22 +178,40 @@ export default function App() {
     if (!targetUrl) return;
     setIsCloudSyncing(true);
     try {
-      // Force no-cache to fix mobile discrepancy issue
       const noCacheUrl = `${targetUrl}?t=${new Date().getTime()}`;
       const res = await fetch(noCacheUrl, { cache: 'no-store' });
       const json = await res.json();
       
       if (json.status === 'success' && json.data) {
-        if (json.data.products?.length > 0) setProducts(json.data.products);
-        if (json.data.tenants?.length > 0) setTenants(json.data.tenants);
-        if (json.data.classes?.length > 0) setClassesList(json.data.classes);
-        if (json.data.orders?.length > 0) setOrders(json.data.orders);
+        // ALWAYS update state if present in cloud response (even if empty).
+        // This ensures deleted items in Google Sheets are also deleted in the web app!
+        if (json.data.products !== undefined) setProducts(json.data.products);
+        if (json.data.tenants !== undefined) setTenants(json.data.tenants);
+        if (json.data.classes !== undefined) setClassesList(json.data.classes);
         
-        if (json.data.batches?.length > 0) {
+        if (json.data.orders !== undefined) {
+          // CRITICAL FIX: Google Sheets returns 'customer' and 'items' as Strings.
+          // We MUST parse them back into JSON Objects to prevent .map() crashes!
+          const parsedOrders = json.data.orders.map(o => {
+            let parsedCust = o.customer;
+            let parsedItems = o.items;
+            
+            if (typeof parsedCust === 'string') {
+              try { parsedCust = JSON.parse(parsedCust); } catch(e) { parsedCust = {}; }
+            }
+            if (typeof parsedItems === 'string') {
+              try { parsedItems = JSON.parse(parsedItems); } catch(e) { parsedItems = []; }
+            }
+            
+            return { ...o, customer: parsedCust, items: parsedItems };
+          });
+          setOrders(parsedOrders);
+        }
+        
+        if (json.data.batches !== undefined) {
           setBatches(json.data.batches);
-          // Set active batch filter automatically
           const activeBatch = json.data.batches.find(b => b.isActive) || json.data.batches[0];
-          setReportSelectedBatchId(activeBatch.id);
+          if (activeBatch) setReportSelectedBatchId(activeBatch.id);
         }
         
         if (json.data.settings?.adminAuth) {
@@ -210,6 +230,7 @@ export default function App() {
 
   useEffect(() => {
     fetchCloudData(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const syncPushToCloud = (overrideData = {}) => {
@@ -289,14 +310,12 @@ export default function App() {
   const handleCheckoutSubmit = (e) => {
     e.preventDefault();
     if (!activeBatch || !checkoutData.namaAnak.trim() || !checkoutData.namaOrtu.trim() || cart.length === 0) return;
+    if (isSubmitting) return; // Prevent double clicks
     
-    // Prevent double clicking rapidly
-    if (isSubmitting) return;
     setIsSubmitting(true);
 
     const newOrderId = 'BZ-' + Math.floor(100000 + Math.random() * 900000);
     const dateNow = new Date().toISOString();
-    
     const formattedItemsText = cart.map(item => `${item.name} (x${item.qty})`).join(', ');
 
     const orderPayload = {
@@ -320,12 +339,12 @@ export default function App() {
       formattedItemsText: formattedItemsText
     };
 
-    // Format WhatsApp Text (Tanpa Emoticon)
+    // Construct WA Text (NO EMOJIS TO PREVENT ERRORS)
     const targetClassObj = classesList.find((c) => c.name === checkoutData.kelas);
-    const picPhoneForClass = targetClassObj?.phone || '';
+    const picPhoneRaw = targetClassObj?.phone || '';
     
-    // CRITICAL FIX: Cast to String before replacing to prevent TypeError crash
-    let cleanPhone = picPhoneForClass ? String(picPhoneForClass).replace(/[^0-9]/g, '') : '';
+    // SAFE NUMBER PARSING
+    let cleanPhone = String(picPhoneRaw).replace(/[^0-9]/g, '');
     if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
 
     let waText = `*PEMESANAN BAZAAR DANUS PTA LITTLE DARBI*\n`;
@@ -352,20 +371,13 @@ export default function App() {
     waText += `-----------------------------------\n`;
     waText += `Halo PIC Kelas ${checkoutData.kelas}, mohon instruksi info rekening pembayaran. Terima kasih!`;
 
-    const encodedWaText = encodeURIComponent(waText);
-    const waUrl = `https://wa.me/${cleanPhone}?text=${encodedWaText}`;
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
 
-    // 1. Paling Pertama: Buka WA Langsung agar tidak terblokir Popup Blocker HP
-    if (cleanPhone) {
-      window.open(waUrl, '_blank');
-    } else {
-      alert("Pesan tersimpan, tetapi Nomor WA PIC Kelas belum diatur oleh admin.");
-    }
-
-    // 2. State & Cloud Updates in Background
+    // Update States
     const updatedOrders = [orderPayload, ...orders];
     setOrders(updatedOrders);
     
+    // Push Background Sync
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
     if (targetUrl) {
       fetch(targetUrl, {
@@ -376,12 +388,19 @@ export default function App() {
       }).catch(err => console.warn(err));
     }
 
-    // 3. Reset form
+    // Reset Form
     setCart([]);
     setIsCheckoutModalOpen(false);
     setIsCartOpen(false);
     setCheckoutData({ namaAnak: '', kelas: classesList[0]?.name || 'TK A1', namaOrtu: '', catatan: '' });
     setIsSubmitting(false);
+
+    // Buka WA (Tidak dihalangi async/await lagi agar lancar di HP)
+    if (cleanPhone && cleanPhone.length > 5) {
+      window.open(waUrl, '_blank');
+    } else {
+      alert("Pesanan berhasil dicatat, namun gagal membuka WhatsApp karena Nomor PIC Kelas belum diatur oleh admin.");
+    }
   };
 
   const filteredProducts = useMemo(() => {
@@ -394,6 +413,7 @@ export default function App() {
 
   // Enrichment data agar Nominal Total tidak Nol
   const enrichOrderItems = (ord) => {
+    if (!ord || !ord.items || !Array.isArray(ord.items)) return [];
     return ord.items.map(it => {
       const dbProduct = products.find(p => p.id === it.id);
       if (dbProduct) {
@@ -472,20 +492,21 @@ export default function App() {
     });
   }, [orders, reportSelectedBatchId, reportSelectedStatus, tenants, products]);
 
-  // Update Status directly via Fetch API
   const updateOrderStatusDirect = (orderId, newStatus) => {
+    const updated = orders.map(o => o.orderId === orderId ? { ...o, status: newStatus } : o);
+    setOrders(updated);
+    
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
-    const payload = { action: 'updateOrderStatus', orderId: orderId, status: newStatus };
     fetch(targetUrl, {
       method: 'POST',
       mode: 'no-cors',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ action: 'updateOrderStatus', orderId: orderId, status: newStatus })
     }).catch(e => console.warn(e));
   };
 
   return (
-    <div className={`min-h-screen bg-slate-50 text-slate-800 font-sans pb-24 ${printData ? 'print:hidden' : ''}`}>
+    <div className={`min-h-screen bg-slate-50 text-slate-800 font-sans pb-24 ${printData ? 'hidden print:block' : ''}`}>
       {toastMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-2xl text-xs font-bold flex items-center space-x-2 animate-bounce">
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -529,7 +550,7 @@ export default function App() {
                 <button
                   onClick={() => { setActiveTab('shop'); setIsMobileMenuOpen(false); }}
                   className={`w-full px-3 py-2 sm:py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-2 ${
-                    activeTab === 'shop' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-600'
+                    activeTab === 'shop' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-600 hover:bg-slate-200'
                   }`}
                 >
                   <ShoppingBag className="w-4 h-4" /><span>Menu Pembeli</span>
@@ -537,7 +558,7 @@ export default function App() {
                 <button
                   onClick={() => { setActiveTab('admin'); setIsMobileMenuOpen(false); }}
                   className={`w-full px-3 py-2 sm:py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-2 ${
-                    activeTab === 'admin' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600'
+                    activeTab === 'admin' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:bg-slate-200'
                   }`}
                 >
                   <Settings className="w-4 h-4" /><span>Panel Admin</span>
@@ -605,7 +626,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Grid Produk: 2 Kolom di Mobile, 3-4 di Desktop */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
             {filteredProducts.map((prod) => {
               const tenant = tenants.find((t) => t.id === prod.tenantId);
@@ -765,8 +785,9 @@ export default function App() {
               {/* TAB ADMIN: SEMUA PESANAN MASUK */}
               {adminSubTab === 'orders' && (
                 <div className="space-y-3">
-                  <div className="bg-white p-3 rounded-xl border shadow-sm mb-2 text-xs text-slate-500">
-                    Klik "Simpan Status" untuk memperbarui status pesanan ke cloud.
+                  <div className="bg-white p-3 rounded-xl border shadow-sm mb-2 text-xs text-slate-500 flex justify-between items-center">
+                    <span>Klik "Simpan Status" untuk memperbarui status pesanan ke cloud.</span>
+                    <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded">Total: {orders.length}</span>
                   </div>
                   {orders.map((ord) => {
                     const enrichedItems = enrichOrderItems(ord);
@@ -799,14 +820,22 @@ export default function App() {
                               }}
                               className="px-3 py-2 bg-indigo-600 text-white font-bold rounded-lg flex items-center shadow-sm"
                             >
-                              <Save className="w-3.5 h-3.5 mr-1" /> Simpan Status
+                              <Save className="w-3.5 h-3.5 mr-1" /> Simpan
                             </button>
                             <button 
                               onClick={() => {
-                                if(confirm(`Yakin HAPUS pesanan ${ord.orderId}? Data akan terhapus dari cloud.`)) {
+                                if(window.confirm(`Yakin HAPUS pesanan ${ord.orderId}? Data akan terhapus dari sistem.`)) {
                                   const updated = orders.filter(o => o.orderId !== ord.orderId);
                                   setOrders(updated);
-                                  syncPushToCloud({ orders: updated });
+                                  // Call a dedicated delete endpoint or let it overwrite local (sync needs to handle orders array to be safe)
+                                  const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
+                                  fetch(targetUrl, {
+                                    method: 'POST',
+                                    mode: 'no-cors',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ action: 'deleteOrder', orderId: ord.orderId })
+                                  });
+                                  showToast('Pesanan dihapus dari Cloud.');
                                 }
                               }}
                               className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg"
@@ -872,7 +901,7 @@ export default function App() {
                           <div className="flex flex-col gap-1.5">
                             <button onClick={() => setProductModal({ isOpen: true, item: p })} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Edit3 className="w-4 h-4" /></button>
                             <button onClick={() => {
-                              if(confirm(`Hapus produk ${p.name}?`)) {
+                              if(window.confirm(`Hapus produk ${p.name}?`)) {
                                 const up = products.filter(x => x.id !== p.id);
                                 setProducts(up); syncPushToCloud({ products: up });
                               }
@@ -936,7 +965,7 @@ export default function App() {
                         <div className="flex gap-1.5">
                            <button onClick={() => setClassModal({ isOpen: true, item: c })} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Edit3 className="w-4 h-4" /></button>
                            <button onClick={() => {
-                              if(confirm(`Hapus kelas ${c.name}?`)){
+                              if(window.confirm(`Hapus kelas ${c.name}?`)){
                                 const up = classesList.filter(x => x.id !== c.id);
                                 setClassesList(up); syncPushToCloud({ classes: up });
                               }
@@ -968,7 +997,7 @@ export default function App() {
                         <div className="flex gap-1.5">
                            <button onClick={() => setTenantModal({ isOpen: true, item: t })} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Edit3 className="w-4 h-4" /></button>
                            <button onClick={() => {
-                              if(confirm(`Hapus stand ${t.name}?`)){
+                              if(window.confirm(`Hapus stand ${t.name}?`)){
                                 const up = tenants.filter(x => x.id !== t.id);
                                 setTenants(up); syncPushToCloud({ tenants: up });
                               }
@@ -1061,68 +1090,18 @@ export default function App() {
       )}
 
       {}
-      {classModal.isOpen && (
-        <ModalClassForm 
-          item={classModal.item} 
-          onClose={() => setClassModal({ isOpen: false, item: null })} 
-          onSave={(data) => {
-            let up;
-            if (classModal.item) up = classesList.map(c => c.id === classModal.item.id ? { ...c, ...data } : c);
-            else up = [...classesList, { ...data, id: 'c-' + Date.now() }];
-            setClassesList(up); syncPushToCloud({ classes: up });
-            setClassModal({ isOpen: false, item: null });
-          }} 
-        />
-      )}
-
-      {tenantModal.isOpen && (
-        <ModalTenantForm 
-          item={tenantModal.item} 
-          onClose={() => setTenantModal({ isOpen: false, item: null })} 
-          onSave={(data) => {
-            let up;
-            if (tenantModal.item) up = tenants.map(t => t.id === tenantModal.item.id ? { ...t, ...data } : t);
-            else up = [...tenants, { ...data, id: 't-' + Date.now() }];
-            setTenants(up); syncPushToCloud({ tenants: up });
-            setTenantModal({ isOpen: false, item: null });
-          }} 
-        />
-      )}
-
-      {batchModal.isOpen && (
-        <ModalBatchForm 
-          item={batchModal.item}
-          onClose={() => setBatchModal({ isOpen: false, item: null })} 
-          onSave={(data) => {
-            let up;
-            if (batchModal.item) up = batches.map(b => b.id === batchModal.item.id ? { ...b, ...data } : b);
-            else up = [...batches, { ...data, id: 'b-' + Date.now(), isActive: false }];
-            setBatches(up); syncPushToCloud({ batches: up });
-            setBatchModal({ isOpen: false, item: null });
-          }} 
-        />
-      )}
-
-      {productModal.isOpen && (
-        <ModalProductForm 
-          item={productModal.item} tenants={tenants} 
-          onClose={() => setProductModal({ isOpen: false, item: null })} 
-          onSave={(data) => {
-            let up;
-            if (productModal.item) up = products.map(p => p.id === productModal.item.id ? { ...p, ...data } : p);
-            else up = [...products, { ...data, id: 'p-' + Date.now(), available: true }];
-            setProducts(up); syncPushToCloud({ products: up });
-            setProductModal({ isOpen: false, item: null });
-          }} 
-        />
-      )}
-
-      {}
       {printData && (
-        <div className="fixed inset-0 z-50 bg-slate-50 print:bg-white overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:h-auto print:overflow-visible print:m-0 print:p-0">
+        <div className="fixed inset-0 z-[9999] bg-slate-50 print:bg-white overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:h-auto print:overflow-visible print:m-0 print:p-0">
+          <style>{`
+            @media print {
+              @page { size: portrait; margin: 10mm; }
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .no-print { display: none !important; }
+            }
+          `}</style>
           
-          <div className="print:hidden sticky top-0 bg-slate-900 text-white p-4 shadow-md flex justify-between items-center z-50">
-             <h2 className="font-bold text-sm">Mode Export PDF</h2>
+          <div className="no-print sticky top-0 bg-slate-900 text-white p-4 shadow-md flex justify-between items-center z-50">
+             <h2 className="font-bold text-sm">Mode Export PDF & WA</h2>
              <div className="flex flex-wrap gap-2">
                <button onClick={() => window.print()} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-bold transition-colors">
                  1. Simpan sbg PDF
@@ -1131,7 +1110,6 @@ export default function App() {
                    let cleanPhone = printData.tenantRep.tenantPhone ? String(printData.tenantRep.tenantPhone).replace(/[^0-9]/g, '') : '';
                    if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
                    
-                   // Format text WA sesuai request persis: Tanpa emot, ringkasan margin dll
                    let text = `REKAP PESANAN - ${printData.tenantRep.tenantName.toUpperCase()}\n`;
                    text += `Periode: ${printData.currentBatch?.name || '-'}\n`;
                    text += `Tanggal ready: ${printData.currentBatch?.readyDate ? formatIndoDate(printData.currentBatch.readyDate) : '-'}\n\n`;
@@ -1146,11 +1124,14 @@ export default function App() {
                    text += `\nNOMINAL TOTAL: ${formatRupiah(printData.tenantRep.tenantTotalGross)}\n\n`;
                    text += `Terima kasih!`;
                    
-                   const encodedText = encodeURIComponent(text);
-                   const waUrl = `https://wa.me/${cleanPhone}?text=${encodedText}`;
-                   window.open(waUrl, '_blank');
+                   const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+                   if(cleanPhone.length > 5) {
+                      window.open(waUrl, '_blank');
+                   } else {
+                      alert("Nomor WA tenant tidak valid.");
+                   }
                }} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-xs font-bold transition-colors">
-                 2. Kirim Teks & Lampirkan di WA
+                 2. Buka WA & Lampirkan
                </button>
                <button onClick={() => setPrintData(null)} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 rounded-lg text-xs font-bold transition-colors">
                  Tutup
@@ -1212,7 +1193,7 @@ export default function App() {
                    const grossT = ownerT + marginT;
                    return (
                      <tr key={name}>
-                       <td className="border border-slate-300 p-2 font-bold text-slate-800">{name}</td>
+                       <td className="border border-slate-300 p-2 font-bold text-slate-800">{parseAndCleanItem(name)}</td>
                        <td className="border border-slate-300 p-2 text-center font-bold">{item.qty}</td>
                        <td className="border border-slate-300 p-2 text-right">{formatRupiah(ownerT)}</td>
                        <td className="border border-slate-300 p-2 text-right">{formatRupiah(marginT)}</td>
