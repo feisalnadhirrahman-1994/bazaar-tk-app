@@ -24,10 +24,10 @@ import {
   Save,
   RefreshCw,
   Share2,
-  Upload
+  Upload,
+  Loader2
 } from 'lucide-react';
 
-// DEFAULT WEBHOOK GOOGLE SHEETS CLOUD
 const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwmWBM_AsaxtOf8RcDwtbRBsZJcWM5Qd2xVMG7RkhWwoeh8fCoqC8XKSh0HWqRqonN_/exec';
 
 const formatIndoDate = (dateStr) => {
@@ -45,41 +45,7 @@ const INITIAL_TENANTS = [
   { id: 't3', name: 'Souvenir & Mainan Edukasi', owner: 'Pak Hendra', phone: '6281234567893' }
 ];
 
-const INITIAL_PRODUCTS = [
-  { 
-    id: 'p1', 
-    tenantId: 't1', 
-    name: 'Es Lilin Buah Segar', 
-    priceOwner: 8000, 
-    priceOrganizer: 2000, 
-    description: 'Es lilin dari buah asli tanpa pemanis buatan',
-    category: 'Minuman',
-    imageUrl: 'https://images.unsplash.com/photo-1505252585461-04db1eb84625?auto=format&fit=crop&w=400&q=80',
-    available: true
-  },
-  { 
-    id: 'p2', 
-    tenantId: 't1', 
-    name: 'Donat Toping Cokelat & Keju', 
-    priceOwner: 12000, 
-    priceOrganizer: 3000, 
-    description: '1 porsi isi 2 donat empuk',
-    category: 'Makanan',
-    imageUrl: 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?auto=format&fit=crop&w=400&q=80',
-    available: true
-  },
-  { 
-    id: 'p3', 
-    tenantId: 't2', 
-    name: 'Nasi Bento Chicken Katsu', 
-    priceOwner: 20000, 
-    priceOrganizer: 5000, 
-    description: 'Nasi bento dengan katsu, sosis, dan sayur segar',
-    category: 'Makanan',
-    imageUrl: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=400&q=80',
-    available: true
-  }
-];
+const INITIAL_PRODUCTS = [];
 
 const INITIAL_BATCHES = [
   {
@@ -162,6 +128,7 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
   const [toastMessage, setToastMessage] = useState('');
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [deleteConfirmModal, setDeleteConfirmModal] = useState({ isOpen: false, type: '', id: '', name: '' });
   const [orderStatusDraft, setOrderStatusDraft] = useState({});
 
@@ -240,13 +207,11 @@ export default function App() {
   useEffect(() => { localStorage.setItem('ld_bazaar_admin_phone', adminPhone); }, [adminPhone]);
   useEffect(() => { localStorage.setItem('ld_bazaar_sheet_webhook', sheetWebhookUrl); }, [sheetWebhookUrl]);
 
-  // Helper to enrich order items with product database to ensure prices and tenantIds are never zero/empty
   const enrichOrderItems = (rawItems) => {
     if (!rawItems || !Array.isArray(rawItems)) return [];
     return rawItems.map((item) => {
-      // Find matching product in catalog
       const matchedProd = products.find(
-        (p) => p.id === item.id || p.name.toLowerCase() === (item.name || '').toLowerCase() || (item.name || '').toLowerCase().startsWith(p.name.toLowerCase())
+        (p) => p.id === item.id || p.name.toLowerCase() === (item.name || '').toLowerCase() || (item.name || '').toLowerCase().startsWith((p.name || '').toLowerCase())
       );
       
       const priceOwner = item.priceOwner || (matchedProd ? matchedProd.priceOwner : 0);
@@ -272,7 +237,10 @@ export default function App() {
 
   const fetchCloudData = async (silent = false) => {
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
-    if (!targetUrl) return;
+    if (!targetUrl) {
+      setIsInitialLoading(false);
+      return;
+    }
     setIsCloudSyncing(true);
     try {
       const res = await fetch(targetUrl);
@@ -297,6 +265,7 @@ export default function App() {
       console.warn('Google Sheets Fetch Error:', e);
     } finally {
       setIsCloudSyncing(false);
+      setIsInitialLoading(false);
     }
   };
 
@@ -411,7 +380,7 @@ export default function App() {
     );
   }, [cart]);
 
-  const handleCheckoutSubmit = async (e) => {
+  const handleCheckoutSubmit = (e) => {
     e.preventDefault();
     if (!orderStatusInfo.isOpen || !activeBatch) {
       showToast(orderStatusInfo.reason);
@@ -445,25 +414,10 @@ export default function App() {
       status: 'Unpaid'
     };
 
+    // Update state local pesanan
     setOrders((prev) => [orderPayload, ...prev]);
 
-    const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
-    if (targetUrl) {
-      try {
-        fetch(targetUrl, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'checkout',
-            ...orderPayload
-          })
-        });
-      } catch (err) {
-        console.warn('Webhook order send error:', err);
-      }
-    }
-
+    // Format WhatsApp Message Text with Smile Emoji 😊
     const targetClassObj = classesList.find((c) => c.name === checkoutData.kelas);
     const picPhoneForClass = targetClassObj?.phone || adminPhone;
     let cleanPhone = picPhoneForClass.replace(/[^0-9]/g, '');
@@ -491,6 +445,25 @@ export default function App() {
 
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
 
+    // Fire non-blocking fetch to Google Sheets
+    const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
+    if (targetUrl) {
+      try {
+        fetch(targetUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'checkout',
+            ...orderPayload
+          })
+        }).catch((err) => console.warn('Webhook background fetch warning:', err));
+      } catch (err) {
+        console.warn('Webhook order send error:', err);
+      }
+    }
+
+    // Reset Form & Redirect Immediately
     setCart([]);
     setIsCheckoutModalOpen(false);
     setIsCartOpen(false);
@@ -503,9 +476,9 @@ export default function App() {
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
       const matchTenant = selectedTenantFilter === 'all' || p.tenantId === selectedTenantFilter;
-      const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          p.description.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchTenant && matchSearch && p.available;
+      const matchSearch = (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (p.description || '').toLowerCase().includes(searchQuery.toLowerCase());
+      return matchTenant && matchSearch && (p.available !== false);
     });
   }, [products, selectedTenantFilter, searchQuery]);
 
@@ -596,7 +569,7 @@ export default function App() {
         </div>
       )}
 
-      {/* HEADER UTAMA DENGAN LOGO LITTLE DARBI PTA */}
+      {/* HEADER UTAMA */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md shadow-sm border-b border-slate-200">
         <div className="max-w-5xl mx-auto px-4 py-2.5 flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -646,7 +619,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* SHOP VIEW */}
+      {}
       {activeTab === 'shop' && (
         <main className="max-w-5xl mx-auto px-4 pt-6">
           <div className="mb-6">
@@ -662,7 +635,7 @@ export default function App() {
                     </span>
                   </div>
                   <h2 className="text-lg sm:text-xl font-black mt-1">Pesan Makanan & Souvenir Bazaar DANUS</h2>
-                  <p className="text-amber-100 text-xs">Pesanan akan diproses sesuai periode {activeBatch.name}.</p>
+                  <p className="text-amber-100 text-xs">Pesanan akan dipproses sesuai periode {activeBatch.name}.</p>
                 </div>
               </div>
             ) : (
@@ -720,7 +693,13 @@ export default function App() {
             </div>
           </div>
 
-          {filteredProducts.length === 0 ? (
+          {}
+          {isInitialLoading ? (
+            <div className="py-16 text-center space-y-3 bg-white rounded-2xl border border-dashed border-slate-200">
+              <Loader2 className="w-8 h-8 text-amber-600 animate-spin mx-auto" />
+              <p className="text-slate-500 text-xs font-medium">Memuat Menu Terbaru dari Google Sheets Cloud...</p>
+            </div>
+          ) : filteredProducts.length === 0 ? (
             <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200">
               <ShoppingBag className="w-12 h-12 text-slate-300 mx-auto mb-3" />
               <p className="text-slate-500 font-medium text-sm">Belum ada produk yang cocok.</p>
@@ -818,7 +797,7 @@ export default function App() {
         </main>
       )}
 
-      {/* CART MODAL */}
+      {}
       {isCartOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs">
           <div className="w-full max-w-md bg-white h-full flex flex-col justify-between shadow-2xl">
@@ -876,7 +855,7 @@ export default function App() {
         </div>
       )}
 
-      {/* CHECKOUT FORM MODAL */}
+      {}
       {isCheckoutModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
@@ -966,7 +945,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ADMIN PANEL VIEW */}
+      {}
       {activeTab === 'admin' && (
         <main className="max-w-5xl mx-auto px-4 pt-6">
           {!isAdminLoggedIn ? (
@@ -1103,7 +1082,7 @@ export default function App() {
                 </button>
               </div>
 
-              {/* REKAP BATCH REPORTS */}
+              {}
               {adminSubTab === 'batch_reports' && (
                 <div className="space-y-6">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4 justify-between sm:items-center">
@@ -1242,7 +1221,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* KELOLA TENANTS */}
+              {}
               {adminSubTab === 'tenants' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1285,7 +1264,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* KELOLA BATCHES */}
+              {}
               {adminSubTab === 'batches' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1339,7 +1318,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* SETUP PRODUCTS */}
+              {}
               {adminSubTab === 'products' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1405,7 +1384,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* SEMUA PESANAN - ENRICHED & WITH SAVE BUTTON */}
+              {}
               {adminSubTab === 'orders' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1482,7 +1461,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* CLASS PICS */}
+              {}
               {adminSubTab === 'class_pics' && (
                 <div className="bg-white p-6 rounded-2xl border space-y-4 shadow-sm">
                   <div className="flex justify-between items-center">
@@ -1527,7 +1506,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* SETTINGS */}
+              {}
               {adminSubTab === 'settings' && (
                 <div className="space-y-6">
                   <div className="max-w-xl bg-white rounded-2xl border p-6 space-y-4 shadow-sm text-xs">
@@ -1618,7 +1597,7 @@ export default function App() {
         </main>
       )}
 
-      {/* MODALS */}
+      {}
       {productModal.isOpen && (
         <ModalProductForm
           item={productModal.item}
@@ -1790,7 +1769,7 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      alert('Ukuran file foto terlalu besar (maksimal 5MB)');
+      showToast('Ukuran file foto terlalu besar (maksimal 5MB)');
       return;
     }
 
