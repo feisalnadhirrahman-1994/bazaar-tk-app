@@ -2,11 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ShoppingBag, ShoppingCart, Plus, Trash2, Edit3, CheckCircle2, 
   MessageCircle, Store, Settings, Search, FileSpreadsheet, X, Send,
-  User, School, Lock, AlertCircle, Phone, Image as ImageIcon, 
-  Upload, Users, Layers, Share2, Printer, Save, RefreshCw
+  User, School, Lock, Phone, Image as ImageIcon, Share2, Printer, Save, RefreshCw
 } from 'lucide-react';
 
-// URL Endpoint Google Sheets yang baru
+// URL Endpoint Google Sheets Webhook
 const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwMORs9RhRXNQhQf5s0NhxKkT-IDiyu4NcOSXpcHkU3175JdLo5E-l_9166sznyL9U/exec';
 
 const formatIndoDate = (dateStr) => {
@@ -19,8 +18,9 @@ const formatRupiah = (num) => {
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num || 0);
 };
 
-// Fungsi pembersih imbuhan "(x1)" bawaan dari Cloud
+// Fungsi pembersih imbuhan "(x...)" bawaan dari Cloud (Mencegah Duplikasi Qty)
 const parseAndCleanItem = (itemString) => {
+  if (!itemString) return { name: '-', qty: 1 };
   let name = itemString;
   let qty = 1;
   const match = itemString.match(/\(x(\d+)\)/g);
@@ -101,14 +101,13 @@ export default function App() {
   const [batches, setBatches] = useState([]);
   const [orders, setOrders] = useState([]);
 
-  // Modals & Forms
+  // Modals & Forms State
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [checkoutData, setCheckoutData] = useState({ namaAnak: '', kelas: '', namaOrtu: '', catatan: '' });
   const [selectedTenantFilter, setSelectedTenantFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [printData, setPrintData] = useState(null);
 
   const [productModal, setProductModal] = useState({ isOpen: false, item: null });
@@ -213,10 +212,10 @@ export default function App() {
     if (!activeBatch) return;
     if (!checkoutData.namaAnak.trim() || !checkoutData.namaOrtu.trim() || cart.length === 0) return;
 
-    setIsSubmitting(true);
     const newOrderId = 'BZ-' + Math.floor(100000 + Math.random() * 900000);
     const targetClassObj = classesList.find((c) => c.name === checkoutData.kelas) || classesList[0];
     
+    // Clean and validate phone number
     let cleanPhone = targetClassObj?.phone ? targetClassObj.phone.replace(/[^0-9]/g, '') : '';
     if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
 
@@ -240,9 +239,11 @@ export default function App() {
       status: 'Unpaid'
     };
 
-    // Update Local & Background Sync
+    // Update state locally first for immediate UI feedback
     const newOrders = [orderPayload, ...orders];
     setOrders(newOrders);
+
+    // Send payload to Google Sheets in the background
     if (sheetWebhookUrl) {
       fetch(sheetWebhookUrl, {
         method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' },
@@ -250,7 +251,7 @@ export default function App() {
       }).catch(e => console.warn(e));
     }
 
-    // Prepare WA Text (NO EMOJIS)
+    // Construct WA Text (strictly without emojis to prevent encoding issues)
     let waText = `PEMESANAN BAZAAR DANUS PTA LITTLE DARBI\n`;
     waText += `Periode: ${activeBatch.name}\n`;
     waText += `-----------------------------------\n`;
@@ -280,9 +281,8 @@ export default function App() {
     setIsCheckoutModalOpen(false);
     setIsCartOpen(false);
     setCheckoutData({ namaAnak: '', kelas: classesList[0]?.name || '', namaOrtu: '', catatan: '' });
-    setIsSubmitting(false);
 
-    // Buka WA Langsung (Sinkron)
+    // Open WA Immediately (Synchronous to avoid popup blockers)
     window.open(waUrl, '_blank');
   };
 
@@ -353,7 +353,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-24 relative">
-      {/* Toast */}
+      {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-2xl text-xs font-bold flex items-center space-x-2 animate-bounce">
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -361,11 +361,11 @@ export default function App() {
         </div>
       )}
 
-      {}
+      {/* Header - Mobile Compact */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md shadow-sm border-b border-slate-200">
-        <div className="max-w-5xl mx-auto px-4 py-2.5 flex items-center justify-between">
-          <div className="flex items-center space-x-2 sm:space-x-3">
-            <div className="w-9 h-9 sm:w-11 sm:h-11 shrink-0 bg-white rounded-2xl border border-slate-200 shadow-sm flex items-center justify-center p-0.5 overflow-hidden">
+        <div className="max-w-5xl mx-auto px-3 py-2 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <div className="w-9 h-9 sm:w-11 sm:h-11 shrink-0 bg-white rounded-xl border border-slate-200 shadow-sm flex items-center justify-center p-0.5 overflow-hidden">
               <LittleDarbiLogo className="w-full h-full" />
             </div>
             <div>
@@ -373,60 +373,60 @@ export default function App() {
               <p className="text-[10px] sm:text-[11px] text-slate-500 font-medium">Pemesanan Online</p>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
-            <button onClick={() => fetchCloudData(false)} disabled={isCloudSyncing} className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl">
+          <div className="flex items-center space-x-1.5 sm:space-x-2">
+            <button onClick={() => fetchCloudData(false)} disabled={isCloudSyncing} className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg sm:rounded-xl">
               <RefreshCw className={`w-4 h-4 ${isCloudSyncing ? 'animate-spin text-indigo-600' : ''}`} />
             </button>
-            <div className="bg-slate-100 p-1 rounded-xl flex">
-              <button onClick={() => setActiveTab('shop')} className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center ${activeTab === 'shop' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-600'}`}>
-                <ShoppingBag className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Menu Pembeli</span>
+            <div className="bg-slate-100 p-1 rounded-lg sm:rounded-xl flex">
+              <button onClick={() => setActiveTab('shop')} className={`px-2.5 sm:px-3 py-1.5 rounded-md sm:rounded-lg text-xs font-semibold flex items-center ${activeTab === 'shop' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-600'}`}>
+                <ShoppingBag className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Pembeli</span>
               </button>
-              <button onClick={() => setActiveTab('admin')} className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center ${activeTab === 'admin' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600'}`}>
-                <Settings className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Panel Admin</span>
+              <button onClick={() => setActiveTab('admin')} className={`px-2.5 sm:px-3 py-1.5 rounded-md sm:rounded-lg text-xs font-semibold flex items-center ${activeTab === 'admin' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600'}`}>
+                <Settings className="w-3.5 h-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Admin</span>
               </button>
             </div>
           </div>
         </div>
       </header>
 
-      {}
+      {/* Main Content Area */}
       {activeTab === 'shop' && (
-        <main className="max-w-5xl mx-auto px-4 pt-6">
+        <main className="max-w-5xl mx-auto px-3 sm:px-4 pt-5">
           {isCloudSyncing && products.length === 0 ? (
             <div className="text-center py-20"><RefreshCw className="w-8 h-8 animate-spin mx-auto text-amber-500 mb-4" /><p className="text-sm font-bold text-slate-500">Memuat Menu Terbaru...</p></div>
           ) : (
             <>
               {/* Batch Active Info */}
-              <div className="mb-6">
+              <div className="mb-5 sm:mb-6">
                 {activeBatch ? (
                   <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 sm:p-5 shadow-md">
-                    <span className="bg-white/20 text-white text-[10px] uppercase font-extrabold px-2.5 py-0.5 rounded-full inline-flex mb-2">{activeBatch.name}</span>
-                    <h2 className="text-lg font-black">Pesan Makanan & Souvenir Bazaar</h2>
-                    <p className="text-amber-100 text-xs">Pemesanan dibuka sampai {formatIndoDate(activeBatch.endDate)}.</p>
+                    <span className="bg-white/20 text-white text-[9px] sm:text-[10px] uppercase font-extrabold px-2.5 py-0.5 rounded-full inline-flex mb-1.5 sm:mb-2">{activeBatch.name}</span>
+                    <h2 className="text-base sm:text-lg font-black leading-tight mb-0.5">Pesan Makanan & Souvenir</h2>
+                    <p className="text-amber-100 text-[10px] sm:text-xs">Batas: {formatIndoDate(activeBatch.endDate)}</p>
                   </div>
                 ) : (
                   <div className="bg-red-500 text-white rounded-2xl p-4 shadow-md flex items-center space-x-3">
-                    <Lock className="w-6 h-6" />
-                    <div><h2 className="font-bold">Pemesanan Ditutup</h2><p className="text-xs">Saat ini tidak ada periode pemesanan yang aktif.</p></div>
+                    <Lock className="w-6 h-6 shrink-0" />
+                    <div><h2 className="font-bold text-sm">Pemesanan Ditutup</h2><p className="text-[10px] sm:text-xs">Tidak ada periode pemesanan yang aktif.</p></div>
                   </div>
                 )}
               </div>
 
               {/* Filters */}
-              <div className="flex flex-col sm:flex-row gap-3 mb-6">
+              <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3 mb-5">
                 <div className="relative flex-1">
                   <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
                   <input type="text" placeholder="Cari makanan..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-white rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-amber-500/20" />
                 </div>
                 <div className="flex items-center space-x-2 overflow-x-auto pb-1 scrollbar-none">
-                  <button onClick={() => setSelectedTenantFilter('all')} className={`px-3.5 py-2 rounded-xl text-xs font-medium whitespace-nowrap ${selectedTenantFilter === 'all' ? 'bg-amber-600 text-white' : 'bg-white border text-slate-600'}`}>Semua Stand</button>
+                  <button onClick={() => setSelectedTenantFilter('all')} className={`px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap ${selectedTenantFilter === 'all' ? 'bg-amber-600 text-white' : 'bg-white border text-slate-600'}`}>Semua Stand</button>
                   {tenants.map((t) => (
-                    <button key={t.id} onClick={() => setSelectedTenantFilter(t.id)} className={`px-3.5 py-2 rounded-xl text-xs font-medium whitespace-nowrap ${selectedTenantFilter === t.id ? 'bg-amber-600 text-white' : 'bg-white border text-slate-600'}`}>{t.name}</button>
+                    <button key={t.id} onClick={() => setSelectedTenantFilter(t.id)} className={`px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap ${selectedTenantFilter === t.id ? 'bg-amber-600 text-white' : 'bg-white border text-slate-600'}`}>{t.name}</button>
                   ))}
                 </div>
               </div>
 
-              {/* Products Grid */}
+              {/* Products Grid - 2 Columns Mobile */}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
                 {filteredProducts.map((prod) => {
                   const tenant = tenants.find((t) => t.id === prod.tenantId);
@@ -436,24 +436,24 @@ export default function App() {
                   return (
                     <div key={prod.id} className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
                       <div className="h-28 sm:h-36 w-full bg-slate-100 relative">
-                        {prod.imageUrl ? <img src={prod.imageUrl} alt={prod.name} className="w-full h-full object-cover" /> : <div className="w-full h-full flex justify-center items-center"><ImageIcon className="w-8 h-8 text-slate-300"/></div>}
-                        <span className="absolute top-2 left-2 text-[9px] font-bold bg-white/90 px-1.5 py-0.5 rounded shadow-xs truncate max-w-[90%]">{tenant?.name || 'Stand'}</span>
+                        {prod.imageUrl ? <img src={prod.imageUrl} alt={prod.name} className="w-full h-full object-cover" /> : <div className="w-full h-full flex justify-center items-center"><ImageIcon className="w-6 h-6 sm:w-8 sm:h-8 text-slate-300"/></div>}
+                        <span className="absolute top-1.5 left-1.5 sm:top-2 sm:left-2 text-[8px] sm:text-[9px] font-bold bg-white/90 px-1.5 py-0.5 rounded shadow-xs truncate max-w-[90%]">{tenant?.name || 'Stand'}</span>
                       </div>
-                      <div className="p-3 flex-1 flex flex-col justify-between">
+                      <div className="p-2 sm:p-3 flex-1 flex flex-col justify-between">
                         <div>
                           <h3 className="font-bold text-slate-900 text-xs sm:text-sm leading-tight line-clamp-2">{prod.name}</h3>
-                          <span className="text-amber-600 font-black text-xs sm:text-sm mt-1 block">{formatRupiah(sellingPrice)}</span>
+                          <span className="text-amber-600 font-black text-xs sm:text-sm mt-0.5 sm:mt-1 block">{formatRupiah(sellingPrice)}</span>
                         </div>
-                        <div className="mt-3">
+                        <div className="mt-2 sm:mt-3">
                           {activeBatch ? (
                             inCart ? (
                               <div className="flex items-center justify-between bg-amber-50 border border-amber-200 p-1 rounded-lg">
-                                <button onClick={() => updateCartQty(prod.id, -1)} className="w-6 h-6 bg-white rounded font-bold text-amber-700 shadow-sm">-</button>
+                                <button onClick={() => updateCartQty(prod.id, -1)} className="w-6 h-6 sm:w-7 sm:h-7 bg-white rounded font-bold text-amber-700 shadow-sm flex items-center justify-center">-</button>
                                 <span className="text-xs font-bold">{inCart.qty}</span>
-                                <button onClick={() => updateCartQty(prod.id, 1)} className="w-6 h-6 bg-amber-600 text-white rounded font-bold shadow-sm">+</button>
+                                <button onClick={() => updateCartQty(prod.id, 1)} className="w-6 h-6 sm:w-7 sm:h-7 bg-amber-600 text-white rounded font-bold shadow-sm flex items-center justify-center">+</button>
                               </div>
                             ) : (
-                              <button onClick={() => addToCart(prod)} className="w-full py-1.5 bg-slate-900 text-white rounded-lg text-xs font-semibold flex justify-center items-center space-x-1"><Plus className="w-3.5 h-3.5"/><span>Pesan</span></button>
+                              <button onClick={() => addToCart(prod)} className="w-full py-1.5 bg-slate-900 text-white rounded-lg text-xs font-semibold flex justify-center items-center space-x-1"><Plus className="w-3.5 h-3.5"/><span className="hidden sm:inline">Pesan</span></button>
                             )
                           ) : (
                             <div className="text-[10px] text-center bg-slate-100 text-slate-400 py-1.5 rounded-lg font-bold">Ditutup</div>
@@ -498,9 +498,9 @@ export default function App() {
                     <p className="text-xs text-amber-600 font-semibold">{formatRupiah(Number(item.priceOwner) + Number(item.priceOrganizer))}</p>
                   </div>
                   <div className="flex items-center space-x-2 bg-white border p-1 rounded-lg">
-                    <button onClick={() => updateCartQty(item.id, -1)} className="w-6 h-6 bg-slate-100 rounded font-bold text-xs">-</button>
+                    <button onClick={() => updateCartQty(item.id, -1)} className="w-6 h-6 bg-slate-100 rounded font-bold text-xs flex items-center justify-center">-</button>
                     <span className="text-xs font-bold w-4 text-center">{item.qty}</span>
-                    <button onClick={() => updateCartQty(item.id, 1)} className="w-6 h-6 bg-amber-600 text-white rounded font-bold text-xs">+</button>
+                    <button onClick={() => updateCartQty(item.id, 1)} className="w-6 h-6 bg-amber-600 text-white rounded font-bold text-xs flex items-center justify-center">+</button>
                   </div>
                 </div>
               ))}
@@ -515,10 +515,10 @@ export default function App() {
 
       {isCheckoutModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
             <button onClick={() => setIsCheckoutModalOpen(false)} className="absolute top-4 right-4"><X className="w-5 h-5 text-slate-400"/></button>
             <h3 className="text-lg font-bold mb-1">Form Pemesanan</h3>
-            <p className="text-xs text-slate-500 mb-4">Akan dicatat ke Batch: <strong>{activeBatch?.name}</strong></p>
+            <p className="text-xs text-slate-500 mb-4">Akan dicatat ke: <strong>{activeBatch?.name}</strong></p>
             <form onSubmit={handleCheckoutSubmit} className="space-y-3">
               <div>
                 <label className="block text-xs font-bold mb-1">Nama Lengkap Anak <span className="text-red-500">*</span></label>
@@ -526,18 +526,18 @@ export default function App() {
               </div>
               <div>
                 <label className="block text-xs font-bold mb-1">Pilih Kelas <span className="text-red-500">*</span></label>
-                <select value={checkoutData.kelas} onChange={(e) => setCheckoutData({...checkoutData, kelas: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm">
+                <select required value={checkoutData.kelas} onChange={(e) => setCheckoutData({...checkoutData, kelas: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm">
                   <option value="">-- Pilih Kelas --</option>
                   {classesList.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs font-bold mb-1">Nama Ortu <span className="text-red-500">*</span></label>
-                <input type="text" required value={checkoutData.namaOrtu} onChange={(e) => setCheckoutData({...checkoutData, namaOrtu: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm" />
+                <input type="text" required placeholder="Contoh: Mama Budi" value={checkoutData.namaOrtu} onChange={(e) => setCheckoutData({...checkoutData, namaOrtu: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-bold mb-1">Catatan (Opsional)</label>
-                <textarea rows="2" value={checkoutData.catatan} onChange={(e) => setCheckoutData({...checkoutData, catatan: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm" />
+                <textarea rows="2" placeholder="Contoh: Tanpa pedas" value={checkoutData.catatan} onChange={(e) => setCheckoutData({...checkoutData, catatan: e.target.value})} className="w-full px-3 py-2 bg-slate-50 border rounded-xl text-sm" />
               </div>
               <button type="submit" className="w-full py-3 bg-green-600 text-white font-bold rounded-xl flex justify-center items-center mt-2 shadow-md">
                 <MessageCircle className="w-4 h-4 mr-2" />Kirim via WhatsApp
@@ -549,9 +549,9 @@ export default function App() {
 
       {}
       {activeTab === 'admin' && (
-        <main className="max-w-5xl mx-auto px-4 pt-6">
+        <main className="max-w-5xl mx-auto px-3 sm:px-4 pt-5">
           {!isAdminLoggedIn ? (
-            <div className="max-w-sm mx-auto bg-white rounded-2xl border p-6 shadow-xl">
+            <div className="max-w-sm mx-auto bg-white rounded-2xl border p-6 shadow-xl mt-4">
               <h2 className="text-xl font-black text-center mb-4">Login Admin PTA</h2>
               <form onSubmit={(e) => {
                 e.preventDefault();
@@ -564,35 +564,38 @@ export default function App() {
               </form>
             </div>
           ) : (
-            <div className="space-y-4 sm:space-y-6">
+            <div className="space-y-4 sm:space-y-5">
               {/* Admin Navigation Mobile Friendly */}
               <div className="bg-white rounded-xl shadow-sm border p-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center space-x-2 px-2">
-                  <User className="w-4 h-4 text-indigo-600" /><span className="text-xs font-bold">Admin Active</span>
+                <div className="flex items-center justify-between px-2 w-full sm:w-auto">
+                  <div className="flex items-center space-x-2">
+                    <User className="w-4 h-4 text-indigo-600" /><span className="text-xs font-bold">Admin Active</span>
+                  </div>
+                  <button onClick={() => setIsAdminLoggedIn(false)} className="sm:hidden px-3 py-1.5 rounded-lg text-[10px] font-semibold bg-red-100 text-red-600">Logout</button>
                 </div>
-                <div className="flex flex-wrap gap-2 overflow-x-auto scrollbar-none">
-                  {[{id:'batch_reports', label:'Rekap Per Tenant'}, {id:'tenants', label:'Kelola Stand'}, {id:'batches', label:'Kelola Batch'}, {id:'products', label:'Produk'}, {id:'orders', label:`Pesanan (${orders.length})`}, {id:'class_pics', label:'Kelas'}, {id:'settings', label:'Pengaturan'}].map(tab => (
-                    <button key={tab.id} onClick={() => setAdminSubTab(tab.id)} className={`px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-semibold whitespace-nowrap ${adminSubTab === tab.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>
-                      {tab.label}
+                <div className="flex flex-wrap gap-1.5 overflow-x-auto scrollbar-none">
+                  {[{id:'batch_reports', label:'Rekap Per Tenant'}, {id:'tenants', label:'Kelola Stand'}, {id:'batches', label:'Kelola Batch'}, {id:'products', label:'Produk'}, {id:'orders', label:`Semua Pesanan`}, {id:'class_pics', label:'Kelas'}, {id:'settings', label:'Pengaturan'}].map(tab => (
+                    <button key={tab.id} onClick={() => setAdminSubTab(tab.id)} className={`px-2.5 py-1.5 rounded-lg text-[10px] sm:text-xs font-semibold whitespace-nowrap ${adminSubTab === tab.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                      {tab.label} {tab.id === 'orders' ? `(${orders.length})` : ''}
                     </button>
                   ))}
-                  <button onClick={() => setIsAdminLoggedIn(false)} className="px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-semibold bg-red-100 text-red-600">Logout</button>
+                  <button onClick={() => setIsAdminLoggedIn(false)} className="hidden sm:block px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-100 text-red-600 hover:bg-red-200">Logout</button>
                 </div>
               </div>
 
               {/* SubTabs Data */}
               {adminSubTab === 'batch_reports' && (
                 <div className="space-y-4">
-                  <div className="flex flex-wrap gap-2 items-end">
+                  <div className="flex flex-wrap gap-2 items-end bg-white p-3 rounded-xl border">
                     <div>
                       <label className="block text-[10px] font-bold text-slate-500 mb-1">Pilih Batch</label>
-                      <select value={reportSelectedBatchId} onChange={e => setReportSelectedBatchId(e.target.value)} className="px-3 py-2 bg-white border rounded-lg text-xs font-bold">
+                      <select value={reportSelectedBatchId} onChange={e => setReportSelectedBatchId(e.target.value)} className="px-3 py-1.5 bg-slate-50 border rounded-lg text-xs font-bold">
                         {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                       </select>
                     </div>
                     <div>
                       <label className="block text-[10px] font-bold text-slate-500 mb-1">Status</label>
-                      <select value={reportSelectedStatus} onChange={e => setReportSelectedStatus(e.target.value)} className="px-3 py-2 bg-white border rounded-lg text-xs font-bold">
+                      <select value={reportSelectedStatus} onChange={e => setReportSelectedStatus(e.target.value)} className="px-3 py-1.5 bg-slate-50 border rounded-lg text-xs font-bold">
                         <option value="Paid">Paid (Lunas)</option>
                         <option value="Unpaid">Unpaid</option>
                         <option value="ALL">Semua</option>
@@ -605,8 +608,8 @@ export default function App() {
                       <div key={tenantRep.tenantId} className="bg-white rounded-xl border shadow-sm p-4">
                         <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 border-b pb-3 mb-3">
                           <div>
-                            <h4 className="font-bold text-slate-900 text-lg">{tenantRep.tenantName}</h4>
-                            <p className="text-xs text-slate-500">PJ: {tenantRep.tenantOwner} | WA: {tenantRep.tenantPhone}</p>
+                            <h4 className="font-bold text-slate-900 text-base sm:text-lg">{tenantRep.tenantName}</h4>
+                            <p className="text-[10px] sm:text-xs text-slate-500">PJ: {tenantRep.tenantOwner} | WA: {tenantRep.tenantPhone}</p>
                           </div>
                           <div className="flex gap-2">
                             <button onClick={() => {
@@ -616,13 +619,13 @@ export default function App() {
                                 batchName: currBatch?.name || '-',
                                 readyDate: currBatch?.readyDate || ''
                               });
-                            }} className="px-3 py-1.5 bg-slate-800 text-white text-xs font-bold rounded-lg flex items-center space-x-1.5"><Printer className="w-3.5 h-3.5"/><span>Cetak / Export PDF</span></button>
+                            }} className="px-3 py-1.5 bg-slate-800 text-white text-[10px] sm:text-xs font-bold rounded-lg flex items-center space-x-1.5 whitespace-nowrap"><Printer className="w-3.5 h-3.5"/><span>Cetak / Export PDF</span></button>
                           </div>
                         </div>
 
                         {/* Summary View in Screen */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div className="text-xs space-y-1">
+                          <div className="text-[10px] sm:text-xs space-y-1">
                             <p className="font-bold text-slate-400 uppercase mb-2">Ringkasan Item:</p>
                             {Object.keys(tenantRep.itemTotalsMap).map(k => (
                               <div key={k} className="flex justify-between border-b border-dashed pb-1">
@@ -630,7 +633,7 @@ export default function App() {
                               </div>
                             ))}
                           </div>
-                          <div className="text-xs bg-emerald-50 border border-emerald-100 p-3 rounded-lg space-y-2">
+                          <div className="text-[10px] sm:text-xs bg-emerald-50 border border-emerald-100 p-3 rounded-lg space-y-2">
                             <div className="flex justify-between text-emerald-800"><span>Total Hak Vendor:</span><span className="font-bold">{formatRupiah(tenantRep.tenantTotalOwnerShare)}</span></div>
                             <div className="flex justify-between text-amber-800"><span>Total Margin Jual:</span><span className="font-bold">{formatRupiah(tenantRep.tenantTotalMargin)}</span></div>
                             <div className="flex justify-between text-slate-900 font-black border-t border-emerald-200 pt-2"><span>Total Omset Stand:</span><span>{formatRupiah(tenantRep.tenantTotalGross)}</span></div>
@@ -642,21 +645,22 @@ export default function App() {
                 </div>
               )}
 
+              {}
               {adminSubTab === 'products' && (
                 <div className="space-y-4">
-                  <div className="flex justify-between"><h3 className="font-bold">Produk</h3><button onClick={() => setProductModal({isOpen:true, item:null})} className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg">+ Tambah</button></div>
+                  <div className="flex justify-between items-center"><h3 className="font-bold text-sm sm:text-base">Produk</h3><button onClick={() => setProductModal({isOpen:true, item:null})} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold rounded-lg flex items-center"><Plus className="w-3 h-3 mr-1"/> Tambah</button></div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                     {products.map(p => (
                       <div key={p.id} className="bg-white p-3 rounded-xl border flex items-center space-x-3">
-                        <img src={p.imageUrl || ''} alt="" className="w-12 h-12 rounded-lg bg-slate-100 object-cover" />
-                        <div className="flex-1 text-xs">
-                          <h4 className="font-bold">{p.name}</h4>
-                          <p className="text-slate-500">{tenants.find(t=>t.id===p.tenantId)?.name}</p>
+                        <img src={p.imageUrl || ''} alt="" className="w-12 h-12 rounded-lg bg-slate-100 object-cover shrink-0" />
+                        <div className="flex-1 text-[10px] sm:text-xs min-w-0">
+                          <h4 className="font-bold truncate">{p.name}</h4>
+                          <p className="text-slate-500 truncate">{tenants.find(t=>t.id===p.tenantId)?.name}</p>
                           <p className="font-bold text-amber-600 mt-1">{formatRupiah(Number(p.priceOwner) + Number(p.priceOrganizer))}</p>
                         </div>
-                        <div className="flex flex-col space-y-1">
-                          <button onClick={()=>setProductModal({isOpen:true, item:p})} className="p-1.5 bg-blue-50 text-blue-600 rounded"><Edit3 className="w-3.5 h-3.5"/></button>
-                          <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Produk', message:`Hapus ${p.name}?`, onConfirm: () => { const n = products.filter(x=>x.id!==p.id); setProducts(n); syncPushToCloud({products:n}); }})} className="p-1.5 bg-red-50 text-red-600 rounded"><Trash2 className="w-3.5 h-3.5"/></button>
+                        <div className="flex flex-col space-y-1 shrink-0">
+                          <button onClick={()=>setProductModal({isOpen:true, item:p})} className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"><Edit3 className="w-3.5 h-3.5"/></button>
+                          <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Produk', message:`Hapus ${p.name}?`, onConfirm: () => { const n = products.filter(x=>x.id!==p.id); setProducts(n); syncPushToCloud({products:n}); }})} className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100"><Trash2 className="w-3.5 h-3.5"/></button>
                         </div>
                       </div>
                     ))}
@@ -666,20 +670,20 @@ export default function App() {
 
               {adminSubTab === 'batches' && (
                 <div className="space-y-4">
-                  <div className="flex justify-between"><h3 className="font-bold">Kelola Batch</h3><button onClick={() => setBatchModal({isOpen:true, item:null})} className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg">+ Tambah</button></div>
+                  <div className="flex justify-between items-center"><h3 className="font-bold text-sm sm:text-base">Kelola Batch</h3><button onClick={() => setBatchModal({isOpen:true, item:null})} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold rounded-lg flex items-center"><Plus className="w-3 h-3 mr-1"/> Tambah</button></div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {batches.map(b => (
                       <div key={b.id} className={`bg-white p-4 rounded-xl border ${b.isActive?'border-indigo-500':'border-slate-200'}`}>
                         <div className="flex justify-between items-start mb-2">
-                          <h4 className="font-bold">{b.name} <span className="text-[10px] ml-2 text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{b.isActive?'Aktif':''}</span></h4>
-                          <div className="flex gap-1">
-                            <button onClick={()=>setBatchModal({isOpen:true, item:b})} className="p-1 text-blue-600"><Edit3 className="w-4 h-4"/></button>
-                            <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Batch', message:'Yakin hapus?', onConfirm:()=>{const n=batches.filter(x=>x.id!==b.id); setBatches(n); syncPushToCloud({batches:n})}})} className="p-1 text-red-600"><Trash2 className="w-4 h-4"/></button>
+                          <h4 className="font-bold text-sm">{b.name} <span className="text-[9px] ml-2 text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded uppercase">{b.isActive?'Aktif':''}</span></h4>
+                          <div className="flex gap-1 shrink-0">
+                            <button onClick={()=>setBatchModal({isOpen:true, item:b})} className="p-1.5 text-blue-600 bg-blue-50 rounded hover:bg-blue-100"><Edit3 className="w-3.5 h-3.5"/></button>
+                            <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Batch', message:'Yakin hapus?', onConfirm:()=>{const n=batches.filter(x=>x.id!==b.id); setBatches(n); syncPushToCloud({batches:n})}})} className="p-1.5 text-red-600 bg-red-50 rounded hover:bg-red-100"><Trash2 className="w-3.5 h-3.5"/></button>
                           </div>
                         </div>
-                        <p className="text-xs text-slate-500">Pesan: {formatIndoDate(b.startDate)} - {formatIndoDate(b.endDate)}</p>
-                        <p className="text-xs text-slate-500">Distribusi/Ready: {formatIndoDate(b.readyDate)}</p>
-                        {!b.isActive && <button onClick={()=>{const n=batches.map(x=>({...x,isActive:x.id===b.id})); setBatches(n); syncPushToCloud({batches:n})}} className="mt-3 px-3 py-1 bg-slate-100 text-xs font-bold rounded-lg w-full">Set Aktif</button>}
+                        <p className="text-[10px] sm:text-xs text-slate-500">Pesan: {formatIndoDate(b.startDate)} - {formatIndoDate(b.endDate)}</p>
+                        <p className="text-[10px] sm:text-xs text-emerald-600 font-medium">Ready: {formatIndoDate(b.readyDate)}</p>
+                        {!b.isActive && <button onClick={()=>{const n=batches.map(x=>({...x,isActive:x.id===b.id})); setBatches(n); syncPushToCloud({batches:n})}} className="mt-3 px-3 py-1.5 bg-slate-100 text-[10px] sm:text-xs font-bold rounded-lg w-full hover:bg-slate-200">Set Aktif</button>}
                       </div>
                     ))}
                   </div>
@@ -688,14 +692,14 @@ export default function App() {
 
               {adminSubTab === 'tenants' && (
                 <div className="space-y-4">
-                  <div className="flex justify-between"><h3 className="font-bold">Kelola Stand</h3><button onClick={() => setTenantModal({isOpen:true, item:null})} className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg">+ Tambah</button></div>
+                  <div className="flex justify-between items-center"><h3 className="font-bold text-sm sm:text-base">Kelola Stand</h3><button onClick={() => setTenantModal({isOpen:true, item:null})} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold rounded-lg flex items-center"><Plus className="w-3 h-3 mr-1"/> Tambah</button></div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {tenants.map(t => (
                       <div key={t.id} className="bg-white p-3 rounded-xl border flex justify-between items-center text-xs">
-                        <div><h4 className="font-bold">{t.name}</h4><p className="text-slate-500">PJ: {t.owner} - {t.phone}</p></div>
-                        <div className="flex gap-1">
-                          <button onClick={()=>setTenantModal({isOpen:true, item:t})} className="p-1.5 bg-blue-50 text-blue-600 rounded"><Edit3 className="w-4 h-4"/></button>
-                          <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Stand', message:'Yakin?', onConfirm:()=>{const n=tenants.filter(x=>x.id!==t.id); setTenants(n); syncPushToCloud({tenants:n})}})} className="p-1.5 bg-red-50 text-red-600 rounded"><Trash2 className="w-4 h-4"/></button>
+                        <div className="min-w-0 pr-2"><h4 className="font-bold truncate">{t.name}</h4><p className="text-[10px] text-slate-500 truncate">PJ: {t.owner} - {t.phone}</p></div>
+                        <div className="flex gap-1 shrink-0">
+                          <button onClick={()=>setTenantModal({isOpen:true, item:t})} className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"><Edit3 className="w-3.5 h-3.5"/></button>
+                          <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Stand', message:'Yakin?', onConfirm:()=>{const n=tenants.filter(x=>x.id!==t.id); setTenants(n); syncPushToCloud({tenants:n})}})} className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100"><Trash2 className="w-3.5 h-3.5"/></button>
                         </div>
                       </div>
                     ))}
@@ -705,14 +709,14 @@ export default function App() {
 
               {adminSubTab === 'class_pics' && (
                 <div className="space-y-4">
-                  <div className="flex justify-between"><h3 className="font-bold">Routing Kelas WA</h3><button onClick={() => setClassModal({isOpen:true, item:null})} className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg">+ Tambah</button></div>
+                  <div className="flex justify-between items-center"><h3 className="font-bold text-sm sm:text-base">Routing Kelas WA</h3><button onClick={() => setClassModal({isOpen:true, item:null})} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] sm:text-xs font-bold rounded-lg flex items-center"><Plus className="w-3 h-3 mr-1"/> Tambah</button></div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {classesList.map(c => (
                       <div key={c.id} className="bg-white p-3 rounded-xl border flex justify-between items-center text-xs">
-                        <div><h4 className="font-bold">{c.name}</h4><p className="text-slate-500">WA: {c.phone}</p></div>
-                        <div className="flex gap-1">
-                          <button onClick={()=>setClassModal({isOpen:true, item:c})} className="p-1.5 bg-blue-50 text-blue-600 rounded"><Edit3 className="w-4 h-4"/></button>
-                          <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Kelas', message:'Yakin?', onConfirm:()=>{const n=classesList.filter(x=>x.id!==c.id); setClassesList(n); syncPushToCloud({classes:n})}})} className="p-1.5 bg-red-50 text-red-600 rounded"><Trash2 className="w-4 h-4"/></button>
+                        <div className="min-w-0 pr-2"><h4 className="font-bold truncate">{c.name}</h4><p className="text-[10px] text-slate-500 truncate">WA: {c.phone}</p></div>
+                        <div className="flex gap-1 shrink-0">
+                          <button onClick={()=>setClassModal({isOpen:true, item:c})} className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"><Edit3 className="w-3.5 h-3.5"/></button>
+                          <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Kelas', message:'Yakin?', onConfirm:()=>{const n=classesList.filter(x=>x.id!==c.id); setClassesList(n); syncPushToCloud({classes:n})}})} className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100"><Trash2 className="w-3.5 h-3.5"/></button>
                         </div>
                       </div>
                     ))}
@@ -722,42 +726,43 @@ export default function App() {
 
               {adminSubTab === 'orders' && (
                 <div className="space-y-3">
-                  <h3 className="font-bold text-slate-900 text-sm">Semua Pesanan ({orders.length})</h3>
+                  <h3 className="font-bold text-slate-900 text-sm sm:text-base">Semua Pesanan ({orders.length})</h3>
                   {orders.map((ord) => (
                     <div key={ord.orderId} className="bg-white p-3 sm:p-4 rounded-xl border text-xs shadow-sm">
                       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 mb-2 border-b pb-2">
                         <div>
                           <span className="font-black text-indigo-700">{ord.orderId}</span>
-                          <span className="font-bold ml-2">{ord.customer?.namaAnak} ({ord.customer?.kelas})</span>
+                          <span className="font-bold ml-1.5 sm:ml-2">{ord.customer?.namaAnak} ({ord.customer?.kelas})</span>
                         </div>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 self-end sm:self-auto">
                           <select value={ord.status} onChange={(e)=>{
                             const newStatus = e.target.value;
                             const n = orders.map(o => o.orderId === ord.orderId ? {...o, status: newStatus} : o);
                             setOrders(n);
                             if(sheetWebhookUrl) fetch(sheetWebhookUrl, {method:'POST',mode:'no-cors',body:JSON.stringify({action:'updateOrderStatus',orderId:ord.orderId,status:newStatus})});
                             showToast('Status Disimpan!');
-                          }} className="bg-slate-50 border px-2 py-1 rounded font-bold">
+                          }} className="bg-slate-50 border px-2 py-1.5 rounded font-bold outline-none focus:ring-1 focus:ring-indigo-500">
                             <option value="Paid">Paid</option>
                             <option value="Unpaid">Unpaid</option>
                             <option value="Void">Void</option>
                           </select>
-                          <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Pesanan', message:`Hapus ${ord.orderId}?`, onConfirm:()=>{const n=orders.filter(o=>o.orderId!==ord.orderId); setOrders(n);}})} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4"/></button>
+                          <button onClick={()=>setConfirmModal({isOpen:true, title:'Hapus Pesanan', message:`Hapus ${ord.orderId}?`, onConfirm:()=>{const n=orders.filter(o=>o.orderId!==ord.orderId); setOrders(n); syncPushToCloud({orders:n});}})} className="p-1.5 text-red-500 bg-red-50 hover:bg-red-100 rounded"><Trash2 className="w-4 h-4"/></button>
                         </div>
                       </div>
                       <div className="space-y-1 text-slate-600">
                         {ord.items.map((it, idx) => {
                           const cleanObj = parseAndCleanItem(it.name);
                           const sp = Number(it.priceOwner || 0) + Number(it.priceOrganizer || 0);
+                          const finalQty = cleanObj.qty * (it.qty||1);
                           return (
-                            <div key={idx} className="flex justify-between">
-                              <span>{cleanObj.name} (x{cleanObj.qty * (it.qty||1)}) @ {formatRupiah(sp)}</span>
-                              <span className="font-bold text-slate-800">{formatRupiah(sp * cleanObj.qty * (it.qty||1))}</span>
+                            <div key={idx} className="flex justify-between items-center text-[10px] sm:text-xs">
+                              <span className="truncate pr-2">{cleanObj.name} (x{finalQty}) @ {formatRupiah(sp)}</span>
+                              <span className="font-bold text-slate-800 shrink-0">{formatRupiah(sp * finalQty)}</span>
                             </div>
                           )
                         })}
                       </div>
-                      <div className="mt-2 pt-2 border-t flex justify-between font-black text-amber-700 text-sm">
+                      <div className="mt-2 pt-2 border-t flex justify-between items-center font-black text-amber-700 text-xs sm:text-sm">
                         <span>TOTAL</span><span>{formatRupiah(ord.totalAmount)}</span>
                       </div>
                     </div>
@@ -770,13 +775,13 @@ export default function App() {
                   <h3 className="font-bold text-sm">Integrasi Database & Sandi</h3>
                   <div className="bg-indigo-50 p-3 rounded-lg border border-indigo-100">
                     <p className="font-bold text-indigo-900 mb-2">Sync Otomatis ke HP Panitia Lain</p>
-                    <button onClick={()=>{navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}?sheet=${encodeURIComponent(sheetWebhookUrl)}`);showToast('Link Disalin!');}} className="w-full py-2 bg-indigo-600 text-white rounded-lg flex justify-center font-bold"><Share2 className="w-3.5 h-3.5 mr-1"/> Salin Link Sync Web</button>
+                    <button onClick={()=>{navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}?sheet=${encodeURIComponent(sheetWebhookUrl)}`);showToast('Link Disalin!');}} className="w-full py-2 bg-indigo-600 text-white rounded-lg flex justify-center items-center font-bold shadow-sm"><Share2 className="w-3.5 h-3.5 mr-1.5"/> Salin Link Web</button>
                   </div>
                   <form onSubmit={e => {e.preventDefault(); localStorage.setItem('ld_bazaar_sheet_webhook', sheetWebhookUrl); syncPushToCloud();}} className="space-y-3">
-                    <div><label className="font-bold mb-1 block">Google Sheets Webhook URL</label><input type="url" value={sheetWebhookUrl} onChange={e=>setSheetWebhookUrl(e.target.value)} className="w-full p-2 border rounded-lg" /></div>
-                    <div><label className="font-bold mb-1 block">Username Admin</label><input type="text" value={adminAuth.username} onChange={e=>setAdminAuth({...adminAuth, username: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-                    <div><label className="font-bold mb-1 block">Password Admin</label><input type="text" value={adminAuth.password} onChange={e=>setAdminAuth({...adminAuth, password: e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-                    <button type="submit" className="w-full py-2.5 bg-emerald-600 text-white font-bold rounded-lg flex items-center justify-center"><Save className="w-4 h-4 mr-1"/> Simpan Pengaturan</button>
+                    <div><label className="font-bold mb-1 block">Google Sheets Webhook URL</label><input type="url" value={sheetWebhookUrl} onChange={e=>setSheetWebhookUrl(e.target.value)} className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
+                    <div><label className="font-bold mb-1 block">Username Admin</label><input type="text" value={adminAuth.username} onChange={e=>setAdminAuth({...adminAuth, username: e.target.value})} className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
+                    <div><label className="font-bold mb-1 block">Password Admin</label><input type="text" value={adminAuth.password} onChange={e=>setAdminAuth({...adminAuth, password: e.target.value})} className="w-full p-2 border rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none" /></div>
+                    <button type="submit" className="w-full py-2.5 bg-emerald-600 text-white font-bold rounded-lg flex items-center justify-center shadow-sm"><Save className="w-4 h-4 mr-1.5"/> Simpan Pengaturan</button>
                   </form>
                 </div>
               )}
@@ -788,16 +793,16 @@ export default function App() {
       {}
       {printData && (
         <div className="fixed inset-0 z-50 bg-white overflow-y-auto print:bg-white">
-          <div className="print:hidden sticky top-0 z-50 bg-slate-900 text-white p-4 shadow-xl border-b-4 border-amber-500 flex flex-wrap justify-between items-center gap-3">
-            <div><h2 className="font-bold">Mode Export PDF / WA</h2><p className="text-xs text-slate-300">WA tidak bisa kirim file otomatis. 1: Simpan PDF, 2: Buka WA & Lampirkan manual.</p></div>
-            <div className="flex gap-2">
-              <button onClick={() => setPrintData(null)} className="px-3 py-2 bg-slate-700 text-xs font-bold rounded-lg">Kembali</button>
-              <button onClick={() => window.print()} className="px-3 py-2 bg-emerald-600 text-xs font-bold rounded-lg flex items-center"><Printer className="w-3.5 h-3.5 mr-1"/> 1. Cetak / Simpan PDF</button>
+          <div className="print:hidden sticky top-0 z-50 bg-slate-900 text-white p-3 sm:p-4 shadow-xl border-b-4 border-amber-500 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+            <div><h2 className="font-bold text-sm sm:text-base">Mode Cetak & Kirim WA</h2><p className="text-[10px] sm:text-xs text-slate-300">1: Simpan PDF, lalu 2: Buka WA & Lampirkan PDF-nya.</p></div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => setPrintData(null)} className="px-3 py-1.5 sm:py-2 bg-slate-700 text-[10px] sm:text-xs font-bold rounded-lg">Batal</button>
+              <button onClick={() => window.print()} className="px-3 py-1.5 sm:py-2 bg-emerald-600 text-[10px] sm:text-xs font-bold rounded-lg flex items-center"><Printer className="w-3.5 h-3.5 mr-1"/> 1. Simpan PDF</button>
               <button onClick={() => {
                 let clean = printData.tenantPhone.replace(/[^0-9]/g, '');
                 if (clean.startsWith('0')) clean = '62' + clean.slice(1);
                 
-                // Text WA Tenant Tanpa Emoji, ada Tanggal Ready
+                // Constructing text exactly as requested without emojis
                 let text = `REKAP PESANAN - ${printData.tenantName.toUpperCase()}\n`;
                 text += `Periode: ${printData.batchName}\n`;
                 if(printData.readyDate) text += `Tanggal ready: ${formatIndoDate(printData.readyDate)}\n`;
@@ -811,45 +816,54 @@ export default function App() {
                 text += `\nTOTAL HARGA PRODUCT: ${formatRupiah(printData.tenantTotalOwnerShare)}`;
                 text += `\nTOTAL MARGIN JUAL: ${formatRupiah(printData.tenantTotalMargin)}`;
                 text += `\nNOMINAL TOTAL: ${formatRupiah(printData.tenantTotalGross)}\n\n`;
-                text += `Terima kasih! (Mohon cek file PDF terlampir)`;
+                text += `Terima kasih!`;
                 
                 window.open(`https://wa.me/${clean}?text=${encodeURIComponent(text)}`, '_blank');
-              }} className="px-3 py-2 bg-blue-600 text-xs font-bold rounded-lg flex items-center"><Send className="w-3.5 h-3.5 mr-1"/> 2. Buka WA & Lampirkan</button>
+              }} className="px-3 py-1.5 sm:py-2 bg-blue-600 text-[10px] sm:text-xs font-bold rounded-lg flex items-center"><Send className="w-3.5 h-3.5 mr-1"/> 2. Kirim WA Pengantar</button>
             </div>
           </div>
 
-          <div className="p-8 max-w-5xl mx-auto text-black text-xs print:p-0">
-            <h1 className="text-xl font-black text-emerald-800 mb-1">Bazaar DANUS PTA Little Darbi</h1>
-            <h2 className="text-base font-bold text-slate-800">Rekapitulasi Dapur Stand: {printData.tenantName}</h2>
+          <div className="p-4 sm:p-8 max-w-5xl mx-auto text-black text-[10px] sm:text-xs print:p-0">
+            <h1 className="text-lg sm:text-xl font-black text-emerald-800 mb-1">Bazaar DANUS PTA Little Darbi</h1>
+            <h2 className="text-sm sm:text-base font-bold text-slate-800">Rekapitulasi Dapur Stand: {printData.tenantName}</h2>
             <p className="text-slate-500 mb-6">Periode: {printData.batchName} | Ready: {formatIndoDate(printData.readyDate)} | PJ: {printData.tenantOwner} ({printData.tenantPhone})</p>
 
-            <h3 className="font-bold mb-2">1. Detail Pesanan Pembeli ({printData.customerOrdersDetail.length})</h3>
-            <table className="w-full border-collapse border border-slate-300 mb-8">
-              <thead><tr className="bg-slate-100 text-left"><th className="border p-2">No</th><th className="border p-2">Nama Anak</th><th className="border p-2">Kelas</th><th className="border p-2">Nama Ortu</th><th className="border p-2">Detail Pesanan</th><th className="border p-2">Catatan</th></tr></thead>
-              <tbody>
-                {printData.customerOrdersDetail.map((c, i) => (
-                  <tr key={i}><td className="border p-2">{i+1}</td><td className="border p-2 font-bold">{c.namaAnak}</td><td className="border p-2">{c.kelas}</td><td className="border p-2">{c.namaOrtu}</td>
-                    <td className="border p-2">{c.items.map(it => `${it.cleanName} (x${it.qty})`).join(', ')}</td><td className="border p-2 italic">{c.catatan}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <h3 className="font-bold mb-2 text-xs sm:text-sm">1. Detail Pesanan Pembeli ({printData.customerOrdersDetail.length})</h3>
+            <div className="overflow-x-auto mb-8">
+              <table className="w-full border-collapse border border-slate-300 min-w-[600px]">
+                <thead><tr className="bg-slate-100 text-left"><th className="border p-2 w-10">No</th><th className="border p-2">Nama Anak</th><th className="border p-2">Kelas</th><th className="border p-2">Nama Ortu</th><th className="border p-2">Detail Pesanan</th><th className="border p-2">Catatan</th></tr></thead>
+                <tbody>
+                  {printData.customerOrdersDetail.map((c, i) => (
+                    <tr key={i}>
+                      <td className="border p-2 text-center">{i+1}</td>
+                      <td className="border p-2 font-bold">{c.namaAnak}</td>
+                      <td className="border p-2">{c.kelas}</td>
+                      <td className="border p-2">{c.namaOrtu}</td>
+                      <td className="border p-2">{c.items.map(it => `${it.cleanName} (x${it.qty})`).join(', ')}</td>
+                      <td className="border p-2 italic text-slate-600">{c.catatan}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-            <h3 className="font-bold mb-2">2. Ringkasan Pesanan (Dapur)</h3>
-            <table className="w-full border-collapse border border-slate-300">
-              <thead><tr className="bg-slate-100 text-left"><th className="border p-2">Produk</th><th className="border p-2 text-center">Qty</th><th className="border p-2 text-right">Harga owner</th><th className="border p-2 text-right">Margin Jual</th><th className="border p-2 text-right">Nominal total</th></tr></thead>
-              <tbody>
-                {Object.keys(printData.itemTotalsMap).map((k, i) => {
-                  const o = printData.itemTotalsMap[k];
-                  return (
-                    <tr key={i}><td className="border p-2 font-bold">{k}</td><td className="border p-2 text-center font-bold">{o.qty}</td><td className="border p-2 text-right">{formatRupiah(o.priceOwner * o.qty)}</td><td className="border p-2 text-right">{formatRupiah(o.priceOrganizer * o.qty)}</td><td className="border p-2 text-right font-bold text-slate-800">{formatRupiah((o.priceOwner + o.priceOrganizer) * o.qty)}</td></tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="bg-emerald-50 font-black"><td colSpan={2} className="border p-2 text-right text-emerald-800">TOTAL KESELURUHAN:</td><td className="border p-2 text-right text-emerald-700">{formatRupiah(printData.tenantTotalOwnerShare)}</td><td className="border p-2 text-right text-amber-700">{formatRupiah(printData.tenantTotalMargin)}</td><td className="border p-2 text-right text-slate-900">{formatRupiah(printData.tenantTotalGross)}</td></tr>
-              </tfoot>
-            </table>
+            <h3 className="font-bold mb-2 text-xs sm:text-sm">2. Ringkasan Pesanan (Dapur)</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse border border-slate-300 min-w-[500px]">
+                <thead><tr className="bg-slate-100 text-left"><th className="border p-2">Produk</th><th className="border p-2 text-center">Qty</th><th className="border p-2 text-right">Harga owner</th><th className="border p-2 text-right">Margin Jual</th><th className="border p-2 text-right">Nominal total</th></tr></thead>
+                <tbody>
+                  {Object.keys(printData.itemTotalsMap).map((k, i) => {
+                    const o = printData.itemTotalsMap[k];
+                    return (
+                      <tr key={i}><td className="border p-2 font-bold">{k}</td><td className="border p-2 text-center font-bold bg-amber-50">{o.qty}</td><td className="border p-2 text-right">{formatRupiah(o.priceOwner * o.qty)}</td><td className="border p-2 text-right">{formatRupiah(o.priceOrganizer * o.qty)}</td><td className="border p-2 text-right font-bold text-slate-800">{formatRupiah((o.priceOwner + o.priceOrganizer) * o.qty)}</td></tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-emerald-50 font-black text-xs sm:text-sm"><td colSpan={2} className="border p-2 text-right text-emerald-800">TOTAL KESELURUHAN:</td><td className="border p-2 text-right text-emerald-700">{formatRupiah(printData.tenantTotalOwnerShare)}</td><td className="border p-2 text-right text-amber-700">{formatRupiah(printData.tenantTotalMargin)}</td><td className="border p-2 text-right text-slate-900">{formatRupiah(printData.tenantTotalGross)}</td></tr>
+                </tfoot>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -857,11 +871,11 @@ export default function App() {
       {}
       {confirmModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-xl max-w-xs w-full p-5 text-center shadow-2xl">
-            <h3 className="font-bold text-lg mb-2">{confirmModal.title}</h3><p className="text-sm text-slate-500 mb-5">{confirmModal.message}</p>
+          <div className="bg-white rounded-2xl max-w-xs w-full p-5 sm:p-6 text-center shadow-2xl">
+            <h3 className="font-bold text-base sm:text-lg mb-2">{confirmModal.title}</h3><p className="text-xs sm:text-sm text-slate-500 mb-5">{confirmModal.message}</p>
             <div className="flex gap-2 justify-center">
-              <button onClick={()=>setConfirmModal({isOpen:false})} className="px-4 py-2 bg-slate-100 rounded-lg text-sm font-bold">Batal</button>
-              <button onClick={()=>{confirmModal.onConfirm();setConfirmModal({isOpen:false});}} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold">Ya, Lanjutkan</button>
+              <button onClick={()=>setConfirmModal({isOpen:false})} className="px-4 py-2 bg-slate-100 rounded-lg text-xs font-bold">Batal</button>
+              <button onClick={()=>{confirmModal.onConfirm();setConfirmModal({isOpen:false});}} className="px-4 py-2 bg-red-600 text-white rounded-lg text-xs font-bold shadow-sm">Ya, Lanjutkan</button>
             </div>
           </div>
         </div>
@@ -925,27 +939,27 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white rounded-xl max-w-sm w-full p-5 shadow-2xl relative text-xs">
+      <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-2xl relative text-xs">
         <button onClick={onClose} className="absolute top-4 right-4"><X className="w-5 h-5 text-slate-400"/></button>
-        <h3 className="font-bold text-sm mb-3">{item?'Edit Produk':'Produk Baru'}</h3>
+        <h3 className="font-bold text-sm sm:text-base mb-4">{item?'Edit Produk':'Produk Baru'}</h3>
         <form onSubmit={e => {e.preventDefault(); onSave(form)}} className="space-y-3">
-          <div><label className="font-bold mb-1 block">Nama</label><input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-          <div><label className="font-bold mb-1 block">Stand</label><select value={form.tenantId} onChange={e=>setForm({...form,tenantId:e.target.value})} className="w-full p-2 border rounded-lg">{tenants.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
-          <div className="grid grid-cols-2 gap-2">
-            <div><label className="font-bold mb-1 block">Harga Owner</label><input type="number" required value={form.priceOwner} onChange={e=>setForm({...form,priceOwner:e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-            <div><label className="font-bold mb-1 block">Margin</label><input type="number" required value={form.priceOrganizer} onChange={e=>setForm({...form,priceOrganizer:e.target.value})} className="w-full p-2 border rounded-lg" /></div>
+          <div><label className="font-bold mb-1 block text-slate-700">Nama Produk</label><input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
+          <div><label className="font-bold mb-1 block text-slate-700">Stand / Tenant</label><select value={form.tenantId} onChange={e=>setForm({...form,tenantId:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500">{tenants.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="font-bold mb-1 block text-emerald-700">Harga Owner (Rp)</label><input type="number" required value={form.priceOwner} onChange={e=>setForm({...form,priceOwner:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
+            <div><label className="font-bold mb-1 block text-indigo-700">Margin Panitia (Rp)</label><input type="number" required value={form.priceOrganizer} onChange={e=>setForm({...form,priceOrganizer:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
           </div>
-          <div>
-            <label className="font-bold mb-1 block">Foto (Pilih dari Galeri)</label>
-            <div className="flex items-center space-x-2">
-              <label className="flex-1 py-2 bg-slate-100 border-2 border-dashed rounded-lg text-center font-bold text-slate-600 cursor-pointer hover:bg-slate-200">
-                {isCompressing ? 'Memproses...' : '+ Pilih Foto'}
+          <div className="pt-2">
+            <label className="font-bold mb-2 block text-slate-700">Foto (Pilih dari Galeri HP/Laptop)</label>
+            <div className="flex items-center space-x-3">
+              <label className="flex-1 py-2.5 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl text-center font-bold text-slate-500 cursor-pointer hover:bg-slate-100 transition-all">
+                {isCompressing ? 'Memproses Foto...' : '+ Pilih File Foto'}
                 <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
               </label>
-              {form.imageUrl && <img src={form.imageUrl} alt="" className="w-10 h-10 object-cover rounded-lg border" />}
+              {form.imageUrl && <img src={form.imageUrl} alt="" className="w-12 h-12 object-cover rounded-xl border border-slate-200 shadow-sm shrink-0" />}
             </div>
           </div>
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-lg">Simpan</button>
+          <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl mt-2 shadow-sm">Simpan Produk</button>
         </form>
       </div>
     </div>
@@ -956,14 +970,14 @@ function ModalTenantForm({ item, onClose, onSave }) {
   const [form, setForm] = useState(item || { name:'', owner:'', phone:'' });
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white rounded-xl max-w-sm w-full p-5 shadow-2xl relative text-xs">
+      <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-2xl relative text-xs">
         <button onClick={onClose} className="absolute top-4 right-4"><X className="w-5 h-5 text-slate-400"/></button>
-        <h3 className="font-bold text-sm mb-3">{item?'Edit Stand':'Stand Baru'}</h3>
+        <h3 className="font-bold text-sm sm:text-base mb-4">{item?'Edit Stand':'Stand Baru'}</h3>
         <form onSubmit={e => {e.preventDefault(); onSave(form)}} className="space-y-3">
-          <input required placeholder="Nama Stand" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="w-full p-2 border rounded-lg" />
-          <input required placeholder="Nama PJ" value={form.owner} onChange={e=>setForm({...form,owner:e.target.value})} className="w-full p-2 border rounded-lg" />
-          <input required placeholder="WA (628...)" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} className="w-full p-2 border rounded-lg" />
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-lg">Simpan</button>
+          <div><label className="font-bold mb-1 block">Nama Stand</label><input required placeholder="Stand Cemilan" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
+          <div><label className="font-bold mb-1 block">Nama PJ</label><input required placeholder="Mama Budi" value={form.owner} onChange={e=>setForm({...form,owner:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
+          <div><label className="font-bold mb-1 block">WA Stand (628...)</label><input required placeholder="62812345..." value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
+          <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl mt-2 shadow-sm">Simpan Stand</button>
         </form>
       </div>
     </div>
@@ -975,17 +989,17 @@ function ModalBatchForm({ item, onClose, onSave }) {
   const [form, setForm] = useState(item || { name:'', startDate:d, endDate:d, readyDate:d });
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white rounded-xl max-w-sm w-full p-5 shadow-2xl relative text-xs">
+      <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-2xl relative text-xs">
         <button onClick={onClose} className="absolute top-4 right-4"><X className="w-5 h-5 text-slate-400"/></button>
-        <h3 className="font-bold text-sm mb-3">{item?'Edit Batch':'Batch Baru'}</h3>
+        <h3 className="font-bold text-sm sm:text-base mb-4">{item?'Edit Batch':'Batch Baru'}</h3>
         <form onSubmit={e => {e.preventDefault(); onSave(form)}} className="space-y-3">
-          <div><label className="font-bold mb-1 block">Nama Batch</label><input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-          <div className="grid grid-cols-2 gap-2">
-            <div><label className="font-bold mb-1 block">Tgl Buka</label><input type="date" required value={form.startDate} onChange={e=>setForm({...form,startDate:e.target.value})} className="w-full p-2 border rounded-lg" /></div>
-            <div><label className="font-bold mb-1 block">Tgl Tutup</label><input type="date" required value={form.endDate} onChange={e=>setForm({...form,endDate:e.target.value})} className="w-full p-2 border rounded-lg" /></div>
+          <div><label className="font-bold mb-1 block">Nama Batch</label><input required placeholder="Batch September" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="font-bold mb-1 block text-slate-500">Tgl Buka</label><input type="date" required value={form.startDate} onChange={e=>setForm({...form,startDate:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
+            <div><label className="font-bold mb-1 block text-slate-500">Tgl Tutup</label><input type="date" required value={form.endDate} onChange={e=>setForm({...form,endDate:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
           </div>
-          <div><label className="font-bold text-emerald-700 mb-1 block">Tanggal Ready / Distribusi</label><input type="date" required value={form.readyDate} onChange={e=>setForm({...form,readyDate:e.target.value})} className="w-full p-2 border-emerald-200 bg-emerald-50 rounded-lg" /></div>
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-lg">Simpan</button>
+          <div className="pt-2"><label className="font-bold text-emerald-700 mb-1 block">Tanggal Ready / Distribusi</label><input type="date" required value={form.readyDate} onChange={e=>setForm({...form,readyDate:e.target.value})} className="w-full p-2 border-emerald-300 bg-emerald-50 rounded-lg outline-none focus:ring-1 focus:ring-emerald-500" /></div>
+          <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl mt-2 shadow-sm">Simpan Batch</button>
         </form>
       </div>
     </div>
@@ -996,13 +1010,13 @@ function ModalClassForm({ item, onClose, onSave }) {
   const [form, setForm] = useState(item || { name:'', phone:'' });
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white rounded-xl max-w-sm w-full p-5 shadow-2xl relative text-xs">
+      <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-2xl relative text-xs">
         <button onClick={onClose} className="absolute top-4 right-4"><X className="w-5 h-5 text-slate-400"/></button>
-        <h3 className="font-bold text-sm mb-3">{item?'Edit Kelas':'Kelas Baru'}</h3>
+        <h3 className="font-bold text-sm sm:text-base mb-4">{item?'Edit Kelas':'Kelas Baru'}</h3>
         <form onSubmit={e => {e.preventDefault(); onSave(form)}} className="space-y-3">
-          <input required placeholder="Nama Kelas" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="w-full p-2 border rounded-lg" />
-          <input required placeholder="WA PIC (628...)" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} className="w-full p-2 border rounded-lg" />
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-lg">Simpan</button>
+          <div><label className="font-bold mb-1 block">Nama Kelas</label><input required placeholder="TK B1" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
+          <div><label className="font-bold mb-1 block">WA PIC (628...)</label><input required placeholder="62812345..." value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} className="w-full p-2 border rounded-lg outline-none focus:ring-1 focus:ring-indigo-500" /></div>
+          <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl mt-2 shadow-sm">Simpan Kelas</button>
         </form>
       </div>
     </div>
