@@ -40,6 +40,10 @@ const formatIndoDate = (dateStr) => {
   }
 };
 
+const formatRupiah = (num) => {
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num || 0);
+};
+
 const INITIAL_TENANTS = [
   { id: 't1', name: 'Stand Snack & Es Ceria', owner: 'Mama Budi (TK A1)', phone: '6281234567891' },
   { id: 't2', name: 'Stand Dapur Bu Guru', owner: 'Ibu Ningsih', phone: '6281234567892' },
@@ -69,17 +73,67 @@ const INITIAL_CLASSES = [
   { id: 'c7', name: 'Umum / Tamu', phone: '628123456780' }
 ];
 
+const parseAndCleanItem = (rawItem, productsList = [], tenantsList = []) => {
+  let rawName = rawItem.name || '';
+  let qty = rawItem.qty || 1;
+
+  // Extract quantity from patterns like "Sosis Ayam Keju (x3)" or "Sosis Ayam Keju (x3) (x1)"
+  const matches = rawName.match(/\(x(\d+)\)/g);
+  if (matches && matches.length > 0) {
+    const extractedNum = parseInt(matches[0].replace(/[^0-9]/g, ''), 10);
+    if (extractedNum) {
+      qty = extractedNum;
+    }
+  }
+
+  // Clean base name by removing all (xN) and [Tenant] tags
+  let cleanName = rawName
+    .replace(/\(x\d+\)/g, '')
+    .replace(/\[.*?\]/g, '')
+    .trim();
+
+  // Find product matching clean name or ID
+  const matchedProd = productsList.find(
+    (p) => p.id === rawItem.id || (p.name || '').toLowerCase() === cleanName.toLowerCase()
+  );
+
+  const priceOwner = rawItem.priceOwner !== undefined && rawItem.priceOwner !== null && rawItem.priceOwner > 0
+    ? Number(rawItem.priceOwner)
+    : (matchedProd ? Number(matchedProd.priceOwner || 0) : 0);
+
+  const priceOrganizer = rawItem.priceOrganizer !== undefined && rawItem.priceOrganizer !== null && rawItem.priceOrganizer > 0
+    ? Number(rawItem.priceOrganizer)
+    : (matchedProd ? Number(matchedProd.priceOrganizer || 0) : 0);
+
+  const unitSellingPrice = (priceOwner + priceOrganizer) > 0 
+    ? (priceOwner + priceOrganizer) 
+    : (rawItem.sellingPrice || (matchedProd ? (Number(matchedProd.priceOwner || 0) + Number(matchedProd.priceOrganizer || 0)) : 0));
+
+  const tenantId = rawItem.tenantId || (matchedProd ? matchedProd.tenantId : tenantsList[0]?.id || 't1');
+  const tenantObj = tenantsList.find((t) => t.id === tenantId);
+  const tenantName = rawItem.tenantName || tenantObj?.name || 'Stand Bazaar';
+
+  return {
+    ...rawItem,
+    name: cleanName || 'Produk Bazaar',
+    qty,
+    priceOwner,
+    priceOrganizer,
+    unitSellingPrice,
+    tenantId,
+    tenantName,
+    subtotal: unitSellingPrice * qty
+  };
+};
+
 function LittleDarbiLogo({ className = "w-10 h-10" }) {
   return (
     <svg className={className} viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
       <circle cx="200" cy="200" r="190" fill="#FFFFFF" stroke="#E2E8F0" strokeWidth="8"/>
-      
       <path d="M 200,108 C 240,150 260,200 230,240 C 200,250 200,250 170,240 C 140,200 160,150 200,108 Z" 
             fill="#FFFFFF" stroke="#007A37" strokeWidth="8" strokeLinejoin="round"/>
-      
       <circle cx="200" cy="180" r="28" fill="#F58220" />
       <path d="M 160,210 Q 200,195 240,210 L 235,230 Q 200,218 165,230 Z" fill="#FFC20E" />
-
       <g id="boy">
         <circle cx="125" cy="115" r="22" fill="#FCD3B1" />
         <path d="M 108,108 Q 125,85 140,110 Q 130,102 108,108 Z" fill="#231F20" />
@@ -88,7 +142,6 @@ function LittleDarbiLogo({ className = "w-10 h-10" }) {
         <circle cx="163" cy="108" r="6" fill="#FCD3B1" stroke="#231F20" strokeWidth="2"/>
         <path d="M 105,128 L 145,128 L 160,195 Q 125,215 90,190 Z" fill="#ED1C24" stroke="#231F20" strokeWidth="4" />
       </g>
-
       <g id="girl">
         <circle cx="275" cy="118" r="20" fill="#FCD3B1" />
         <path d="M 275,88 C 248,88 245,118 250,140 C 260,148 290,148 300,140 C 305,118 302,88 275,88 Z" fill="#00AEEF" stroke="#231F20" strokeWidth="4" />
@@ -98,22 +151,18 @@ function LittleDarbiLogo({ className = "w-10 h-10" }) {
         <circle cx="332" cy="136" r="6" fill="#FCD3B1" stroke="#231F20" strokeWidth="2"/>
         <path d="M 250,145 L 300,145 L 315,210 Q 275,225 235,210 Z" fill="#FFF200" stroke="#231F20" strokeWidth="4" />
       </g>
-
       <path d="M 50,265 Q 200,200 350,265" fill="none" stroke="#231F20" strokeWidth="7" strokeLinecap="round"/>
-
       <text x="75" y="240" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#3A3A3C" transform="rotate(-15, 75, 240)">l</text>
       <text x="90" y="235" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#ED1C24" transform="rotate(-12, 90, 235)">i</text>
       <text x="102" y="230" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#F58220" transform="rotate(-9, 102, 230)">t</text>
       <text x="118" y="226" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#FFC20E" transform="rotate(-6, 118, 226)">t</text>
       <text x="134" y="223" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#007A37" transform="rotate(-3, 134, 223)">l</text>
       <text x="150" y="221" fontSize="42" fontFamily="Arial, sans-serif" fontWeight="900" fill="#00AEEF" transform="rotate(-1, 150, 221)">e</text>
-
       <text x="195" y="221" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#007A37" transform="rotate(2, 195, 221)">d</text>
       <text x="225" y="224" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#F58220" transform="rotate(5, 225, 224)">a</text>
       <text x="252" y="228" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#2E3192" transform="rotate(8, 252, 228)">r</text>
       <text x="274" y="233" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#ED1C24" transform="rotate(12, 274, 233)">b</text>
       <text x="302" y="240" fontSize="46" fontFamily="Arial, sans-serif" fontWeight="900" fill="#8C2685" transform="rotate(16, 302, 240)">i</text>
-
       <text x="200" y="310" textAnchor="middle" fontSize="26" fontFamily="Georgia, serif" fontWeight="bold" fill="#000000">Parent Teacher</text>
       <text x="200" y="348" textAnchor="middle" fontSize="30" fontFamily="Georgia, serif" fontWeight="bold" fill="#000000">Association</text>
     </svg>
@@ -208,34 +257,6 @@ export default function App() {
   useEffect(() => { localStorage.setItem('ld_bazaar_admin_phone', adminPhone); }, [adminPhone]);
   useEffect(() => { localStorage.setItem('ld_bazaar_sheet_webhook', sheetWebhookUrl); }, [sheetWebhookUrl]);
 
-  const enrichOrderItems = (rawItems) => {
-    if (!rawItems || !Array.isArray(rawItems)) return [];
-    return rawItems.map((item) => {
-      const matchedProd = products.find(
-        (p) => p.id === item.id || p.name.toLowerCase() === (item.name || '').toLowerCase() || (item.name || '').toLowerCase().startsWith((p.name || '').toLowerCase())
-      );
-      
-      const priceOwner = item.priceOwner || (matchedProd ? matchedProd.priceOwner : 0);
-      const priceOrganizer = item.priceOrganizer || (matchedProd ? matchedProd.priceOrganizer : 0);
-      const sellingPrice = item.sellingPrice || (priceOwner + priceOrganizer) || (matchedProd ? matchedProd.priceOwner + matchedProd.priceOrganizer : 0);
-      const qty = item.qty || 1;
-      const tenantId = item.tenantId || (matchedProd ? matchedProd.tenantId : tenants[0]?.id || 't1');
-      const tenantName = item.tenantName || tenants.find(t => t.id === tenantId)?.name || 'Stand Bazaar';
-
-      return {
-        ...item,
-        name: item.name || (matchedProd ? matchedProd.name : 'Produk Bazaar'),
-        tenantId,
-        tenantName,
-        priceOwner,
-        priceOrganizer,
-        sellingPrice,
-        qty,
-        subtotal: item.subtotal && item.subtotal > 0 ? item.subtotal : sellingPrice * qty
-      };
-    });
-  };
-
   const fetchCloudData = async (silent = false) => {
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
     if (!targetUrl) {
@@ -326,10 +347,6 @@ export default function App() {
     return { isOpen: true, reason: `Sedang Dibuka: ${activeBatch.name}` };
   }, [activeBatch]);
 
-  const formatRupiah = (num) => {
-    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num || 0);
-  };
-
   const handleAdminLogin = (e) => {
     e.preventDefault();
     if (loginForm.username.trim() === adminAuth.username && loginForm.password.trim() === adminAuth.password) {
@@ -377,7 +394,7 @@ export default function App() {
         acc.totalItems += item.qty;
         return acc;
       },
-      { totalSellingPrice: 0, totalOwnerPrice: 0, totalOrganizerPrice: 0, totalItems: 0 }
+      { totalSellingPrice: 0, totalOwnerPrice: 0, totalOrganizerShare: 0, totalItems: 0 }
     );
   }, [cart]);
 
@@ -402,7 +419,7 @@ export default function App() {
         id: item.id,
         name: item.name,
         tenantId: item.tenantId,
-        tenantName: tenants.find((t) => t.id === item.tenantId)?.name || 'Tenant',
+        tenantName: tenants.find((t) => t.id === item.tenantId)?.name || 'Stand',
         priceOwner: item.priceOwner,
         priceOrganizer: item.priceOrganizer,
         sellingPrice: item.priceOwner + item.priceOrganizer,
@@ -444,6 +461,7 @@ export default function App() {
 
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
 
+    // Fire non-blocking background fetch to Google Sheets
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
     if (targetUrl) {
       try {
@@ -467,6 +485,7 @@ export default function App() {
     setCheckoutData({ namaAnak: '', kelas: classesList[0]?.name || 'TK A1', namaOrtu: '', catatan: '' });
     setIsSubmitting(false);
 
+    // Open WhatsApp URL immediately in current call stack
     window.open(waUrl, '_blank');
   };
 
@@ -488,29 +507,45 @@ export default function App() {
 
     return tenants.map((tenant) => {
       const customerOrdersDetail = [];
-      const itemTotalsMap = {};
+      const itemAggregatesMap = {}; // name -> { qty, priceOwner, priceOrganizer, unitSellingPrice, totalOwnerShare, totalMarginShare, totalGross }
       let tenantTotalGross = 0;
       let tenantTotalOwnerShare = 0;
 
       filtered.forEach((ord) => {
-        const enriched = enrichOrderItems(ord.items);
-        const tenantItemsInOrder = enriched.filter((it) => it.tenantId === tenant.id);
+        const parsedItems = (ord.items || []).map((it) => parseAndCleanItem(it, products, tenants));
+        const tenantItemsInOrder = parsedItems.filter((it) => it.tenantId === tenant.id);
 
         if (tenantItemsInOrder.length > 0) {
           customerOrdersDetail.push({
             orderId: ord.orderId,
-            namaAnak: ord.customer.namaAnak,
-            kelas: ord.customer.kelas,
-            namaOrtu: ord.customer.namaOrtu || '-',
-            catatan: ord.customer.catatan || '',
+            namaAnak: ord.customer?.namaAnak || 'Anak',
+            kelas: ord.customer?.kelas || '-',
+            namaOrtu: ord.customer?.namaOrtu || '-',
+            catatan: ord.customer?.catatan || '',
             items: tenantItemsInOrder
           });
 
           tenantItemsInOrder.forEach((it) => {
-            if (!itemTotalsMap[it.name]) itemTotalsMap[it.name] = 0;
-            itemTotalsMap[it.name] += it.qty;
+            if (!itemAggregatesMap[it.name]) {
+              itemAggregatesMap[it.name] = {
+                name: it.name,
+                qty: 0,
+                priceOwner: it.priceOwner,
+                priceOrganizer: it.priceOrganizer,
+                unitSellingPrice: it.unitSellingPrice,
+                totalOwnerShare: 0,
+                totalMarginShare: 0,
+                totalGross: 0
+              };
+            }
+
+            itemAggregatesMap[it.name].qty += it.qty;
+            itemAggregatesMap[it.name].totalOwnerShare += (it.priceOwner * it.qty);
+            itemAggregatesMap[it.name].totalMarginShare += (it.priceOrganizer * it.qty);
+            itemAggregatesMap[it.name].totalGross += it.subtotal;
+
             tenantTotalGross += it.subtotal;
-            tenantTotalOwnerShare += (it.priceOwner || 0) * it.qty;
+            tenantTotalOwnerShare += (it.priceOwner * it.qty);
           });
         }
       });
@@ -521,7 +556,7 @@ export default function App() {
         tenantOwner: tenant.owner,
         tenantPhone: tenant.phone || '',
         customerOrdersDetail,
-        itemTotalsMap,
+        itemAggregatesMap,
         tenantTotalGross,
         tenantTotalOwnerShare
       };
@@ -544,7 +579,7 @@ export default function App() {
 
   const handlePrintTenantReport = (tenantRep) => {
     const currentBatch = batches.find((b) => b.id === reportSelectedBatchId);
-    const itemNames = Object.keys(tenantRep.itemTotalsMap);
+    const itemNames = Object.keys(tenantRep.itemAggregatesMap);
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
       showToast('Pop-up terblokir oleh browser. Izinkan pop-up untuk mencetak PDF.');
@@ -553,22 +588,39 @@ export default function App() {
 
     let itemsHtml = '';
     tenantRep.customerOrdersDetail.forEach((cust, idx) => {
-      const itemsListStr = cust.items.map((it) => `${it.name} (x${it.qty})`).join(', ');
+      const itemsListStr = cust.items.map((it) => `${it.name} (x${it.qty})`).join('<br>');
       itemsHtml += `
         <tr>
-          <td style="border: 1px solid #cbd5e1; padding: 6px 10px;">${idx + 1}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; text-align: center;">${idx + 1}</td>
           <td style="border: 1px solid #cbd5e1; padding: 6px 10px;"><strong>${cust.namaAnak}</strong></td>
           <td style="border: 1px solid #cbd5e1; padding: 6px 10px;">${cust.kelas}</td>
           <td style="border: 1px solid #cbd5e1; padding: 6px 10px;">${cust.namaOrtu}</td>
-          <td style="border: 1px solid #cbd5e1; padding: 6px 10px;">${itemsListStr}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; line-height: 1.4;">${itemsListStr}</td>
           <td style="border: 1px solid #cbd5e1; padding: 6px 10px;">${cust.catatan || '-'}</td>
         </tr>
       `;
     });
 
-    let summaryHtml = '';
+    let summaryTableHtml = '';
+    let grandOwnerTotal = 0;
+    let grandMarginTotal = 0;
+    let grandGrossTotal = 0;
+
     itemNames.forEach((name) => {
-      summaryHtml += `<li style="margin-bottom: 4px;"><strong>${name}</strong>: ${tenantRep.itemTotalsMap[name]} Pcs</li>`;
+      const agg = tenantRep.itemAggregatesMap[name];
+      grandOwnerTotal += agg.totalOwnerShare;
+      grandMarginTotal += agg.totalMarginShare;
+      grandGrossTotal += agg.totalGross;
+
+      summaryTableHtml += `
+        <tr>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px;"><strong>${agg.name}</strong></td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; text-align: center;">${agg.qty}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; text-align: right;">${formatRupiah(agg.totalOwnerShare)}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; text-align: right;">${formatRupiah(agg.totalMarginShare)}</td>
+          <td style="border: 1px solid #cbd5e1; padding: 6px 10px; text-align: right; font-weight: bold;">${formatRupiah(agg.totalGross)}</td>
+        </tr>
+      `;
     });
 
     printWindow.document.write(`
@@ -578,12 +630,12 @@ export default function App() {
         <title>Rekap ${tenantRep.tenantName} - ${currentBatch?.name || 'Bazaar'}</title>
         <style>
           body { font-family: system-ui, -apple-system, sans-serif; padding: 24px; color: #1e293b; line-height: 1.4; }
-          h2 { color: #007A37; margin: 0 0 4px 0; }
+          h2 { color: #007A37; margin: 0 0 4px 0; font-size: 20px; }
           .header { border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 16px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
-          th { background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; }
-          .summary-box { margin-top: 20px; padding: 16px; background: #fffbe6; border: 1px solid #ffe58f; border-radius: 8px; }
-          .total { font-size: 16px; font-weight: bold; color: #047857; margin-top: 10px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+          th { background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; font-weight: bold; }
+          .section-title { font-size: 14px; font-weight: bold; margin-top: 20px; margin-bottom: 8px; color: #0f172a; }
+          .total-row td { background-color: #f8fafc; font-weight: bold; }
           @media print {
             .no-print { display: none !important; }
           }
@@ -592,19 +644,19 @@ export default function App() {
       <body>
         <div class="header">
           <h2>Bazaar DANUS PTA Little Darbi</h2>
-          <h3 style="margin: 4px 0;">Rekapitulasi Dapur Stand: ${tenantRep.tenantName}</h3>
-          <p style="font-size: 13px; color: #64748b; margin: 2px 0;">Periode: ${currentBatch?.name || '-'} | PJ: ${tenantRep.tenantOwner} (${tenantRep.tenantPhone || '-'})</p>
+          <h3 style="margin: 4px 0; font-size: 16px; color: #334155;">Rekapitulasi Dapur Stand: ${tenantRep.tenantName}</h3>
+          <p style="font-size: 12px; color: #64748b; margin: 2px 0;">Periode: ${currentBatch?.name || '-'} | PJ: ${tenantRep.tenantOwner} (${tenantRep.tenantPhone || '-'})</p>
         </div>
 
         <button class="no-print" onclick="window.print()" style="padding: 10px 18px; background: #007A37; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; margin-bottom: 16px;">
           🖨️ Cetak / Simpan PDF
         </button>
 
-        <h4 style="margin: 0 0 8px 0;">Detail Pesanan Pembeli (${tenantRep.customerOrdersDetail.length} Pembeli)</h4>
+        <div class="section-title">Detail Pesanan Pembeli (${tenantRep.customerOrdersDetail.length} Pembeli)</div>
         <table>
           <thead>
             <tr>
-              <th style="width: 30px;">No</th>
+              <th style="width: 30px; text-align: center;">No</th>
               <th>Nama Anak</th>
               <th>Kelas</th>
               <th>Nama Ortu</th>
@@ -617,13 +669,27 @@ export default function App() {
           </tbody>
         </table>
 
-        <div class="summary-box">
-          <h4 style="margin: 0 0 8px 0; color: #78350f;">Ringkasan Item Dapur:</h4>
-          <ul style="margin: 0; padding-left: 20px;">
-            ${summaryHtml || '<li>Tidak ada item</li>'}
-          </ul>
-          <div class="total">Total Hak Vendor: ${formatRupiah(tenantRep.tenantTotalOwnerShare)}</div>
-        </div>
+        <div class="section-title" style="margin-top: 28px;">Ringkasan Pesanan:</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Produk</th>
+              <th style="width: 60px; text-align: center;">Qty</th>
+              <th style="width: 120px; text-align: right;">Harga owner</th>
+              <th style="width: 120px; text-align: right;">Margin Jual</th>
+              <th style="width: 140px; text-align: right;">Nominal total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${summaryTableHtml || '<tr><td colspan="5" style="text-align: center; padding: 12px; color: #94a3b8;">Tidak ada produk</td></tr>'}
+            <tr class="total-row">
+              <td colspan="2" style="border: 1px solid #cbd5e1; padding: 8px 10px;">Total Hak Vendor / Panitia:</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right; color: #047857;">${formatRupiah(grandOwnerTotal)}</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right; color: #4338ca;">${formatRupiah(grandMarginTotal)}</td>
+              <td style="border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right; color: #b45309; font-size: 13px;">${formatRupiah(grandGrossTotal)}</td>
+            </tr>
+          </tbody>
+        </table>
       </body>
       </html>
     `);
@@ -1098,7 +1164,6 @@ export default function App() {
                 </button>
               </div>
 
-              {}
               <div className="flex items-center space-x-2 border-b border-slate-200 pb-3 overflow-x-auto scrollbar-none">
                 <button
                   onClick={() => setAdminSubTab('batch_reports')}
@@ -1212,7 +1277,7 @@ export default function App() {
 
                   <div className="space-y-6">
                     {batchReportData.map((tenantRep) => {
-                      const itemNames = Object.keys(tenantRep.itemTotalsMap);
+                      const itemNames = Object.keys(tenantRep.itemAggregatesMap);
 
                       return (
                         <div key={tenantRep.tenantId} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
@@ -1249,7 +1314,8 @@ export default function App() {
                                   let text = `*REKAP PESANAN BAZAAR DANUS - ${tenantRep.tenantName.toUpperCase()}*\n`;
                                   text += `*Periode:* ${currentBatch?.name || '-'}\n\n`;
                                   itemNames.forEach((name) => {
-                                    text += `• *${name}*: ${tenantRep.itemTotalsMap[name]} pcs\n`;
+                                    const agg = tenantRep.itemAggregatesMap[name];
+                                    text += `• *${agg.name}*: ${agg.qty} pcs (${formatRupiah(agg.totalOwnerShare)})\n`;
                                   });
                                   text += `\n*TOTAL HAK VENDOR: ${formatRupiah(tenantRep.tenantTotalOwnerShare)}*\n\nTerima kasih! 😊`;
                                   window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
@@ -1281,8 +1347,8 @@ export default function App() {
                                       <div className="text-slate-600 space-y-0.5 pl-3 border-l-2 border-slate-300">
                                         {cust.items.map((it, iIdx) => (
                                           <div key={iIdx} className="flex justify-between">
-                                            <span>{it.name}</span>
-                                            <span className="font-bold">x{it.qty} ({formatRupiah(it.subtotal)})</span>
+                                            <span>{it.name} (x{it.qty})</span>
+                                            <span className="font-bold">{formatRupiah(it.subtotal)}</span>
                                           </div>
                                         ))}
                                       </div>
@@ -1298,14 +1364,17 @@ export default function App() {
                                   <Store className="w-3.5 h-3.5 mr-1 text-amber-600" /> Ringkasan Dapur
                                 </h5>
 
-                                {itemNames.map((name) => (
-                                  <div key={name} className="flex justify-between items-center bg-white p-2 rounded-lg border border-amber-200 text-xs shadow-2xs mb-1">
-                                    <span className="font-medium text-slate-800">{name}</span>
-                                    <span className="font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
-                                      {tenantRep.itemTotalsMap[name]} Pcs
-                                    </span>
-                                  </div>
-                                ))}
+                                {itemNames.map((name) => {
+                                  const agg = tenantRep.itemAggregatesMap[name];
+                                  return (
+                                    <div key={name} className="flex justify-between items-center bg-white p-2 rounded-lg border border-amber-200 text-xs shadow-2xs mb-1">
+                                      <span className="font-medium text-slate-800">{agg.name}</span>
+                                      <span className="font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+                                        {agg.qty} Pcs
+                                      </span>
+                                    </div>
+                                  );
+                                })}
                               </div>
 
                               <div className="mt-4 pt-3 border-t border-amber-200 text-xs">
@@ -1501,8 +1570,8 @@ export default function App() {
                   ) : (
                     <div className="space-y-3">
                       {orders.map((ord) => {
-                        const enrichedItems = enrichOrderItems(ord.items);
-                        const calculatedTotal = enrichedItems.reduce((acc, it) => acc + it.subtotal, 0);
+                        const parsedItems = (ord.items || []).map((i) => parseAndCleanItem(i, products, tenants));
+                        const calculatedTotal = parsedItems.reduce((acc, it) => acc + it.subtotal, 0);
                         const currentStatus = orderStatusDraft[ord.orderId] || ord.status;
 
                         return (
@@ -1510,8 +1579,8 @@ export default function App() {
                             <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 pb-2 border-b border-slate-100">
                               <div>
                                 <span className="font-extrabold text-indigo-700 text-sm">{ord.orderId}</span>
-                                <span className="font-bold text-slate-900 text-sm ml-2">{ord.customer.namaAnak} ({ord.customer.kelas})</span>
-                                {ord.customer.namaOrtu && <span className="text-slate-500 ml-2">Ortu: {ord.customer.namaOrtu}</span>}
+                                <span className="font-bold text-slate-900 text-sm ml-2">{ord.customer?.namaAnak || 'Anak'} ({ord.customer?.kelas || '-'})</span>
+                                {ord.customer?.namaOrtu && <span className="text-slate-500 ml-2">Ortu: {ord.customer.namaOrtu}</span>}
                               </div>
 
                               <div className="flex items-center space-x-2">
@@ -1535,7 +1604,7 @@ export default function App() {
                                 </button>
 
                                 <button
-                                  onClick={() => setDeleteConfirmModal({ isOpen: true, type: 'order', id: ord.orderId, name: `Pesanan ${ord.orderId} (${ord.customer.namaAnak})` })}
+                                  onClick={() => setDeleteConfirmModal({ isOpen: true, type: 'order', id: ord.orderId, name: `Pesanan ${ord.orderId} (${ord.customer?.namaAnak})` })}
                                   className="p-1.5 text-red-600 hover:bg-red-50 rounded-xl transition-all"
                                   title="Hapus Pesanan Ini"
                                 >
@@ -1544,8 +1613,8 @@ export default function App() {
                               </div>
                             </div>
 
-                            <div className="space-y-1 text-slate-600 bg-slate-50/70 p-3 rounded-xl border border-slate-100">
-                              {enrichedItems.map((i, idx) => (
+                            <div className="space-y-1.5 text-slate-600 bg-slate-50/70 p-3 rounded-xl border border-slate-100">
+                              {parsedItems.map((i, idx) => (
                                 <div key={idx} className="flex justify-between items-center text-xs">
                                   <span>
                                     <strong className="text-slate-800">{i.name}</strong> (x{i.qty})
@@ -1554,7 +1623,7 @@ export default function App() {
                                   <span className="font-bold text-slate-900">{formatRupiah(i.subtotal)}</span>
                                 </div>
                               ))}
-                              {ord.customer.catatan && (
+                              {ord.customer?.catatan && (
                                 <p className="text-[11px] text-amber-700 italic pt-1 border-t border-slate-200/50">Catatan: {ord.customer.catatan}</p>
                               )}
                             </div>
@@ -1727,7 +1796,6 @@ export default function App() {
         />
       )}
 
-      {}
       {tenantModal.isOpen && (
         <ModalTenantForm
           item={tenantModal.item}
@@ -1746,7 +1814,6 @@ export default function App() {
         />
       )}
 
-      {}
       {batchModal.isOpen && (
         <ModalBatchForm
           item={batchModal.item}
@@ -1767,7 +1834,6 @@ export default function App() {
         />
       )}
 
-      {}
       {classModal.isOpen && (
         <ModalClassForm
           item={classModal.item}
@@ -1781,7 +1847,6 @@ export default function App() {
         />
       )}
 
-      {}
       {deleteConfirmModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl relative text-xs space-y-3">
