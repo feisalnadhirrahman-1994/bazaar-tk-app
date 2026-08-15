@@ -185,13 +185,19 @@ export default function App() {
         if (json.data.classes !== undefined) setClassesList(json.data.classes);
         
         if (json.data.orders !== undefined) {
+          const productsData = json.data.products || products;
           // ⚠️ HEURISTIC PARSER: Mengamankan data dari sheet yang berantakan / shifted columns
           const parsedOrders = json.data.orders.map(o => {
-            let parsedCust = { namaAnak: 'Unknown', kelas: '-', namaOrtu: '-', catatan: '' };
+            let parsedCust = { 
+              namaAnak: o['Nama Anak'] || o.namaAnak || 'Unknown', 
+              kelas: o['Kelas'] || o.kelas || '-', 
+              namaOrtu: o['Nama Ortu'] || o.namaOrtu || '-', 
+              catatan: o['Catatan'] || o.catatan || '' 
+            };
             let parsedItems = [];
             let orderId = o.orderId || o['Order ID'] || '-';
             let batchId = o.batchId || o['Batch ID'] || '-';
-            let status = 'Unpaid';
+            let status = o.status || o['Status'] || 'Unpaid';
             let totalAmount = 0;
 
             // Pindai semua property untuk mendeteksi JSON tersembunyi
@@ -216,6 +222,31 @@ export default function App() {
               Object.values(o).forEach(val => {
                 if (typeof val === 'number' && val > 1000) totalAmount = val;
                 if (typeof val === 'string' && !isNaN(Number(val)) && Number(val) > 1000) totalAmount = Number(val);
+              });
+            }
+
+            // MEREKONSTRUKSI ITEM JIKA HANYA ADA TEKS (Solusi Data Kosong/Unknown)
+            if (parsedItems.length === 0 && o['Rincian Items']) {
+              const itemStrings = String(o['Rincian Items']).split(', ');
+              itemStrings.forEach(itemStr => {
+                const match = itemStr.match(/^(.*?)\s*\(x(\d+)\)$/);
+                if (match) {
+                  const name = match[1].trim();
+                  const qty = parseInt(match[2], 10);
+                  const product = productsData.find(p => p.name.toLowerCase() === name.toLowerCase());
+                  
+                  if (product) {
+                    parsedItems.push({
+                      id: product.id, name: product.name, tenantId: product.tenantId,
+                      priceOwner: Number(product.priceOwner), priceOrganizer: Number(product.priceOrganizer),
+                      qty: qty, subtotal: (Number(product.priceOwner) + Number(product.priceOrganizer)) * qty
+                    });
+                  } else {
+                    parsedItems.push({
+                      id: 'p-unknown', name: name, tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: qty, subtotal: 0
+                    });
+                  }
+                }
               });
             }
 
@@ -769,10 +800,40 @@ export default function App() {
                               </div>
                               <div className="flex gap-2">
                                 <button 
+                                  onClick={() => {
+                                      let cleanPhone = tenantRep.tenantPhone ? String(tenantRep.tenantPhone).replace(/[^0-9]/g, '') : '';
+                                      if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
+                                      
+                                      let text = `REKAP PESANAN - ${tenantRep.tenantName.toUpperCase()}\n`;
+                                      text += `Periode: ${currentBatch?.name || '-'}\n`;
+                                      text += `Tanggal ready: ${currentBatch?.readyDate ? formatIndoDate(currentBatch.readyDate) : '-'}\n\n`;
+                                      
+                                      Object.keys(tenantRep.itemTotalsMap).forEach((name) => {
+                                          const item = tenantRep.itemTotalsMap[name];
+                                          text += `* ${parseAndCleanItem(name)}: ${item.qty} pcs (${formatRupiah(item.priceOwner * item.qty)})\n`;
+                                      });
+                                      
+                                      text += `\nTOTAL HARGA PRODUCT: ${formatRupiah(tenantRep.tenantTotalOwnerShare)}`;
+                                      text += `\nTOTAL MARGIN JUAL: ${formatRupiah(tenantRep.tenantTotalMargin)}`;
+                                      text += `\nNOMINAL TOTAL: ${formatRupiah(tenantRep.tenantTotalGross)}\n\n`;
+                                      text += `Terima kasih!`;
+                                      
+                                      const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+                                      if(cleanPhone.length > 5) {
+                                          setTimeout(() => window.open(waUrl, '_blank'), 100);
+                                      } else {
+                                          alert("Nomor WA tenant tidak valid.");
+                                      }
+                                  }}
+                                  className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg flex items-center shadow-sm"
+                                >
+                                  <MessageCircle className="w-4 h-4 mr-1.5" /> Kirim WA
+                                </button>
+                                <button 
                                   onClick={() => setPrintData({ tenantRep, currentBatch })}
                                   className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg flex items-center shadow-sm"
                                 >
-                                  <Printer className="w-4 h-4 mr-1.5" /> Cetak / Export PDF
+                                  <Printer className="w-4 h-4 mr-1.5" /> Export PDF
                                 </button>
                               </div>
                             </div>
@@ -1175,37 +1236,10 @@ export default function App() {
           `}</style>
           
           <div className="no-print sticky top-0 bg-slate-900 text-white p-4 shadow-md flex justify-between items-center z-50">
-             <h2 className="font-bold text-sm">Mode Export PDF & WA</h2>
+             <h2 className="font-bold text-sm">Mode Export PDF</h2>
              <div className="flex flex-wrap gap-2">
                <button onClick={() => window.print()} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-bold transition-colors">
                  1. Simpan sbg PDF
-               </button>
-               <button onClick={() => {
-                   let cleanPhone = printData.tenantRep.tenantPhone ? String(printData.tenantRep.tenantPhone).replace(/[^0-9]/g, '') : '';
-                   if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
-                   
-                   let text = `REKAP PESANAN - ${printData.tenantRep.tenantName.toUpperCase()}\n`;
-                   text += `Periode: ${printData.currentBatch?.name || '-'}\n`;
-                   text += `Tanggal ready: ${printData.currentBatch?.readyDate ? formatIndoDate(printData.currentBatch.readyDate) : '-'}\n\n`;
-                   
-                   Object.keys(printData.tenantRep.itemTotalsMap).forEach((name) => {
-                       const item = printData.tenantRep.itemTotalsMap[name];
-                       text += `* ${parseAndCleanItem(name)}: ${item.qty} pcs (${formatRupiah(item.priceOwner * item.qty)})\n`;
-                   });
-                   
-                   text += `\nTOTAL HARGA PRODUCT: ${formatRupiah(printData.tenantRep.tenantTotalOwnerShare)}`;
-                   text += `\nTOTAL MARGIN JUAL: ${formatRupiah(printData.tenantRep.tenantTotalMargin)}`;
-                   text += `\nNOMINAL TOTAL: ${formatRupiah(printData.tenantRep.tenantTotalGross)}\n\n`;
-                   text += `Terima kasih!`;
-                   
-                   const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
-                   if(cleanPhone.length > 5) {
-                      window.open(waUrl, '_blank');
-                   } else {
-                      alert("Nomor WA tenant tidak valid.");
-                   }
-               }} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-xs font-bold transition-colors">
-                 2. Buka WA & Lampirkan
                </button>
                <button onClick={() => setPrintData(null)} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 rounded-lg text-xs font-bold transition-colors">
                  Tutup
