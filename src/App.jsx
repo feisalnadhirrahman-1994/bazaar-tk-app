@@ -27,7 +27,7 @@ import {
   Menu
 } from 'lucide-react';
 
-const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwMORs9RhRXNQhQf5s0NhxKkT-IDiyu4NcOSXpcHkU3175JdLo5E-l_9166sznyL9U/exec';
+const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycby1Fv6SFwA94rSlL44EaIH7jKf-ovVX4h1Dn8rHiEG45VbgrwkMR2mg8FkkpN2shWM/exec';
 
 const formatIndoDate = (dateStr) => {
   if (!dateStr) return '-';
@@ -186,21 +186,30 @@ export default function App() {
         
         if (json.data.orders !== undefined) {
           const productsData = json.data.products || products;
-          // ⚠️ HEURISTIC PARSER: Mengamankan data dari sheet yang berantakan / shifted columns
+          
           const parsedOrders = json.data.orders.map(o => {
-            let parsedCust = { 
-              namaAnak: o['Nama Anak'] || o.namaAnak || 'Unknown', 
-              kelas: o['Kelas'] || o.kelas || '-', 
-              namaOrtu: o['Nama Ortu'] || o.namaOrtu || '-', 
-              catatan: o['Catatan'] || o.catatan || '' 
+            // Pemindai tangguh: Abaikan spasi dan huruf besar/kecil dari Google Sheets
+            const getVal = (possibleKeys) => {
+              const key = Object.keys(o).find(k => 
+                possibleKeys.some(pk => k.toLowerCase().replace(/[^a-z0-9]/g, '') === pk.toLowerCase().replace(/[^a-z0-9]/g, ''))
+              );
+              return key ? o[key] : undefined;
             };
-            let parsedItems = [];
-            let orderId = o.orderId || o['Order ID'] || '-';
-            let batchId = o.batchId || o['Batch ID'] || '-';
-            let status = o.status || o['Status'] || 'Unpaid';
-            let totalAmount = 0;
 
-            // Pindai semua property untuk mendeteksi JSON tersembunyi
+            const namaAnak = getVal(['Nama Anak', 'namaAnak', 'customer']) || 'Unknown';
+            const kelas = getVal(['Kelas', 'kelasAnak']) || '-';
+            const namaOrtu = getVal(['Nama Ortu', 'namaOrtu']) || '-';
+            const catatan = getVal(['Catatan', 'catatanPesanan']) || '-';
+            
+            let parsedCust = { namaAnak, kelas, namaOrtu, catatan };
+            let parsedItems = [];
+            
+            let orderId = getVal(['Order ID', 'orderId']) || '-';
+            let batchId = getVal(['Batch ID', 'batchId']) || '-';
+            let status = getVal(['Status', 'statusOrder']) || 'Unpaid';
+            let totalAmount = Number(getVal(['Total Tagihan', 'totalAmount', 'total'])) || 0;
+
+            // Pindai jika data lama tersimpan sebagai format JSON
             Object.values(o).forEach(val => {
               if (typeof val === 'string') {
                 if (val.startsWith('{') && val.includes('namaAnak')) {
@@ -209,45 +218,44 @@ export default function App() {
                 if (val.startsWith('[') && val.includes('"id":')) {
                   try { parsedItems = JSON.parse(val); } catch(e) {}
                 }
-                if (['Paid', 'Unpaid', 'Selesai', 'Batal'].includes(val)) {
+                if (['Paid', 'Unpaid', 'Selesai', 'Batal', 'Void'].includes(val)) {
                   status = val;
                 }
               }
             });
 
-            // Fallback Nominal
-            if(o.totalAmount) totalAmount = Number(o.totalAmount);
-            else if(o['Total Tagihan']) totalAmount = Number(o['Total Tagihan']);
-            else {
-              Object.values(o).forEach(val => {
-                if (typeof val === 'number' && val > 1000) totalAmount = val;
-                if (typeof val === 'string' && !isNaN(Number(val)) && Number(val) > 1000) totalAmount = Number(val);
-              });
-            }
-
-            // MEREKONSTRUKSI ITEM JIKA HANYA ADA TEKS (Solusi Data Kosong/Unknown)
-            if (parsedItems.length === 0 && o['Rincian Items']) {
-              const itemStrings = String(o['Rincian Items']).split(', ');
-              itemStrings.forEach(itemStr => {
-                const match = itemStr.match(/^(.*?)\s*\(x(\d+)\)$/);
-                if (match) {
-                  const name = match[1].trim();
-                  const qty = parseInt(match[2], 10);
-                  const product = productsData.find(p => p.name.toLowerCase() === name.toLowerCase());
-                  
-                  if (product) {
-                    parsedItems.push({
-                      id: product.id, name: product.name, tenantId: product.tenantId,
-                      priceOwner: Number(product.priceOwner), priceOrganizer: Number(product.priceOrganizer),
-                      qty: qty, subtotal: (Number(product.priceOwner) + Number(product.priceOrganizer)) * qty
-                    });
-                  } else {
-                    parsedItems.push({
-                      id: 'p-unknown', name: name, tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: qty, subtotal: 0
-                    });
+            // MEREKONSTRUKSI ITEM DARI TEKS BIASA JIKA JSON KOSONG
+            if (parsedItems.length === 0) {
+              const rincianText = String(getVal(['Rincian Items', 'items', 'formattedItemsText', 'Rincian']) || '');
+              if (rincianText && rincianText !== 'undefined' && rincianText !== '-') {
+                const itemStrings = rincianText.split(', ');
+                itemStrings.forEach(itemStr => {
+                  // Mencari pola "Sosis Ayam Keju (x3)"
+                  const match = itemStr.match(/^(.*?)\s*\(x(\d+)\)$/);
+                  if (match) {
+                    const name = match[1].trim();
+                    const qty = parseInt(match[2], 10);
+                    const product = productsData.find(p => p.name.toLowerCase() === name.toLowerCase());
+                    
+                    if (product) {
+                      parsedItems.push({
+                        id: product.id, name: product.name, tenantId: product.tenantId,
+                        priceOwner: Number(product.priceOwner), priceOrganizer: Number(product.priceOrganizer),
+                        qty: qty, subtotal: (Number(product.priceOwner) + Number(product.priceOrganizer)) * qty
+                      });
+                    } else {
+                      // Fallback jika produk sudah dihapus dari database
+                      parsedItems.push({
+                        id: 'p-unknown', name: name, tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: qty, subtotal: 0
+                      });
+                    }
+                  } else if (itemStr.trim()) {
+                     parsedItems.push({
+                        id: 'p-unknown', name: itemStr.trim(), tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: 1, subtotal: 0
+                      });
                   }
-                }
-              });
+                });
+              }
             }
 
             return {
