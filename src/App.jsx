@@ -23,7 +23,8 @@ import {
   Layers,
   Save,
   RefreshCw,
-  Share2
+  Share2,
+  Upload
 } from 'lucide-react';
 
 // DEFAULT WEBHOOK GOOGLE SHEETS CLOUD
@@ -162,6 +163,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState('');
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
   const [deleteConfirmModal, setDeleteConfirmModal] = useState({ isOpen: false, type: '', id: '', name: '' });
+  const [orderStatusDraft, setOrderStatusDraft] = useState({});
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -177,7 +179,6 @@ export default function App() {
     return localStorage.getItem('ld_bazaar_admin_phone') || '628123456780';
   });
 
-  // WEBHOOK URL - ALWAYS DEFAULTS TO THE SPECIFIED GOOGLE SHEETS ENDPOINT
   const [sheetWebhookUrl, setSheetWebhookUrl] = useState(() => {
     const saved = localStorage.getItem('ld_bazaar_sheet_webhook');
     return saved && saved.trim() !== '' ? saved : DEFAULT_WEBHOOK_URL;
@@ -208,7 +209,6 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Cart & Checkout State
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [selectedTenantFilter, setSelectedTenantFilter] = useState('all');
@@ -223,14 +223,12 @@ export default function App() {
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Admin Modals
   const [productModal, setProductModal] = useState({ isOpen: false, item: null });
   const [tenantModal, setTenantModal] = useState({ isOpen: false, item: null });
   const [batchModal, setBatchModal] = useState({ isOpen: false, item: null });
   const [classModal, setClassModal] = useState({ isOpen: false, item: null });
 
-  // Report Filters
-  const [reportSelectedBatchId, setReportSelectedBatchId] = useState('b1');
+  const [reportSelectedBatchId, setReportSelectedBatchId] = useState(() => batches[0]?.id || 'b1');
   const [reportSelectedStatus, setReportSelectedStatus] = useState('Paid');
 
   useEffect(() => { localStorage.setItem('ld_bazaar_tenants', JSON.stringify(tenants)); }, [tenants]);
@@ -242,15 +240,35 @@ export default function App() {
   useEffect(() => { localStorage.setItem('ld_bazaar_admin_phone', adminPhone); }, [adminPhone]);
   useEffect(() => { localStorage.setItem('ld_bazaar_sheet_webhook', sheetWebhookUrl); }, [sheetWebhookUrl]);
 
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlSheet = urlParams.get('sheet') || urlParams.get('s');
-    if (urlSheet) {
-      setSheetWebhookUrl(urlSheet);
-      localStorage.setItem('ld_bazaar_sheet_webhook', urlSheet);
-      showToast('URL Webhook Cloud Berhasil Diidentifikasi!');
-    }
-  }, []);
+  // Helper to enrich order items with product database to ensure prices and tenantIds are never zero/empty
+  const enrichOrderItems = (rawItems) => {
+    if (!rawItems || !Array.isArray(rawItems)) return [];
+    return rawItems.map((item) => {
+      // Find matching product in catalog
+      const matchedProd = products.find(
+        (p) => p.id === item.id || p.name.toLowerCase() === (item.name || '').toLowerCase() || (item.name || '').toLowerCase().startsWith(p.name.toLowerCase())
+      );
+      
+      const priceOwner = item.priceOwner || (matchedProd ? matchedProd.priceOwner : 0);
+      const priceOrganizer = item.priceOrganizer || (matchedProd ? matchedProd.priceOrganizer : 0);
+      const sellingPrice = item.sellingPrice || (priceOwner + priceOrganizer) || (matchedProd ? matchedProd.priceOwner + matchedProd.priceOrganizer : 0);
+      const qty = item.qty || 1;
+      const tenantId = item.tenantId || (matchedProd ? matchedProd.tenantId : tenants[0]?.id || 't1');
+      const tenantName = item.tenantName || tenants.find(t => t.id === tenantId)?.name || 'Stand Bazaar';
+
+      return {
+        ...item,
+        name: item.name || (matchedProd ? matchedProd.name : 'Produk Bazaar'),
+        tenantId,
+        tenantName,
+        priceOwner,
+        priceOrganizer,
+        sellingPrice,
+        qty,
+        subtotal: item.subtotal && item.subtotal > 0 ? item.subtotal : sellingPrice * qty
+      };
+    });
+  };
 
   const fetchCloudData = async (silent = false) => {
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
@@ -469,7 +487,7 @@ export default function App() {
     waText += `-----------------------------------\n`;
     waText += `*TOTAL TAGIHAN: ${formatRupiah(orderPayload.totalAmount)}*\n`;
     waText += `-----------------------------------\n`;
-    waText += `Halo PIC Kelas ${checkoutData.kelas}, mohon instruksi info rekening pembayaran. Terima kasih! 🙏`;
+    waText += `Halo PIC Kelas ${checkoutData.kelas}, mohon instruksi info rekening pembayaran. Terima kasih! 😊`;
 
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
 
@@ -492,10 +510,11 @@ export default function App() {
   }, [products, selectedTenantFilter, searchQuery]);
 
   const batchReportData = useMemo(() => {
-    let filtered = orders.filter((o) => o.batchId === reportSelectedBatchId);
-    if (reportSelectedStatus !== 'ALL') {
-      filtered = filtered.filter((o) => o.status === reportSelectedStatus);
-    }
+    let filtered = orders.filter((o) => {
+      const matchesBatch = !reportSelectedBatchId || o.batchId === reportSelectedBatchId || batches.length === 1;
+      const matchesStatus = reportSelectedStatus === 'ALL' || o.status === reportSelectedStatus;
+      return matchesBatch && matchesStatus;
+    });
 
     return tenants.map((tenant) => {
       const customerOrdersDetail = [];
@@ -504,7 +523,9 @@ export default function App() {
       let tenantTotalOwnerShare = 0;
 
       filtered.forEach((ord) => {
-        const tenantItemsInOrder = ord.items.filter((it) => it.tenantId === tenant.id);
+        const enriched = enrichOrderItems(ord.items);
+        const tenantItemsInOrder = enriched.filter((it) => it.tenantId === tenant.id);
+
         if (tenantItemsInOrder.length > 0) {
           customerOrdersDetail.push({
             orderId: ord.orderId,
@@ -519,7 +540,7 @@ export default function App() {
             if (!itemTotalsMap[it.name]) itemTotalsMap[it.name] = 0;
             itemTotalsMap[it.name] += it.qty;
             tenantTotalGross += it.subtotal;
-            tenantTotalOwnerShare += it.priceOwner * it.qty;
+            tenantTotalOwnerShare += (it.priceOwner || 0) * it.qty;
           });
         }
       });
@@ -535,7 +556,7 @@ export default function App() {
         tenantTotalOwnerShare
       };
     });
-  }, [orders, reportSelectedBatchId, reportSelectedStatus, tenants]);
+  }, [orders, reportSelectedBatchId, reportSelectedStatus, tenants, products, batches]);
 
   const updateOrderStatusInCloud = (orderId, newStatus) => {
     setOrders(orders.map((o) => (o.orderId === orderId ? { ...o, status: newStatus } : o)));
@@ -548,6 +569,7 @@ export default function App() {
         body: JSON.stringify({ action: 'updateOrderStatus', orderId, status: newStatus })
       }).catch(err => console.warn(err));
     }
+    showToast(`Status Pesanan ${orderId} berhasil diubah ke ${newStatus}!`);
   };
 
   const handleConfirmDelete = () => {
@@ -556,6 +578,11 @@ export default function App() {
       setProducts(updated);
       syncPushToCloud({ products: updated });
       showToast(`Produk "${deleteConfirmModal.name}" berhasil dihapus.`);
+    } else if (deleteConfirmModal.type === 'batch') {
+      const updated = batches.filter((item) => item.id !== deleteConfirmModal.id);
+      setBatches(updated);
+      syncPushToCloud({ batches: updated });
+      showToast(`Batch "${deleteConfirmModal.name}" berhasil dihapus.`);
     }
     setDeleteConfirmModal({ isOpen: false, type: '', id: '', name: '' });
   };
@@ -619,7 +646,7 @@ export default function App() {
         </div>
       </header>
 
-      {}
+      {/* SHOP VIEW */}
       {activeTab === 'shop' && (
         <main className="max-w-5xl mx-auto px-4 pt-6">
           <div className="mb-6">
@@ -791,7 +818,7 @@ export default function App() {
         </main>
       )}
 
-      {}
+      {/* CART MODAL */}
       {isCartOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs">
           <div className="w-full max-w-md bg-white h-full flex flex-col justify-between shadow-2xl">
@@ -849,6 +876,7 @@ export default function App() {
         </div>
       )}
 
+      {/* CHECKOUT FORM MODAL */}
       {isCheckoutModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
@@ -938,7 +966,7 @@ export default function App() {
         </div>
       )}
 
-      {}
+      {/* ADMIN PANEL VIEW */}
       {activeTab === 'admin' && (
         <main className="max-w-5xl mx-auto px-4 pt-6">
           {!isAdminLoggedIn ? (
@@ -1075,7 +1103,7 @@ export default function App() {
                 </button>
               </div>
 
-              {}
+              {/* REKAP BATCH REPORTS */}
               {adminSubTab === 'batch_reports' && (
                 <div className="space-y-6">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4 justify-between sm:items-center">
@@ -1173,7 +1201,7 @@ export default function App() {
                                         {cust.items.map((it, iIdx) => (
                                           <div key={iIdx} className="flex justify-between">
                                             <span>{it.name}</span>
-                                            <span className="font-bold">x{it.qty}</span>
+                                            <span className="font-bold">x{it.qty} ({formatRupiah(it.subtotal)})</span>
                                           </div>
                                         ))}
                                       </div>
@@ -1214,7 +1242,7 @@ export default function App() {
                 </div>
               )}
 
-              {}
+              {/* KELOLA TENANTS */}
               {adminSubTab === 'tenants' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1257,7 +1285,7 @@ export default function App() {
                 </div>
               )}
 
-              {}
+              {/* KELOLA BATCHES */}
               {adminSubTab === 'batches' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1270,9 +1298,27 @@ export default function App() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {batches.map((b) => (
                       <div key={b.id} className={`bg-white rounded-2xl p-4 border ${b.isActive ? 'border-indigo-500 ring-2 ring-indigo-500/10' : 'border-slate-200'}`}>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${b.isActive ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>
-                          {b.isActive ? 'BATCH AKTIF' : 'Non-Aktif'}
-                        </span>
+                        <div className="flex justify-between items-start">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${b.isActive ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>
+                            {b.isActive ? 'BATCH AKTIF' : 'Non-Aktif'}
+                          </span>
+                          <div className="flex items-center space-x-1">
+                            <button
+                              onClick={() => setBatchModal({ isOpen: true, item: b })}
+                              className="p-1 text-blue-600 hover:bg-blue-50 rounded-lg"
+                              title="Edit Batch"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirmModal({ isOpen: true, type: 'batch', id: b.id, name: b.name })}
+                              className="p-1 text-red-600 hover:bg-red-50 rounded-lg"
+                              title="Hapus Batch"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
                         <h4 className="font-bold text-slate-900 text-base mt-1">{b.name}</h4>
                         <div className="mt-3 pt-3 border-t flex justify-between items-center text-xs">
                           <span className="text-slate-500">{formatIndoDate(b.startDate)} - {formatIndoDate(b.endDate)}</span>
@@ -1293,7 +1339,7 @@ export default function App() {
                 </div>
               )}
 
-              {}
+              {/* SETUP PRODUCTS */}
               {adminSubTab === 'products' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1343,9 +1389,7 @@ export default function App() {
                                     <Edit3 className="w-3.5 h-3.5" />
                                   </button>
                                   <button
-                                    onClick={() => {
-                                      setDeleteConfirmModal({ isOpen: true, type: 'product', id: p.id, name: p.name });
-                                    }}
+                                    onClick={() => setDeleteConfirmModal({ isOpen: true, type: 'product', id: p.id, name: p.name })}
                                     className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
@@ -1361,41 +1405,84 @@ export default function App() {
                 </div>
               )}
 
-              {}
+              {/* SEMUA PESANAN - ENRICHED & WITH SAVE BUTTON */}
               {adminSubTab === 'orders' && (
                 <div className="space-y-4">
-                  <h3 className="font-bold text-slate-900 text-base">Semua Pesanan Masuk ({orders.length})</h3>
-                  <div className="space-y-3">
-                    {orders.map((ord) => (
-                      <div key={ord.orderId} className="bg-white p-4 rounded-2xl border text-xs space-y-2 shadow-sm">
-                        <div className="flex justify-between font-bold">
-                          <span className="text-indigo-700">{ord.orderId} - {ord.customer.namaAnak} ({ord.customer.kelas})</span>
-                          <select
-                            value={ord.status}
-                            onChange={(e) => updateOrderStatusInCloud(ord.orderId, e.target.value)}
-                            className="bg-slate-100 font-bold px-2 py-1 rounded border"
-                          >
-                            <option value="Unpaid">Unpaid</option>
-                            <option value="Paid">Paid</option>
-                            <option value="Selesai">Selesai</option>
-                            <option value="Void">Void</option>
-                          </select>
-                        </div>
-                        <div className="space-y-0.5 text-slate-600">
-                          {ord.items.map((i, idx) => (
-                            <div key={idx} className="flex justify-between">
-                              <span>{i.name} (x{i.qty})</span>
-                              <span>{formatRupiah(i.subtotal)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-bold text-slate-900 text-base">Semua Pesanan Masuk ({orders.length})</h3>
+                    <span className="text-xs text-slate-500">Klik "Simpan Status" untuk memperbarui status pesanan ke cloud.</span>
                   </div>
+
+                  {orders.length === 0 ? (
+                    <div className="bg-white p-8 text-center rounded-2xl border border-dashed text-slate-400 text-xs">
+                      Belum ada pesanan masuk.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {orders.map((ord) => {
+                        const enrichedItems = enrichOrderItems(ord.items);
+                        const calculatedTotal = enrichedItems.reduce((acc, it) => acc + it.subtotal, 0);
+                        const currentStatus = orderStatusDraft[ord.orderId] || ord.status;
+
+                        return (
+                          <div key={ord.orderId} className="bg-white p-4 rounded-2xl border border-slate-200 text-xs space-y-3 shadow-sm">
+                            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 pb-2 border-b border-slate-100">
+                              <div>
+                                <span className="font-extrabold text-indigo-700 text-sm">{ord.orderId}</span>
+                                <span className="font-bold text-slate-900 text-sm ml-2">{ord.customer.namaAnak} ({ord.customer.kelas})</span>
+                                {ord.customer.namaOrtu && <span className="text-slate-500 ml-2">Ortu: {ord.customer.namaOrtu}</span>}
+                              </div>
+
+                              <div className="flex items-center space-x-2">
+                                <select
+                                  value={currentStatus}
+                                  onChange={(e) => setOrderStatusDraft({ ...orderStatusDraft, [ord.orderId]: e.target.value })}
+                                  className="bg-slate-50 font-bold px-3 py-1.5 rounded-xl border border-slate-200 text-slate-800 text-xs focus:outline-none"
+                                >
+                                  <option value="Unpaid">Unpaid</option>
+                                  <option value="Paid">Paid</option>
+                                  <option value="Selesai">Selesai</option>
+                                  <option value="Void">Void</option>
+                                </select>
+
+                                <button
+                                  onClick={() => updateOrderStatusInCloud(ord.orderId, currentStatus)}
+                                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center space-x-1 transition-all shadow-xs"
+                                >
+                                  <Save className="w-3.5 h-3.5" />
+                                  <span>Simpan Status</span>
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="space-y-1 text-slate-600 bg-slate-50/70 p-3 rounded-xl border border-slate-100">
+                              {enrichedItems.map((i, idx) => (
+                                <div key={idx} className="flex justify-between items-center text-xs">
+                                  <span>
+                                    <strong className="text-slate-800">{i.name}</strong> (x{i.qty})
+                                    <span className="text-slate-400 text-[10px] ml-1">[{i.tenantName}]</span>
+                                  </span>
+                                  <span className="font-bold text-slate-900">{formatRupiah(i.subtotal)}</span>
+                                </div>
+                              ))}
+                              {ord.customer.catatan && (
+                                <p className="text-[11px] text-amber-700 italic pt-1 border-t border-slate-200/50">Catatan: {ord.customer.catatan}</p>
+                              )}
+                            </div>
+
+                            <div className="flex justify-between items-center font-bold text-slate-900 text-xs pt-1">
+                              <span className="text-slate-500">Total Nominal Pesanan:</span>
+                              <span className="text-sm font-black text-amber-600">{formatRupiah(ord.totalAmount > 0 ? ord.totalAmount : calculatedTotal)}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {}
+              {/* CLASS PICS */}
               {adminSubTab === 'class_pics' && (
                 <div className="bg-white p-6 rounded-2xl border space-y-4 shadow-sm">
                   <div className="flex justify-between items-center">
@@ -1440,7 +1527,7 @@ export default function App() {
                 </div>
               )}
 
-              {}
+              {/* SETTINGS */}
               {adminSubTab === 'settings' && (
                 <div className="space-y-6">
                   <div className="max-w-xl bg-white rounded-2xl border p-6 space-y-4 shadow-sm text-xs">
@@ -1531,7 +1618,7 @@ export default function App() {
         </main>
       )}
 
-      {}
+      {/* MODALS */}
       {productModal.isOpen && (
         <ModalProductForm
           item={productModal.item}
@@ -1571,9 +1658,17 @@ export default function App() {
 
       {batchModal.isOpen && (
         <ModalBatchForm
+          item={batchModal.item}
           onClose={() => setBatchModal({ isOpen: false, item: null })}
           onSave={(formData) => {
-            const updated = [...batches, { ...formData, id: 'b-' + Date.now(), isActive: false }];
+            let updated;
+            if (batchModal.item) {
+              updated = batches.map((b) => (b.id === batchModal.item.id ? { ...b, ...formData } : b));
+              showToast(`Batch "${formData.name}" berhasil diperbarui.`);
+            } else {
+              updated = [...batches, { ...formData, id: 'b-' + Date.now(), isActive: false }];
+              showToast(`Batch "${formData.name}" berhasil ditambahkan.`);
+            }
             setBatches(updated);
             syncPushToCloud({ batches: updated });
             setBatchModal({ isOpen: false, item: null });
@@ -1594,12 +1689,11 @@ export default function App() {
         />
       )}
 
-      {}
       {deleteConfirmModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl relative text-xs space-y-3">
             <h3 className="text-sm font-bold text-slate-900">Konfirmasi Hapus</h3>
-            <p className="text-slate-600">Apakah Anda yakin ingin menghapus produk <strong>"{deleteConfirmModal.name}"</strong>?</p>
+            <p className="text-slate-600">Apakah Anda yakin ingin menghapus <strong>"{deleteConfirmModal.name}"</strong>?</p>
             <div className="flex justify-end space-x-2 pt-2">
               <button
                 onClick={() => setDeleteConfirmModal({ isOpen: false, type: '', id: '', name: '' })}
@@ -1691,14 +1785,91 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
     imageUrl: item?.imageUrl || ''
   });
 
+  const handleGalleryUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Ukuran file foto terlalu besar (maksimal 5MB)');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 600;
+
+        if (width > height) {
+          if (width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          }
+        } else {
+          if (height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        setForm((prev) => ({ ...prev, imageUrl: compressedDataUrl }));
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative text-xs space-y-3">
-        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400">
+      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative text-xs space-y-3 max-h-[90vh] overflow-y-auto">
+        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
           <X className="w-5 h-5" />
         </button>
         <h3 className="text-base font-bold text-slate-900">{item ? 'Edit Produk' : 'Setup Produk Baru'}</h3>
         <form onSubmit={(e) => { e.preventDefault(); onSave({ ...form, priceOwner: Number(form.priceOwner), priceOrganizer: Number(form.priceOrganizer) }); }} className="space-y-3">
+          
+          <div>
+            <label className="block font-semibold mb-1">Foto Produk</label>
+            <div className="flex items-center space-x-3 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+              <div className="w-16 h-16 bg-slate-100 rounded-lg border flex items-center justify-center overflow-hidden shrink-0">
+                {form.imageUrl ? (
+                  <img src={form.imageUrl} alt="Preview" className="w-full h-full object-cover" />
+                ) : (
+                  <ImageIcon className="w-6 h-6 text-slate-300" />
+                )}
+              </div>
+              <div className="flex-1 space-y-1.5">
+                <label className="cursor-pointer inline-flex items-center px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg text-xs transition-all shadow-xs">
+                  <Upload className="w-3.5 h-3.5 mr-1.5" />
+                  <span>Upload dari Galeri / HP</span>
+                  <input type="file" accept="image/*" onChange={handleGalleryUpload} className="hidden" />
+                </label>
+                {form.imageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, imageUrl: '' })}
+                    className="text-[10px] text-red-600 hover:underline block font-semibold"
+                  >
+                    Hapus Foto
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-semibold mb-1">Atau Gunakan URL Foto</label>
+            <input type="url" placeholder="https://..." value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
+          </div>
+
           <div>
             <label className="block font-semibold mb-1">Nama Produk</label>
             <input type="text" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
@@ -1722,22 +1893,22 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
             </div>
           </div>
           <div>
-            <label className="block font-semibold mb-1">URL Foto Produk</label>
-            <input type="url" value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
+            <label className="block font-semibold mb-1">Deskripsi Singkat</label>
+            <textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
           </div>
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">Simpan Produk</button>
+          <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all">Simpan Produk</button>
         </form>
       </div>
     </div>
   );
 }
 
-function ModalBatchForm({ onClose, onSave }) {
+function ModalBatchForm({ item, onClose, onSave }) {
   const [form, setForm] = useState({
-    name: '',
-    startDate: new Date().toISOString().slice(0, 10),
-    endDate: new Date().toISOString().slice(0, 10),
-    description: ''
+    name: item?.name || '',
+    startDate: item?.startDate || new Date().toISOString().slice(0, 10),
+    endDate: item?.endDate || new Date().toISOString().slice(0, 10),
+    description: item?.description || ''
   });
 
   return (
@@ -1746,7 +1917,7 @@ function ModalBatchForm({ onClose, onSave }) {
         <button onClick={onClose} className="absolute top-4 right-4 text-slate-400">
           <X className="w-5 h-5" />
         </button>
-        <h3 className="text-base font-bold text-slate-900">Buat Batch Periode Baru</h3>
+        <h3 className="text-base font-bold text-slate-900">{item ? 'Edit Batch Periode' : 'Buat Batch Periode Baru'}</h3>
         <form onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="space-y-3">
           <div>
             <label className="block font-semibold mb-1">Nama Batch</label>
@@ -1760,7 +1931,9 @@ function ModalBatchForm({ onClose, onSave }) {
             <label className="block font-semibold mb-1">Tanggal Selesai</label>
             <input type="date" required value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" />
           </div>
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">Simpan Batch</button>
+          <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all">
+            {item ? 'Simpan Perubahan Batch' : 'Simpan Batch'}
+          </button>
         </form>
       </div>
     </div>
