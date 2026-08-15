@@ -3,10 +3,15 @@ import {
   ShoppingBag, ShoppingCart, Plus, Trash2, Edit3, CheckCircle2, 
   MessageCircle, Store, Settings, Search, FileSpreadsheet, X, 
   Send, User, School, Layers, Lock, AlertCircle, Phone, 
-  Image as ImageIcon, Share2, Save, RefreshCw, Printer, Trash
+  Image as ImageIcon, Share2, Save, RefreshCw, Printer, Upload
 } from 'lucide-react';
 
-const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwmWBM_AsaxtOf8RcDwtbRBsZJcWM5Qd2xVMG7RkhWwoeh8fCoqC8XKSh0HWqRqonN_/exec';
+// URL Webhook Baru sesuai deployment terakhir
+const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwMORs9RhRXNQhQf5s0NhxKkT-IDiyu4NcOSXpcHkU3175JdLo5E-l_9166sznyL9U/exec';
+
+// Unicode Emojis (Mencegah corrupted encode di Windows/CMD)
+const WA_SMILE = '\uD83D\uDE0A';
+const WA_PRAY = '\uD83D\uDE4F';
 
 const formatIndoDate = (dateStr) => {
   if (!dateStr) return '-';
@@ -32,11 +37,9 @@ const parseAndCleanItem = (rawItem, productsList = [], tenantsList = []) => {
     if (extractedNum) qty = extractedNum;
   }
 
-  // Bersihkan tag (x...) dan [Stand...] pada nama produk
   let cleanName = rawName.replace(/\(x\d+\)/g, '').replace(/\[.*?\]/g, '').trim();
   cleanName = cleanName.replace(/^[-,]+|[-,\s]+$/g, '').trim();
 
-  // Temukan relasi produk
   const matchedProd = productsList.find(
     (p) => p.id === rawItem.id || (p.name || '').toLowerCase() === cleanName.toLowerCase()
   );
@@ -44,10 +47,8 @@ const parseAndCleanItem = (rawItem, productsList = [], tenantsList = []) => {
   const priceOwner = matchedProd ? Number(matchedProd.priceOwner || 0) : Number(rawItem.priceOwner || 0);
   const priceOrganizer = matchedProd ? Number(matchedProd.priceOrganizer || 0) : Number(rawItem.priceOrganizer || 0);
   const unitSellingPrice = priceOwner + priceOrganizer;
-
   const tenantId = matchedProd ? matchedProd.tenantId : (rawItem.tenantId || tenantsList[0]?.id || 't1');
   const tenantObj = tenantsList.find((t) => t.id === tenantId);
-  const tenantName = tenantObj?.name || rawItem.tenantName || 'Stand Bazaar';
 
   return {
     ...rawItem,
@@ -57,7 +58,7 @@ const parseAndCleanItem = (rawItem, productsList = [], tenantsList = []) => {
     priceOrganizer,
     unitSellingPrice,
     tenantId,
-    tenantName,
+    tenantName: tenantObj?.name || rawItem.tenantName || 'Stand Bazaar',
     subtotal: unitSellingPrice * qty
   };
 };
@@ -114,8 +115,6 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
   const [toastMessage, setToastMessage] = useState('');
   const [isCloudSyncing, setIsCloudSyncing] = useState(false);
-
-  // Modal Confirm & Custom
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
 
   const showToast = (msg) => {
@@ -129,7 +128,6 @@ export default function App() {
   });
 
   const [adminPhone, setAdminPhone] = useState(() => localStorage.getItem('ld_bazaar_admin_phone') || '628123456780');
-
   const [sheetWebhookUrl, setSheetWebhookUrl] = useState(() => {
     const saved = localStorage.getItem('ld_bazaar_sheet_webhook');
     return (saved && saved.trim() !== '') ? saved : DEFAULT_WEBHOOK_URL;
@@ -184,22 +182,23 @@ export default function App() {
           setBatches(json.data.batches);
           if (!reportSelectedBatchId) setReportSelectedBatchId(json.data.batches[0].id);
         }
-        if (json.data.classes?.length > 0) setClassesList(json.data.classes);
+        if (json.data.classes?.length > 0) {
+          setClassesList(json.data.classes);
+          setCheckoutData(prev => ({ ...prev, kelas: json.data.classes[0]?.name || '' }));
+        }
         if (json.data.orders) setOrders(json.data.orders);
         
         if (json.data.settings) {
           if (json.data.settings.adminPhone) setAdminPhone(json.data.settings.adminPhone);
           if (json.data.settings.adminAuth) {
-            try {
-              setAdminAuth(typeof json.data.settings.adminAuth === 'string' ? JSON.parse(json.data.settings.adminAuth) : json.data.settings.adminAuth);
-            } catch(e) {}
+            try { setAdminAuth(typeof json.data.settings.adminAuth === 'string' ? JSON.parse(json.data.settings.adminAuth) : json.data.settings.adminAuth); } catch(e) {}
           }
         }
-        if (!silent) showToast('Data Berhasil Disinkronkan dari Cloud!');
+        if (!silent) showToast('Data Disinkronkan dari Cloud!');
       }
     } catch (e) {
       console.warn('Google Sheets Fetch Error:', e);
-      if (!silent) showToast('Gagal terhubung ke Cloud Google Sheets.');
+      if (!silent) showToast('Gagal terhubung ke Google Sheets.');
     } finally {
       setIsInitialLoad(false);
       setIsCloudSyncing(false);
@@ -220,13 +219,8 @@ export default function App() {
         settings: { adminPhone, adminAuth }
       };
 
-      await fetch(targetUrl, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      showToast('Berhasil Disimpan ke Cloud!');
+      await fetch(targetUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      showToast('Perubahan Tersimpan ke Cloud!');
     } catch (err) {
       console.warn('Sync Push Error:', err);
     } finally {
@@ -289,7 +283,6 @@ export default function App() {
     if (!orderStatusInfo.isOpen || !activeBatch) return showToast(orderStatusInfo.reason);
     if (!checkoutData.namaAnak.trim() || cart.length === 0) return;
     
-    // Perbaikan WA Link Redirect tanpa async block
     const newOrderId = 'BZ-' + Math.floor(100000 + Math.random() * 900000);
     const orderDate = new Date().toISOString();
     
@@ -323,6 +316,7 @@ export default function App() {
     setOrders((prev) => [orderPayload, ...prev]);
 
     let waText = `*PEMESANAN BAZAAR DANUS PTA LITTLE DARBI (${activeBatch.name})*\n`;
+    if (activeBatch.readyDate) waText += `*Tgl Distribusi/Ready:* ${formatIndoDate(activeBatch.readyDate)}\n`;
     waText += `-----------------------------------\n`;
     waText += `*No. Pesanan:* ${newOrderId}\n`;
     waText += `*Nama Anak:* ${checkoutData.namaAnak}\n`;
@@ -340,25 +334,19 @@ export default function App() {
     waText += `-----------------------------------\n`;
     waText += `*TOTAL TAGIHAN: ${formatRupiah(orderPayload.totalAmount)}*\n`;
     waText += `-----------------------------------\n`;
-    waText += `Halo PIC Kelas ${checkoutData.kelas}, mohon instruksi info rekening pembayaran. Terima kasih! 😊`;
+    waText += `Halo PIC Kelas ${checkoutData.kelas}, mohon instruksi info rekening pembayaran. Terima kasih! ${WA_PRAY}`;
 
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`;
 
-    // Background Fetch untuk mencatat ke Cloud
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
-    fetch(targetUrl, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'checkout', ...orderPayload })
-    }).catch(err => console.warn(err));
+    fetch(targetUrl, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'checkout', ...orderPayload }) }).catch(err => console.warn(err));
 
     setCart([]);
     setIsCheckoutModalOpen(false);
     setIsCartOpen(false);
     setCheckoutData({ namaAnak: '', kelas: classesList[0]?.name || '', namaOrtu: '', catatan: '' });
     
-    // BUKA WA SECARA LANGSUNG
+    // Redirect instantly
     window.open(waUrl, '_blank');
   };
 
@@ -375,7 +363,6 @@ export default function App() {
       let tenantTotalOwnerShare = 0;
 
       filtered.forEach((ord) => {
-        // Cleaning and restoring accurate item prices dynamically
         const parsedItems = ord.items.map(it => parseAndCleanItem(it, products, tenants));
         const tenantItemsInOrder = parsedItems.filter((it) => it.tenantId === tenant.id);
         
@@ -443,7 +430,7 @@ export default function App() {
         <h2>Bazaar DANUS PTA Little Darbi</h2>
         <h3>Rekapitulasi Dapur Stand: ${tenantRep.tenantName}</h3>
         <div class="info">
-          Periode: ${currentBatch?.name || '-'} | PJ: ${tenantRep.tenantOwner} (${tenantRep.tenantPhone})
+          Periode: ${currentBatch?.name || '-'} ${currentBatch?.readyDate ? `(Tgl Ready: ${formatIndoDate(currentBatch.readyDate)})` : ''} | PJ: ${tenantRep.tenantOwner} (${tenantRep.tenantPhone})
         </div>
 
         <h4>Detail Pesanan Pembeli (${tenantRep.customerOrdersDetail.length} Pembeli)</h4>
@@ -592,7 +579,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Tampilan Pembeli (Shop) */}
+      {}
       {activeTab === 'shop' && (
         <main className="max-w-5xl mx-auto px-4 pt-6">
           {isInitialLoad ? (
@@ -697,6 +684,7 @@ export default function App() {
             </>
           )}
 
+          {}
           {cart.length > 0 && orderStatusInfo.isOpen && (
             <div className="fixed bottom-4 left-4 right-4 max-w-md mx-auto z-40">
               <button onClick={() => setIsCartOpen(true)} className="w-full bg-amber-600 hover:bg-amber-700 text-white p-3.5 rounded-2xl shadow-xl flex items-center justify-between">
@@ -717,7 +705,7 @@ export default function App() {
         </main>
       )}
 
-      {/* Cart Modal */}
+      {}
       {isCartOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-xs">
           <div className="w-full max-w-md bg-white h-full flex flex-col justify-between shadow-2xl">
@@ -753,7 +741,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Checkout Form Modal */}
+      {}
       {isCheckoutModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
@@ -771,7 +759,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Tampilan Panel Admin */}
+      {}
       {activeTab === 'admin' && (
         <main className="max-w-5xl mx-auto px-4 pt-6">
           {!isAdminLoggedIn ? (
@@ -803,11 +791,12 @@ export default function App() {
           ) : (
             <div className="space-y-6">
               <div className="flex items-center space-x-2 border-b border-slate-200 pb-3 overflow-x-auto scrollbar-none">
-                {[{id:'batch_reports', label:'Rekap Per Tenant', icon:FileSpreadsheet}, {id:'tenants', label:'Kelola Stand', icon:User}, {id:'batches', label:'Kelola Batch', icon:Layers}, {id:'products', label:'Produk & Harga', icon:Store}, {id:'orders', label:`Semua Pesanan (${orders.length})`, icon:ShoppingBag}, {id:'class_pics', label:'Routing WA Kelas', icon:School}, {id:'settings', label:'Integrasi Webhook & Sandi', icon:Settings}].map(tab => (
+                {[{id:'batch_reports', label:'Rekap Per Tenant', icon:FileSpreadsheet}, {id:'tenants', label:'Kelola Stand', icon:User}, {id:'batches', label:'Kelola Batch', icon:Layers}, {id:'products', label:'Produk & Harga', icon:Store}, {id:'orders', label:`Semua Pesanan (${orders.length})`, icon:ShoppingBag}, {id:'class_pics', label:'Routing WA Kelas', icon:School}, {id:'settings', label:'Integrasi Webhook', icon:Settings}].map(tab => (
                   <button key={tab.id} onClick={() => setAdminSubTab(tab.id)} className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center space-x-1.5 whitespace-nowrap ${adminSubTab === tab.id ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-100'}`}><tab.icon className="w-4 h-4" /><span>{tab.label}</span></button>
                 ))}
               </div>
 
+              {}
               {adminSubTab === 'batch_reports' && (
                 <div className="space-y-6">
                   <div className="bg-white p-4 rounded-2xl border flex gap-4 justify-between items-center">
@@ -828,15 +817,18 @@ export default function App() {
                           <div className="flex gap-2">
                             <button onClick={() => handlePrintTenantReport(tenantRep)} className="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center"><Printer className="w-4 h-4 mr-1.5" /> Cetak PDF</button>
                             <button onClick={() => {
-                              const cleanPhone = String(tenantRep.tenantPhone).replace(/[^0-9]/g, '').replace(/^0/, '62');
-                              if (!cleanPhone) return showToast('Nomor WA belum diisi!');
+                              let cleanPhone = String(tenantRep.tenantPhone).replace(/[^0-9]/g, '');
+                              if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
+                              if (!cleanPhone) return showToast('Nomor WA belum valid!');
                               const currentBatch = batches.find((b) => b.id === reportSelectedBatchId);
-                              let text = `*REKAP PESANAN - ${tenantRep.tenantName.toUpperCase()}*\nPeriode: ${currentBatch?.name}\n\n`;
+                              let text = `*REKAP PESANAN - ${tenantRep.tenantName.toUpperCase()}*\nPeriode: ${currentBatch?.name}\n`;
+                              if (currentBatch?.readyDate) text += `Tgl Ready/Distribusi: ${formatIndoDate(currentBatch.readyDate)}\n`;
+                              text += `\n`;
                               Object.keys(tenantRep.itemAggregatesMap).forEach((name) => {
                                 const agg = tenantRep.itemAggregatesMap[name];
                                 text += `• *${agg.name}*: ${agg.qty} pcs (${formatRupiah(agg.totalOwnerShare)})\n`;
                               });
-                              text += `\n*TOTAL HAK VENDOR: ${formatRupiah(tenantRep.tenantTotalOwnerShare)}*\n\nTerima kasih! 😊`;
+                              text += `\n*TOTAL HAK VENDOR: ${formatRupiah(tenantRep.tenantTotalOwnerShare)}*\n\nTerima kasih! ${WA_PRAY}`;
                               window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`, '_blank');
                             }} className="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl flex items-center"><MessageCircle className="w-4 h-4 mr-1.5 fill-current" /> WA Tenant</button>
                           </div>
@@ -875,6 +867,7 @@ export default function App() {
                 </div>
               )}
 
+              {}
               {adminSubTab === 'orders' && (
                 <div className="space-y-4">
                   <h3 className="font-bold text-slate-900 text-base">Semua Pesanan Masuk ({orders.length})</h3>
@@ -891,11 +884,13 @@ export default function App() {
                               <select value={ord.status} onChange={(e) => {
                                 const newOrders = orders.map(o => o.orderId === ord.orderId ? { ...o, status: e.target.value } : o);
                                 setOrders(newOrders);
-                                fetch(sheetWebhookUrl || DEFAULT_WEBHOOK_URL, { method: 'POST', mode: 'no-cors', headers: {'Content-Type':'application/json'}, body: JSON.stringify({action:'updateOrderStatus', orderId: ord.orderId, status: e.target.value}) });
-                                showToast(`Status pesanan ${ord.orderId} diupdate`);
                               }} className="bg-slate-100 font-bold px-2 py-1.5 rounded border outline-none">
                                 <option value="Unpaid">Unpaid</option><option value="Paid">Paid</option><option value="Selesai">Selesai</option><option value="Void">Void (Batal)</option>
                               </select>
+                              <button onClick={() => {
+                                fetch(sheetWebhookUrl || DEFAULT_WEBHOOK_URL, { method: 'POST', mode: 'no-cors', headers: {'Content-Type':'application/json'}, body: JSON.stringify({action:'updateOrderStatus', orderId: ord.orderId, status: ord.status}) });
+                                showToast(`Status pesanan ${ord.orderId} disave ke Cloud!`);
+                              }} className="p-1.5 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded-lg flex items-center font-bold px-2"><Save className="w-3.5 h-3.5 mr-1"/> Simpan Status</button>
                               <button onClick={() => {
                                 setConfirmModal({
                                   isOpen: true, title: 'Hapus Pesanan', message: `Yakin ingin hapus pesanan ${ord.orderId}?`,
@@ -907,13 +902,13 @@ export default function App() {
                                     showToast('Pesanan dihapus dari daftar');
                                   }
                                 });
-                              }} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash className="w-4 h-4" /></button>
+                              }} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
                             </div>
                           </div>
                           <div className="space-y-1.5 text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
                             {cleanItems.map((i, idx) => (
                               <div key={idx} className="flex justify-between items-center border-b border-slate-200/50 pb-1 mb-1 last:border-0 last:pb-0 last:mb-0">
-                                <span><strong className="text-slate-800">{i.name}</strong> (x{i.qty}) <span className="text-slate-400 text-[10px] ml-1">[{i.tenantName}]</span></span>
+                                <span><strong className="text-slate-800">{i.name} (x{i.qty})</strong> <span className="text-slate-400 text-[10px] ml-1">[{i.tenantName}]</span></span>
                                 <span className="font-bold text-slate-900">{formatRupiah(i.subtotal)}</span>
                               </div>
                             ))}
@@ -927,7 +922,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* Tabs Lainnya: Batches, Products, Tenants, Class, Settings */}
+              {}
               {adminSubTab === 'products' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -951,13 +946,13 @@ export default function App() {
                               <td className="p-3 text-indigo-700">+ {formatRupiah(p.priceOrganizer)}</td>
                               <td className="p-3 font-black text-amber-600">{formatRupiah(Number(p.priceOwner)+Number(p.priceOrganizer))}</td>
                               <td className="p-3 text-center">
-                                <button onClick={() => setProductModal({ isOpen: true, item: p })} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit3 className="w-3.5 h-3.5" /></button>
+                                <button onClick={() => setProductModal({ isOpen: true, item: p })} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit3 className="w-4 h-4" /></button>
                                 <button onClick={() => {
                                   setConfirmModal({isOpen: true, title: 'Hapus Produk', message: `Hapus ${p.name}?`, onConfirm: () => {
                                     const updated = products.filter(item => item.id !== p.id);
                                     setProducts(updated); syncPushToCloud({ products: updated }); setConfirmModal({isOpen:false}); showToast('Produk dihapus');
                                   }});
-                                }} className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-3.5 h-3.5" /></button>
+                                }} className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
                               </td>
                             </tr>
                           );
@@ -967,6 +962,8 @@ export default function App() {
                   </div>
                 </div>
               )}
+              
+              {}
               {adminSubTab === 'batches' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -979,25 +976,30 @@ export default function App() {
                         <div className="flex justify-between items-start">
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${b.isActive ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{b.isActive ? 'BATCH AKTIF' : 'Non-Aktif'}</span>
                           <div className="flex space-x-1">
-                            <button onClick={() => setBatchModal({ isOpen: true, item: b })} className="p-1 text-blue-600"><Edit3 className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => setBatchModal({ isOpen: true, item: b })} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit3 className="w-4 h-4" /></button>
                             <button onClick={() => setConfirmModal({isOpen:true, title:'Hapus Batch', message:`Hapus ${b.name}?`, onConfirm: () => {
                               const updated = batches.filter(item => item.id !== b.id); setBatches(updated); syncPushToCloud({ batches: updated }); setConfirmModal({isOpen:false});
-                            }})} className="p-1 text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                            }})} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4" /></button>
                           </div>
                         </div>
                         <h4 className="font-bold text-slate-900 text-base mt-1">{b.name}</h4>
-                        <div className="mt-3 pt-3 border-t flex justify-between items-center text-xs">
-                          <span className="text-slate-500">{formatIndoDate(b.startDate)} - {formatIndoDate(b.endDate)}</span>
+                        <div className="mt-2 space-y-1 text-xs">
+                          <p className="text-slate-500">Pesan: {formatIndoDate(b.startDate)} - {formatIndoDate(b.endDate)}</p>
+                          {b.readyDate && <p className="text-emerald-600 font-bold">Ready: {formatIndoDate(b.readyDate)}</p>}
+                        </div>
+                        <div className="mt-3 pt-3 border-t flex justify-end">
                           <button onClick={() => {
                             const updated = batches.map((item) => ({ ...item, isActive: item.id === b.id }));
                             setBatches(updated); syncPushToCloud({ batches: updated });
-                          }} className={`px-3 py-1 rounded-lg font-bold text-xs ${b.isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'}`}>{b.isActive ? 'Aktif' : 'Set Aktif'}</button>
+                          }} className={`px-3 py-1.5 rounded-lg font-bold text-xs ${b.isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'}`}>{b.isActive ? 'Aktif Saat Ini' : 'Set Aktif'}</button>
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
+
+              {}
               {adminSubTab === 'tenants' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
@@ -1032,9 +1034,12 @@ export default function App() {
                       <div key={c.id} className="p-3 bg-slate-50 border rounded-xl space-y-2">
                         <div className="flex justify-between items-center">
                           <span className="font-bold text-slate-900">{c.name}</span>
-                          <button onClick={() => setConfirmModal({isOpen:true, title:'Hapus Kelas', message:`Hapus ${c.name}?`, onConfirm: () => {
-                            const updated = classesList.filter(item => item.id !== c.id); setClassesList(updated); syncPushToCloud({ classes: updated }); setConfirmModal({isOpen:false});
-                          }})} className="text-red-600 hover:bg-red-50 p-1 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <div className="flex space-x-1">
+                            <button onClick={() => setClassModal({ isOpen: true, item: c })} className="text-blue-600 hover:bg-blue-50 p-1 rounded"><Edit3 className="w-4 h-4" /></button>
+                            <button onClick={() => setConfirmModal({isOpen:true, title:'Hapus Kelas', message:`Hapus ${c.name}?`, onConfirm: () => {
+                              const updated = classesList.filter(item => item.id !== c.id); setClassesList(updated); syncPushToCloud({ classes: updated }); setConfirmModal({isOpen:false});
+                            }})} className="text-red-600 hover:bg-red-50 p-1 rounded"><Trash2 className="w-4 h-4" /></button>
+                          </div>
                         </div>
                         <input type="text" placeholder="No WA PIC (628...)" value={c.phone} onChange={(e) => {
                           const updated = classesList.map(item => item.id === c.id ? { ...item, phone: e.target.value } : item);
@@ -1045,6 +1050,8 @@ export default function App() {
                   </div>
                 </div>
               )}
+              
+              {}
               {adminSubTab === 'settings' && (
                 <div className="max-w-xl bg-white rounded-2xl border p-6 space-y-4 shadow-sm text-xs">
                   <h3 className="font-bold text-base text-slate-900">Pengaturan Webhook & Cloud Sync</h3>
@@ -1089,27 +1096,73 @@ export default function App() {
               formObj.priceOrganizer = Number(formObj.priceOrganizer);
               formObj.available = true;
               
+              // Prevent overriding image if an upload was just converted to base64 in state
+              const finalImageUrl = productModal.item?.tempImageUrl || formObj.imageUrl || '';
+              delete formObj.imageUrlInput; // exclude file input from saving
+              formObj.imageUrl = finalImageUrl;
+
               let updated;
-              if (productModal.item) {
+              if (productModal.item && !productModal.item.isNew) {
                 updated = products.map((p) => (p.id === productModal.item.id ? { ...p, ...formObj } : p));
               } else {
                 updated = [...products, { ...formObj, id: 'p-' + Date.now() }];
               }
               setProducts(updated); syncPushToCloud({ products: updated }); setProductModal({ isOpen: false, item: null });
-            }} className="space-y-3">
+            }} className="space-y-3 max-h-[80vh] overflow-y-auto pr-1">
               <div><label className="block font-semibold mb-1">Nama Produk</label><input type="text" name="name" required defaultValue={productModal.item?.name || ''} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
               <div><label className="block font-semibold mb-1">Stand / Tenant</label><select name="tenantId" defaultValue={productModal.item?.tenantId || tenants[0]?.id || ''} className="w-full px-3 py-2 bg-slate-50 border rounded-xl">{tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="block font-semibold mb-1">Harga Owner (Rp)</label><input type="number" name="priceOwner" required defaultValue={productModal.item?.priceOwner || 0} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
                 <div><label className="block font-semibold mb-1">Margin Panitia (Rp)</label><input type="number" name="priceOrganizer" required defaultValue={productModal.item?.priceOrganizer || 0} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
               </div>
-              <div><label className="block font-semibold mb-1">URL Foto Produk</label><input type="url" name="imageUrl" defaultValue={productModal.item?.imageUrl || ''} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
+              
+              <div className="border border-dashed border-slate-300 p-3 rounded-xl bg-slate-50 space-y-2">
+                <label className="block font-semibold mb-1">Upload Foto / URL Foto</label>
+                {productModal.item?.tempImageUrl || productModal.item?.imageUrl ? (
+                  <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-slate-200">
+                    <img src={productModal.item?.tempImageUrl || productModal.item?.imageUrl} alt="Preview" className="w-full h-full object-cover" />
+                    <button type="button" onClick={() => setProductModal({ ...productModal, item: { ...productModal.item, tempImageUrl: '', imageUrl: '' } })} className="absolute top-1 right-1 bg-red-500 text-white rounded p-0.5"><X className="w-3 h-3"/></button>
+                  </div>
+                ) : (
+                  <>
+                    <input type="text" name="imageUrl" placeholder="Paste link URL gambar (opsional)" className="w-full px-3 py-2 bg-white border rounded-xl text-xs mb-2" />
+                    <div className="flex items-center space-x-2">
+                      <span className="text-slate-400 font-bold mx-2">ATAU</span>
+                      <label className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-center cursor-pointer hover:bg-slate-100 flex items-center justify-center space-x-1 font-bold text-slate-600">
+                        <Upload className="w-4 h-4"/> <span>Pilih dari Galeri</span>
+                        <input type="file" name="imageUrlInput" accept="image/*" className="hidden" onChange={(e) => {
+                          const file = e.target.files[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            const img = new Image();
+                            img.onload = () => {
+                              const canvas = document.createElement('canvas');
+                              const MAX_WIDTH = 500;
+                              const scaleSize = MAX_WIDTH / img.width;
+                              canvas.width = MAX_WIDTH;
+                              canvas.height = img.height * scaleSize;
+                              const ctx = canvas.getContext('2d');
+                              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                              const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+                              setProductModal({ ...productModal, item: { ...productModal.item, tempImageUrl: dataUrl, isNew: !productModal.item } });
+                            };
+                            img.src = event.target.result;
+                          };
+                          reader.readAsDataURL(file);
+                        }} />
+                      </label>
+                    </div>
+                  </>
+                )}
+              </div>
               <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md">Simpan Produk</button>
             </form>
           </div>
         </div>
       )}
 
+      {}
       {tenantModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative text-xs space-y-3">
@@ -1142,8 +1195,9 @@ export default function App() {
               setBatches(updated); syncPushToCloud({ batches: updated }); setBatchModal({isOpen:false, item:null});
             }} className="space-y-3">
               <div><label className="block font-semibold mb-1">Nama Batch</label><input type="text" name="name" required defaultValue={batchModal.item?.name || ''} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-              <div><label className="block font-semibold mb-1">Tanggal Mulai</label><input type="date" name="startDate" required defaultValue={batchModal.item?.startDate || new Date().toISOString().slice(0, 10)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-              <div><label className="block font-semibold mb-1">Tanggal Selesai</label><input type="date" name="endDate" required defaultValue={batchModal.item?.endDate || new Date().toISOString().slice(0, 10)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
+              <div><label className="block font-semibold mb-1">Tanggal Mulai Pemesanan</label><input type="date" name="startDate" required defaultValue={batchModal.item?.startDate || new Date().toISOString().slice(0, 10)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
+              <div><label className="block font-semibold mb-1">Tanggal Selesai Pemesanan</label><input type="date" name="endDate" required defaultValue={batchModal.item?.endDate || new Date().toISOString().slice(0, 10)} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
+              <div><label className="block font-semibold mb-1 text-emerald-700">Tanggal Distribusi / Ready (Opsional)</label><input type="date" name="readyDate" defaultValue={batchModal.item?.readyDate || ''} className="w-full px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl" /></div>
               <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl">Simpan Batch</button>
             </form>
           </div>
@@ -1154,15 +1208,15 @@ export default function App() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative text-xs space-y-3">
             <button onClick={() => setClassModal({isOpen: false, item: null})} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
-            <h3 className="text-base font-bold">Tambah Kelas Baru</h3>
+            <h3 className="text-base font-bold">{classModal.item ? 'Edit Kelas' : 'Tambah Kelas Baru'}</h3>
             <form onSubmit={(e) => {
               e.preventDefault();
               const formObj = Object.fromEntries(new FormData(e.target).entries());
-              const updated = [...classesList, { ...formObj, id: 'c-' + Date.now() }];
+              let updated = classModal.item ? classesList.map(c => c.id === classModal.item.id ? { ...c, ...formObj } : c) : [...classesList, { ...formObj, id: 'c-' + Date.now() }];
               setClassesList(updated); syncPushToCloud({ classes: updated }); setClassModal({isOpen:false, item:null});
             }} className="space-y-3">
-              <div><label className="block font-semibold mb-1">Nama Kelas</label><input type="text" name="name" required className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
-              <div><label className="block font-semibold mb-1">No. WA PIC Kelas</label><input type="text" name="phone" required className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
+              <div><label className="block font-semibold mb-1">Nama Kelas</label><input type="text" name="name" required defaultValue={classModal.item?.name || ''} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
+              <div><label className="block font-semibold mb-1">No. WA PIC Kelas</label><input type="text" name="phone" required defaultValue={classModal.item?.phone || ''} className="w-full px-3 py-2 bg-slate-50 border rounded-xl" /></div>
               <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl">Simpan Kelas</button>
             </form>
           </div>
