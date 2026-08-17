@@ -28,7 +28,7 @@ import {
   List
 } from 'lucide-react';
 
-const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbz-pRYwVeJ3Tymcg8HgmO5TRmaUdjU1Ki9Zxq9NhEaUXQWEdv_4YjfixHA49-g9LjUj/exec';
+const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwpfqbew8iEaovqo2Pxg6z_Opf-Kd8ttr4cQflpY6YPySHcgY1J4YlJu-Nr9ZwVg3lb/exec';
 
 const formatIndoDate = (dateStr) => {
   if (!dateStr) return '-';
