@@ -24,10 +24,11 @@ import {
   Printer,
   Save,
   Share2,
-  Menu
+  Menu,
+  List
 } from 'lucide-react';
 
-const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwd0X9knMjUBFqA-giJRKQ5_0NDoocBSFW-haLIijgmPDZZuhVBNeVc7GADxBjq5XRS/exec';
+const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbz-pRYwVeJ3Tymcg8HgmO5TRmaUdjU1Ki9Zxq9NhEaUXQWEdv_4YjfixHA49-g9LjUj/exec';
 
 const formatIndoDate = (dateStr) => {
   if (!dateStr) return '-';
@@ -51,7 +52,7 @@ const parseAndCleanItem = (rawName) => {
 };
 
 const INITIAL_TENANTS = [{ id: 't1', name: 'Stand Snack', owner: 'PIC', phone: '628123456789' }];
-const INITIAL_PRODUCTS = [{ id: 'p1', tenantId: 't1', name: 'Produk A', priceOwner: 5000, priceOrganizer: 1000, category: 'Makanan', imageUrl: '', available: true, description: '' }];
+const INITIAL_PRODUCTS = [{ id: 'p1', tenantId: 't1', name: 'Produk A', priceOwner: 5000, priceOrganizer: 1000, category: 'Makanan', imageUrl: '', available: true, description: '', variants: [] }];
 const INITIAL_BATCHES = [{ id: 'b1', name: 'Batch 1', startDate: '2026-08-01', endDate: '2026-08-31', readyDate: '2026-09-01', isActive: true, description: '' }];
 const INITIAL_CLASSES = [{ id: 'c1', name: 'Little Owl', phone: '628123456781' }];
 
@@ -106,7 +107,7 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState('');
   const [isCloudSyncing, setIsCloudSyncing] = useState(true);
 
-  // Dialog Konfirmasi Kustom (Pengganti window.confirm)
+  // Dialog Konfirmasi Kustom
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, msg: '', onConfirm: null });
 
   const showToast = (msg) => {
@@ -154,6 +155,9 @@ export default function App() {
   const [batchModal, setBatchModal] = useState({ isOpen: false, item: null });
   const [classModal, setClassModal] = useState({ isOpen: false, item: null });
   const [printData, setPrintData] = useState(null);
+  
+  // State untuk Varian Modal Pembeli
+  const [variantModal, setVariantModal] = useState({ isOpen: false, product: null });
 
   const [reportSelectedBatchId, setReportSelectedBatchId] = useState('');
   const [reportSelectedStatus, setReportSelectedStatus] = useState('Paid');
@@ -186,7 +190,13 @@ export default function App() {
       const json = await res.json();
       
       if (json.status === 'success' && json.data) {
-        if (json.data.products !== undefined) setProducts(json.data.products);
+        if (json.data.products !== undefined) {
+           const parsedProducts = json.data.products.map(p => ({
+               ...p,
+               variants: typeof p.variants === 'string' ? (p.variants ? JSON.parse(p.variants) : []) : (p.variants || [])
+           }));
+           setProducts(parsedProducts);
+        }
         if (json.data.tenants !== undefined) setTenants(json.data.tenants);
         if (json.data.classes !== undefined) setClassesList(json.data.classes);
         
@@ -226,20 +236,44 @@ export default function App() {
                   itemStrings.forEach(itemStr => {
                     const match = itemStr.trim().match(/^(.*?)\s*\(x(\d+)\)$/i);
                     if (match) {
-                      const name = match[1].trim();
+                      let rawName = match[1].trim(); 
                       const qty = parseInt(match[2], 10);
-                      const product = productsData.find(p => String(p.name || '').toLowerCase() === name.toLowerCase());
+                      
+                      let baseName = rawName;
+                      let variantName = '';
+                      const varMatch = rawName.match(/^(.*?) \[([^\]]+)\]$/);
+                      if (varMatch) {
+                          baseName = varMatch[1].trim();
+                          variantName = varMatch[2].trim();
+                      }
+
+                      const product = productsData.find(p => String(p.name || '').toLowerCase() === baseName.toLowerCase());
                       
                       if (product) {
-                        parsedItems.push({
-                          id: product.id, name: product.name, tenantId: product.tenantId,
-                          priceOwner: Number(product.priceOwner) || 0, priceOrganizer: Number(product.priceOrganizer) || 0,
-                          qty: qty, subtotal: (Number(product.priceOwner || 0) + Number(product.priceOrganizer || 0)) * qty
-                        });
+                          let pOwner = Number(product.priceOwner) || 0;
+                          let pOrg = Number(product.priceOrganizer) || 0;
+                          let finalId = product.id;
+                          
+                          let parsedVariants = typeof product.variants === 'string' ? JSON.parse(product.variants || '[]') : (product.variants || []);
+                          
+                          if (variantName && Array.isArray(parsedVariants)) {
+                              const variant = parsedVariants.find(v => String(v.name).toLowerCase() === variantName.toLowerCase());
+                              if (variant) {
+                                  pOwner = Number(variant.priceOwner) || 0;
+                                  pOrg = Number(variant.priceOrganizer) || 0;
+                                  finalId = `${product.id}|${variant.name}`;
+                              }
+                          }
+
+                          parsedItems.push({
+                              id: finalId, name: rawName, tenantId: product.tenantId,
+                              priceOwner: pOwner, priceOrganizer: pOrg,
+                              qty: qty, subtotal: (pOwner + pOrg) * qty
+                          });
                       } else {
-                        parsedItems.push({
-                          id: 'p-unknown', name: name, tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: qty, subtotal: 0
-                        });
+                          parsedItems.push({
+                            id: 'p-unknown', name: rawName, tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: qty, subtotal: 0
+                          });
                       }
                     } else if (itemStr.trim()) {
                        parsedItems.push({
@@ -330,14 +364,15 @@ export default function App() {
     }
   };
 
-  const addToCart = (product) => {
+  const addToCart = (productObj, qty = 1) => {
     setCart((prev) => {
-      const existing = prev.find((item) => item.id === product.id);
+      const existing = prev.find((item) => item.id === productObj.id);
       if (existing) {
-        return prev.map((item) => item.id === product.id ? { ...item, qty: item.qty + 1 } : item);
+        return prev.map((item) => item.id === productObj.id ? { ...item, qty: item.qty + qty } : item);
       }
-      return [...prev, { ...product, qty: 1 }];
+      return [...prev, { ...productObj, qty: qty }];
     });
+    showToast('Berhasil ditambah ke keranjang!');
   };
 
   const updateCartQty = (productId, delta) => {
@@ -466,13 +501,28 @@ export default function App() {
     if (!ord || !ord.items || !Array.isArray(ord.items)) return [];
     return ord.items.map(it => {
       if (!it) return null;
-      const dbProduct = products.find(p => p.id === it.id);
+      const baseId = it.id ? String(it.id).split('|')[0] : '';
+      const dbProduct = products.find(p => p.id === baseId);
+      
       if (dbProduct) {
+        let pOwner = Number(it.priceOwner) || 0;
+        let pOrg = Number(it.priceOrganizer) || 0;
+        
+        if (pOwner === 0 && pOrg === 0) {
+            const variantName = String(it.id).includes('|') ? String(it.id).split('|')[1] : null;
+            if (variantName && Array.isArray(dbProduct.variants)) {
+                const v = dbProduct.variants.find(x => x.name === variantName);
+                if (v) { pOwner = Number(v.priceOwner); pOrg = Number(v.priceOrganizer); }
+            } else {
+                pOwner = Number(dbProduct.priceOwner); pOrg = Number(dbProduct.priceOrganizer);
+            }
+        }
+
         return {
           ...it,
-          priceOwner: Number(dbProduct.priceOwner) || 0,
-          priceOrganizer: Number(dbProduct.priceOrganizer) || 0,
-          subtotal: (Number(dbProduct.priceOwner || 0) + Number(dbProduct.priceOrganizer || 0)) * (it.qty || 1),
+          priceOwner: pOwner,
+          priceOrganizer: pOrg,
+          subtotal: (pOwner + pOrg) * (it.qty || 1),
           tenantId: dbProduct.tenantId || it.tenantId
         };
       }
@@ -620,7 +670,6 @@ export default function App() {
           </div>
         </header>
 
-        {}
         {isCloudSyncing && products.length === 1 && products[0].id === 'p1' ? (
           <div className="flex flex-col items-center justify-center pt-32 space-y-4">
             <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
@@ -680,9 +729,18 @@ export default function App() {
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
               {filteredProducts.map((prod) => {
                 const tenant = tenants.find((t) => t.id === prod.tenantId);
-                const sellingPrice = Number(prod.priceOwner || 0) + Number(prod.priceOrganizer || 0);
-                const inCart = cart.find((item) => item.id === prod.id);
+                const hasVariants = Array.isArray(prod.variants) && prod.variants.length > 0;
+                let displayPriceText = "";
+                
+                if (hasVariants) {
+                    const minPrice = Math.min(...prod.variants.map(v => Number(v.priceOwner) + Number(v.priceOrganizer)));
+                    displayPriceText = `Mulai ${formatRupiah(minPrice)}`;
+                } else {
+                    displayPriceText = formatRupiah(Number(prod.priceOwner || 0) + Number(prod.priceOrganizer || 0));
+                }
+
                 const cleanName = parseAndCleanItem(prod.name);
+                const inCart = hasVariants ? null : cart.find((item) => item.id === prod.id);
 
                 return (
                   <div key={prod.id} className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
@@ -704,7 +762,7 @@ export default function App() {
                         {prod.description && <p className="text-[10px] text-slate-500 line-clamp-1 mt-0.5">{prod.description}</p>}
                       </div>
                       <div className="mt-2 pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-                        <span className="text-xs sm:text-sm font-black text-amber-600">{formatRupiah(sellingPrice)}</span>
+                        <span className="text-xs sm:text-sm font-black text-amber-600">{displayPriceText}</span>
                         {inCart ? (
                           <div className="flex items-center space-x-1.5 bg-amber-50 border border-amber-200 p-0.5 rounded-lg w-fit">
                             <button onClick={() => updateCartQty(prod.id, -1)} className="w-6 h-6 bg-white rounded font-bold text-amber-700 shadow-sm text-xs flex items-center justify-center">-</button>
@@ -712,8 +770,11 @@ export default function App() {
                             <button onClick={() => updateCartQty(prod.id, 1)} className="w-6 h-6 bg-amber-600 text-white rounded font-bold shadow-sm text-xs flex items-center justify-center">+</button>
                           </div>
                         ) : (
-                          <button onClick={() => addToCart(prod)} className="px-2 py-1.5 bg-slate-900 text-white rounded-lg text-[10px] sm:text-xs font-semibold flex items-center justify-center w-full sm:w-auto shadow-sm">
-                            <Plus className="w-3 h-3 mr-1" /> Pesan
+                          <button 
+                            onClick={() => hasVariants ? setVariantModal({ isOpen: true, product: prod }) : addToCart(prod)} 
+                            className="px-2 py-1.5 bg-slate-900 text-white rounded-lg text-[10px] sm:text-xs font-semibold flex items-center justify-center w-full sm:w-auto shadow-sm"
+                          >
+                            {hasVariants ? <><List className="w-3 h-3 mr-1" /> Pilih Varian</> : <><Plus className="w-3 h-3 mr-1" /> Pesan</>}
                           </button>
                         )}
                       </div>
@@ -769,7 +830,6 @@ export default function App() {
                   <button onClick={() => setAdminSubTab('classes')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm ${adminSubTab === 'classes' ? 'bg-indigo-600 text-white' : 'bg-white border text-slate-600'}`}>Routing WA Kelas</button>
                 </div>
 
-                {}
                 {adminSubTab === 'batch_reports' && (
                   <div className="space-y-4">
                     <div className="bg-white p-4 rounded-xl border shadow-sm flex flex-col sm:flex-row gap-3 justify-between sm:items-center">
@@ -864,7 +924,6 @@ export default function App() {
                   </div>
                 )}
 
-                {}
                 {adminSubTab === 'orders' && (
                   <div className="space-y-3">
                     <div className="bg-white p-3 rounded-xl border shadow-sm mb-2 text-xs text-slate-500 flex justify-between items-center">
@@ -880,8 +939,8 @@ export default function App() {
                           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 border-b pb-3">
                             <div>
                               <span className="font-black text-indigo-700 text-sm">{ord.orderId || '-'}</span>
-                              <span className="font-bold block mt-0.5 text-slate-800">{cust.namaAnak || 'Unknown'} ({cust.kelas || '-'})</span>
-                              <span className="text-[10px] text-slate-500 block">Ortu: {cust.namaOrtu || '-'}</span>
+                              <span className="font-bold block mt-0.5 text-slate-800">{cust?.namaAnak || 'Unknown'} ({cust?.kelas || '-'})</span>
+                              <span className="text-[10px] text-slate-500 block">Ortu: {cust?.namaOrtu || '-'}</span>
                             </div>
                             <div className="flex items-center gap-2 self-end sm:self-auto">
                               <select
@@ -942,7 +1001,7 @@ export default function App() {
                                 </div>
                               )
                             })}
-                            {cust.catatan && cust.catatan !== '-' && (
+                            {cust?.catatan && cust?.catatan !== '-' && (
                               <p className="text-[10px] text-orange-600 font-medium italic mt-1 pt-1">Catatan: {cust.catatan}</p>
                             )}
                             <div className="flex justify-between font-black text-slate-900 pt-2 mt-2">
@@ -956,7 +1015,6 @@ export default function App() {
                   </div>
                 )}
 
-                {}
                 {adminSubTab === 'products' && (
                   <div className="space-y-4">
                     <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border">
@@ -968,7 +1026,11 @@ export default function App() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {products.map(p => {
                         const t = tenants.find(x => x.id === p.tenantId);
-                        const sPrice = Number(p.priceOwner) + Number(p.priceOrganizer);
+                        const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
+                        const sPrice = hasVariants 
+                            ? Math.min(...p.variants.map(v => Number(v.priceOwner) + Number(v.priceOrganizer))) 
+                            : Number(p.priceOwner) + Number(p.priceOrganizer);
+
                         return (
                           <div key={p.id} className="bg-white p-3 rounded-xl border flex gap-3 items-center shadow-sm">
                             {p.imageUrl ? (
@@ -979,7 +1041,8 @@ export default function App() {
                             <div className="flex-1 text-xs">
                               <h4 className="font-bold text-sm text-slate-900">{parseAndCleanItem(p.name)}</h4>
                               <p className="text-[10px] text-slate-500">{t?.name}</p>
-                              <p className="font-black text-amber-600 mt-1">{formatRupiah(sPrice)}</p>
+                              <p className="font-black text-amber-600 mt-1">{hasVariants ? 'Mulai ' : ''}{formatRupiah(sPrice)}</p>
+                              {hasVariants && <p className="text-[9px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded w-fit mt-1 font-bold">{p.variants.length} Varian</p>}
                             </div>
                             <div className="flex flex-col gap-1.5">
                               <button onClick={() => setProductModal({ isOpen: true, item: p })} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Edit3 className="w-4 h-4" /></button>
@@ -997,7 +1060,6 @@ export default function App() {
                   </div>
                 )}
 
-                {}
                 {adminSubTab === 'batches' && (
                   <div className="space-y-4">
                     <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border">
@@ -1029,7 +1091,6 @@ export default function App() {
                   </div>
                 )}
 
-                {}
                 {adminSubTab === 'classes' && (
                   <div className="space-y-4">
                     <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border">
@@ -1060,7 +1121,6 @@ export default function App() {
                   </div>
                 )}
                 
-                {}
                 {adminSubTab === 'tenants' && (
                   <div className="space-y-4">
                     <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border">
@@ -1096,7 +1156,6 @@ export default function App() {
           </main>
         )}
 
-        {}
         {isCartOpen && (
           <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm print:hidden">
             <div className="w-full max-w-sm bg-white h-full flex flex-col shadow-2xl">
@@ -1132,7 +1191,6 @@ export default function App() {
           </div>
         )}
 
-        {}
         {isCheckoutModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
             <div className="bg-white rounded-2xl w-full max-w-sm p-5 relative shadow-2xl">
@@ -1173,7 +1231,17 @@ export default function App() {
           </div>
         )}
 
-        {}
+        {variantModal.isOpen && (
+          <VariantSelectionModal 
+            product={variantModal.product} 
+            onClose={() => setVariantModal({ isOpen: false, product: null })}
+            onAddToCart={(chosenProduct, qty) => {
+               addToCart(chosenProduct, qty);
+               setVariantModal({ isOpen: false, product: null });
+            }}
+          />
+        )}
+
         {productModal.isOpen && (
           <ModalProductForm
             item={productModal.item}
@@ -1228,7 +1296,6 @@ export default function App() {
         )}
       </div>
 
-      {}
       {printData && (
         <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:bg-white print:overflow-visible print:h-auto">
           <style>{`
@@ -1366,6 +1433,84 @@ export default function App() {
   );
 }
 
+function VariantSelectionModal({ product, onClose, onAddToCart }) {
+  const [selectedVarIndex, setSelectedVarIndex] = useState(0);
+  const [qty, setQty] = useState(1);
+
+  if (!product || !Array.isArray(product.variants) || product.variants.length === 0) return null;
+
+  const selectedVariant = product.variants[selectedVarIndex];
+  const unitPrice = Number(selectedVariant.priceOwner) + Number(selectedVariant.priceOrganizer);
+  const total = unitPrice * qty;
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-sm flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 sm:slide-in-from-bottom-0 sm:zoom-in-95">
+        <div className="relative h-32 sm:h-40 bg-slate-100 w-full shrink-0">
+          <button onClick={onClose} className="absolute top-3 right-3 p-1.5 bg-white/50 backdrop-blur rounded-full text-slate-800 z-10"><X className="w-5 h-5" /></button>
+          {product.imageUrl ? (
+            <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+          ) : (
+             <div className="w-full h-full flex items-center justify-center text-slate-300"><ImageIcon className="w-8 h-8" /></div>
+          )}
+        </div>
+        
+        <div className="p-4 overflow-y-auto bg-white flex-1">
+          <h3 className="font-black text-lg text-slate-900 leading-tight mb-1">{parseAndCleanItem(product.name)}</h3>
+          {product.description && <p className="text-xs text-slate-500 mb-4">{product.description}</p>}
+          
+          <h4 className="font-bold text-sm text-slate-800 mb-2">Pilih Varian <span className="text-red-500">*</span></h4>
+          <div className="space-y-2 mb-4">
+            {product.variants.map((v, idx) => {
+              const vPrice = Number(v.priceOwner) + Number(v.priceOrganizer);
+              const isSelected = selectedVarIndex === idx;
+              return (
+                <div 
+                  key={idx} 
+                  onClick={() => setSelectedVarIndex(idx)}
+                  className={`flex justify-between items-center p-3 rounded-xl border-2 cursor-pointer transition-all ${isSelected ? 'border-amber-500 bg-amber-50' : 'border-slate-100 hover:border-amber-200'}`}
+                >
+                   <span className={`font-bold text-sm ${isSelected ? 'text-amber-700' : 'text-slate-700'}`}>{v.name}</span>
+                   <span className={`font-black text-sm ${isSelected ? 'text-amber-700' : 'text-slate-600'}`}>{formatRupiah(vPrice)}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center justify-between mt-2 pt-4 border-t border-slate-100">
+             <span className="font-bold text-sm text-slate-700">Jumlah</span>
+             <div className="flex items-center space-x-3 bg-slate-50 p-1 rounded-xl border border-slate-200">
+               <button onClick={() => setQty(Math.max(1, qty - 1))} className="w-8 h-8 rounded-lg bg-white shadow-sm font-bold text-slate-600 flex items-center justify-center">-</button>
+               <span className="font-bold w-6 text-center">{qty}</span>
+               <button onClick={() => setQty(qty + 1)} className="w-8 h-8 rounded-lg bg-amber-500 text-white shadow-sm font-bold flex items-center justify-center">+</button>
+             </div>
+          </div>
+        </div>
+
+        <div className="p-4 bg-white border-t border-slate-100 shadow-[0_-4px_10px_rgba(0,0,0,0.03)] shrink-0">
+           <button 
+             onClick={() => {
+                const compositeProduct = {
+                    id: `${product.id}|${selectedVariant.name}`,
+                    name: `${parseAndCleanItem(product.name)} [${selectedVariant.name}]`,
+                    tenantId: product.tenantId,
+                    priceOwner: Number(selectedVariant.priceOwner),
+                    priceOrganizer: Number(selectedVariant.priceOrganizer)
+                };
+                onAddToCart(compositeProduct, qty);
+             }}
+             className="w-full py-3.5 bg-amber-600 text-white rounded-xl font-bold flex justify-between items-center px-4 shadow-md"
+           >
+             <span>Tambah Pesanan</span>
+             <span>{formatRupiah(total)}</span>
+           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function ConfirmModal({ message, onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
@@ -1447,8 +1592,15 @@ function ModalBatchForm({ item, onClose, onSave }) {
 function ModalProductForm({ item, tenants, onClose, onSave }) {
   const [form, setForm] = useState({
     name: item?.name || '', tenantId: item?.tenantId || tenants[0]?.id || '',
-    priceOwner: item?.priceOwner || 0, priceOrganizer: item?.priceOrganizer || 0,
+    priceOwner: item?.priceOwner || '', priceOrganizer: item?.priceOrganizer || '',
     imageUrl: item?.imageUrl || '', description: item?.description || ''
+  });
+  
+  // Ambil state variants dari item, atau kosongkan jika baru
+  const [variants, setVariants] = useState(() => {
+     if (!item?.variants) return [];
+     if (typeof item.variants === 'string') return JSON.parse(item.variants);
+     return item.variants;
   });
 
   const handleImageUpload = (e) => {
@@ -1471,26 +1623,69 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
       }
     }
   };
+  
+  const hasVariants = variants.length > 0;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
-      <div className="bg-white rounded-2xl w-full max-w-sm p-6 relative overflow-y-auto max-h-[90vh] shadow-xl">
+      <div className="bg-white rounded-2xl w-full max-w-sm p-6 relative overflow-y-auto max-h-[90vh] shadow-xl scrollbar-none">
         <button onClick={onClose} className="absolute top-4 right-4 p-1.5 bg-slate-100 rounded-lg"><X className="w-4 h-4 text-slate-500" /></button>
         <h3 className="font-bold text-base mb-4">{item ? 'Edit Produk' : 'Tambah Produk'}</h3>
-        <form onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="space-y-4 text-xs font-medium">
+        <form 
+          onSubmit={(e) => { 
+            e.preventDefault(); 
+            const finalVariants = variants.map(v => ({...v, priceOwner: Number(v.priceOwner), priceOrganizer: Number(v.priceOrganizer)}));
+            onSave({
+               ...form, 
+               priceOwner: hasVariants ? 0 : Number(form.priceOwner),
+               priceOrganizer: hasVariants ? 0 : Number(form.priceOrganizer),
+               variants: finalVariants
+            }); 
+          }} 
+          className="space-y-4 text-xs font-medium"
+        >
           <div><label className="block mb-1">Nama Produk</label><input type="text" required value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl" /></div>
           <div><label className="block mb-1">Stand / Tenant</label><select value={form.tenantId} onChange={e => setForm({...form, tenantId: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl">{tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
-          <div className="flex gap-3">
-            <div className="flex-1"><label className="block mb-1 text-emerald-700">Hrg Owner</label><input type="number" required value={form.priceOwner} onChange={e => setForm({...form, priceOwner: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl" /></div>
-            <div className="flex-1"><label className="block mb-1 text-indigo-700">Mrgn Panitia</label><input type="number" required value={form.priceOrganizer} onChange={e => setForm({...form, priceOrganizer: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl" /></div>
+          
+          {!hasVariants && (
+            <div className="flex gap-3">
+              <div className="flex-1"><label className="block mb-1 text-emerald-700">Hrg Owner</label><input type="number" required={!hasVariants} value={form.priceOwner} onChange={e => setForm({...form, priceOwner: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl" /></div>
+              <div className="flex-1"><label className="block mb-1 text-indigo-700">Mrgn Panitia</label><input type="number" required={!hasVariants} value={form.priceOrganizer} onChange={e => setForm({...form, priceOrganizer: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl" /></div>
+            </div>
+          )}
+
+          <div className="border-t border-slate-200 pt-4 mt-2">
+             <div className="flex justify-between items-center mb-2">
+                 <label className="font-bold text-slate-700">Multi-Varian (Opsional)</label>
+                 <button type="button" onClick={() => setVariants([...variants, { name: '', priceOwner: '', priceOrganizer: '' }])} className="text-[10px] bg-indigo-50 text-indigo-700 font-bold px-2 py-1 rounded-lg flex items-center"><Plus className="w-3 h-3 mr-0.5"/> Varian</button>
+             </div>
+             
+             {hasVariants && (
+                <div className="space-y-2 mb-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    {variants.map((v, i) => (
+                       <div key={i} className="flex gap-2 items-start bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
+                           <div className="flex-1 space-y-2">
+                               <input type="text" placeholder="Nama Varian (Misal: 250gr)" value={v.name} required onChange={e => { const newV = [...variants]; newV[i].name = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white" />
+                               <div className="flex gap-2">
+                                   <input type="number" placeholder="Hrg Owner" value={v.priceOwner} required onChange={e => { const newV = [...variants]; newV[i].priceOwner = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white text-emerald-700 font-bold" />
+                                   <input type="number" placeholder="Mrgn Panitia" value={v.priceOrganizer} required onChange={e => { const newV = [...variants]; newV[i].priceOrganizer = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white text-indigo-700 font-bold" />
+                               </div>
+                           </div>
+                           <button type="button" onClick={() => setVariants(variants.filter((_, idx) => idx !== i))} className="p-1.5 bg-red-50 text-red-500 rounded"><Trash2 className="w-4 h-4"/></button>
+                       </div>
+                    ))}
+                    <p className="text-[9px] text-amber-600 font-bold italic mt-2 text-center">*Karena varian aktif, harga dasar utama (Hrg Owner & Mrgn Panitia) diabaikan.</p>
+                </div>
+             )}
           </div>
+
           <div><label className="block mb-1">Deskripsi Singkat (Opsional)</label><input type="text" value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl" /></div>
           <div>
             <label className="block mb-1.5">Upload Foto (Auto-Compress)</label>
             {form.imageUrl && <img src={form.imageUrl} alt="preview" className="w-16 h-16 object-cover rounded-xl border border-slate-200 mb-2 shadow-sm" />}
             <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer text-slate-500" />
           </div>
-          <button type="submit" className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md mt-2">Simpan Produk</button>
+          <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md mt-2 text-sm">Simpan Produk</button>
         </form>
       </div>
     </div>
