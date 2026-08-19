@@ -107,10 +107,8 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState('');
   const [isCloudSyncing, setIsCloudSyncing] = useState(true);
 
-  // Dialog Konfirmasi Kustom
+  // Dialog Konfirmasi & Zoom Image
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, msg: '', onConfirm: null });
-
-  // State Zooming Global
   const [zoomedImage, setZoomedImage] = useState(null);
 
   const showToast = (msg) => {
@@ -1622,42 +1620,41 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
     if(!file) return;
     
     setIsUploading(true);
-    
-    // UBAH DULU KE BASE64 AGAR IMGBB TIDAK LAMA MEMPROSES RAW FILE
     const reader = new FileReader();
     reader.readAsDataURL(file);
-    reader.onload = async (ev) => {
-        // Hapus header data base64 (misal: "data:image/jpeg;base64,") agar murni string
-        const base64Data = ev.target.result.split(',')[1];
-        
-        const formData = new FormData();
-        formData.append('image', base64Data);
-        
-        const IMGBB_API_KEY = 'e32aedd008c0808942d763d22d2a0f56'; 
-        
-        try {
-          const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
-            method: 'POST',
-            body: formData
-          });
-          const data = await res.json();
-          
-          if (data.success) {
-            // Jika berhasil, update form dengan link direct dari ImgBB
-            setForm({...form, imageUrl: data.data.url});
-          } else {
-            alert("Gagal upload gambar: " + data.error.message);
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.src = ev.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_DIM = 400; // Smart Limit Sisi Terpanjang
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_DIM) {
+            height = Math.round(height * (MAX_DIM / width));
+            width = MAX_DIM;
           }
-        } catch (error) {
-          console.error("ImgBB Fetch Error:", error);
-          alert("Gagal terhubung ke server gambar. Pastikan internet stabil.");
-        } finally {
-          setIsUploading(false);
+        } else {
+          if (height > MAX_DIM) {
+            width = Math.round(width * (MAX_DIM / height));
+            height = MAX_DIM;
+          }
         }
-    };
-    reader.onerror = () => {
-        alert("Gagal membaca file gambar Anda.");
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Kompresi ekstrim kualitas 0.6 -> Pasti masuk ke limit Google Sheet!
+        setForm({...form, imageUrl: canvas.toDataURL('image/jpeg', 0.6)});
         setIsUploading(false);
+      }
     }
   };
   
@@ -1718,10 +1715,10 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
 
           <div><label className="block mb-1">Deskripsi Singkat (Opsional)</label><input type="text" value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl" /></div>
           <div>
-            <label className="block mb-1.5">Upload Foto (HD via ImgBB)</label>
+            <label className="block mb-1.5">Upload Foto (Auto-Compress)</label>
             {form.imageUrl && <img src={form.imageUrl} alt="preview" className="w-16 h-16 object-cover rounded-xl border border-slate-200 mb-2 shadow-sm" />}
             <input type="file" accept="image/*" onChange={handleImageUpload} disabled={isUploading} className="w-full file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer text-slate-500" />
-            {isUploading && <p className="text-[10px] text-amber-600 font-bold mt-1 animate-pulse">Mengupload ke server, harap tunggu...</p>}
+            {isUploading && <p className="text-[10px] text-amber-600 font-bold mt-1 animate-pulse">Memproses kompresi gambar...</p>}
           </div>
           <button type="submit" disabled={isUploading} className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md mt-2 disabled:opacity-50">Simpan Produk</button>
         </form>
