@@ -1202,7 +1202,6 @@ export default function App() {
           </main>
         )}
 
-        {}
         {isCartOpen && (
           <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm print:hidden">
             <div className="w-full max-w-sm bg-white h-full flex flex-col shadow-2xl animate-in slide-in-from-right-4 duration-300">
@@ -1278,7 +1277,6 @@ export default function App() {
           </div>
         )}
 
-        {}
         {isFilterModalOpen && (
           <div className="fixed inset-0 z-[60] flex justify-end sm:items-center sm:justify-center bg-black/60 backdrop-blur-sm print:hidden">
             <div className="w-full sm:max-w-md bg-white h-auto max-h-[85vh] sm:rounded-2xl rounded-t-2xl flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 sm:slide-in-from-bottom-0 sm:zoom-in-95 mt-auto sm:mt-0">
@@ -1351,7 +1349,6 @@ export default function App() {
           />
         )}
 
-        {}
         {productModal.isOpen && (
           <ModalProductForm
             item={productModal.item}
@@ -1406,7 +1403,6 @@ export default function App() {
         )}
       </div>
 
-      {}
       {printData && (
         <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:bg-white print:overflow-visible print:h-auto">
           <style>{`
@@ -1529,7 +1525,6 @@ export default function App() {
         </div>
       )}
 
-      {}
       {confirmDialog.isOpen && (
         <ConfirmModal 
           message={confirmDialog.msg} 
@@ -1840,9 +1835,23 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
             
             <input type="file" accept="image/*" onChange={handleImageUpload} disabled={isUploading} className="w-full file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer text-slate-500 mb-2" />
             
-            <div className="flex items-center text-[10px] text-slate-400 mb-2 before:flex-1 before:border-t before:border-slate-200 before:mr-2 after:flex-1 after:border-t after:border-slate-200 after:ml-2">ATAU PASTE URL (KHUSUS DESKTOP)</div>
+            <div className="flex items-center text-[10px] text-slate-400 mb-2 before:flex-1 before:border-t before:border-slate-200 before:mr-2 after:flex-1 after:border-t after:border-slate-200 after:ml-2">ATAU PASTE URL GOOGLE DRIVE</div>
             
-            <input type="url" placeholder="Opsional jika upload error..." value={form.imageUrl} onChange={(e) => setForm({...form, imageUrl: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 text-[10px]" />
+            <input 
+              type="url" 
+              placeholder="Paste link Google Drive disini..." 
+              value={form.imageUrl} 
+              onChange={(e) => {
+                let val = e.target.value;
+                // Auto-Converter: Mengubah link G-Drive biasa menjadi Direct Image Link
+                const gdMatch = val.match(/(?:file\/d\/|open\?id=|uc\?id=)([\w-]+)/);
+                if (gdMatch && gdMatch[1]) {
+                    val = `https://drive.google.com/uc?export=view&id=${gdMatch[1]}`;
+                }
+                setForm({...form, imageUrl: val});
+              }} 
+              className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 text-[10px]" 
+            />
             
             {isUploading && <p className="text-[10px] text-amber-600 font-bold mt-1.5 animate-pulse">Memproses kompresi gambar otomatis...</p>}
           </div>
