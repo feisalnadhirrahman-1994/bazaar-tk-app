@@ -673,6 +673,7 @@ export default function App() {
           </div>
         </header>
 
+        {}
         {isCloudSyncing && products.length === 1 && products[0].id === 'p1' ? (
           <div className="flex flex-col items-center justify-center pt-32 space-y-4">
             <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
@@ -1159,6 +1160,7 @@ export default function App() {
           </main>
         )}
 
+        {}
         {isCartOpen && (
           <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm print:hidden">
             <div className="w-full max-w-sm bg-white h-full flex flex-col shadow-2xl animate-in slide-in-from-right-4 duration-300">
@@ -1234,6 +1236,7 @@ export default function App() {
           </div>
         )}
 
+        {}
         {variantModal.isOpen && (
           <VariantSelectionModal 
             product={variantModal.product} 
@@ -1250,7 +1253,6 @@ export default function App() {
           <ModalProductForm
             item={productModal.item}
             tenants={tenants}
-            webhookUrl={sheetWebhookUrl || DEFAULT_WEBHOOK_URL}
             onClose={() => setProductModal({ isOpen: false, item: null })}
             onSave={(formData) => {
               let updated;
@@ -1301,6 +1303,7 @@ export default function App() {
         )}
       </div>
 
+      {}
       {printData && (
         <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:bg-white print:overflow-visible print:h-auto">
           <style>{`
@@ -1423,6 +1426,7 @@ export default function App() {
         </div>
       )}
 
+      {}
       {confirmDialog.isOpen && (
         <ConfirmModal 
           message={confirmDialog.msg} 
@@ -1602,58 +1606,51 @@ function ModalBatchForm({ item, onClose, onSave }) {
   );
 }
 
-function ModalProductForm({ item, tenants, webhookUrl, onClose, onSave }) {
+function ModalProductForm({ item, tenants, onClose, onSave }) {
   const [form, setForm] = useState({
     name: item?.name || '', tenantId: item?.tenantId || tenants[0]?.id || '',
     priceOwner: item?.priceOwner || '', priceOrganizer: item?.priceOrganizer || '',
     imageUrl: item?.imageUrl || '', description: item?.description || ''
   });
+  
   const [isUploading, setIsUploading] = useState(false);
   
+  // Ambil state variants dari item, atau kosongkan jika baru
   const [variants, setVariants] = useState(() => {
      if (!item?.variants) return [];
      if (typeof item.variants === 'string') return JSON.parse(item.variants);
      return item.variants;
   });
 
-  const handleImageUpload = (e) => {
+  const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if(!file) return;
     setIsUploading(true);
     
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = (ev) => {
-      fetch(webhookUrl, {
+    const formData = new FormData();
+    formData.append('image', file);
+    
+    // INTEGRASI IMGBB API KEY DARI USER
+    const IMGBB_API_KEY = 'e32aedd008c0808942d763d22d2a0f56'; 
+    
+    try {
+      const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'uploadImage',
-          base64Data: ev.target.result
-        })
-      })
-      .then(res => res.json())
-      .then(data => {
-         if (data.status === 'success') {
-            setForm({...form, imageUrl: data.url});
-         } else {
-            alert("Upload gagal: " + data.message);
-         }
-         setIsUploading(false);
-      })
-      .catch(err => {
-         console.error(err);
-         alert("Gagal koneksi saat upload ke Google Drive.");
-         setIsUploading(false);
+        body: formData
       });
+      const data = await res.json();
+      
+      if (data.success) {
+        setForm({...form, imageUrl: data.data.url});
+      } else {
+        alert("Gagal upload gambar: " + data.error.message);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Gagal terhubung ke server gambar. Pastikan internet stabil.");
+    } finally {
+      setIsUploading(false);
     }
-  };
-
-  const convertGDriveLink = (link) => {
-     if (!link) return '';
-     const match = link.match(/\/d\/(.*?)\//);
-     if (match && match[1]) return `https://drive.google.com/uc?id=${match[1]}`;
-     return link;
   };
   
   const hasVariants = variants.length > 0;
@@ -1712,25 +1709,13 @@ function ModalProductForm({ item, tenants, webhookUrl, onClose, onSave }) {
           </div>
 
           <div><label className="block mb-1">Deskripsi Singkat (Opsional)</label><input type="text" value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl" /></div>
-          
-          <div className="border border-indigo-100 bg-indigo-50/50 p-3 rounded-xl space-y-3">
-             <label className="block font-bold text-indigo-900">Upload Foto G-Drive (Brosur / Resolusi Tinggi)</label>
-             {form.imageUrl && <img src={form.imageUrl} alt="preview" className="w-16 h-16 object-cover rounded-xl border border-slate-200 shadow-sm" />}
-             
-             <div className="space-y-2">
-                 <input type="file" accept="image/*" onChange={handleImageUpload} disabled={isUploading} className="w-full file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-100 file:text-indigo-700 hover:file:bg-indigo-200 cursor-pointer text-slate-500" />
-                 {isUploading && <p className="text-[10px] text-indigo-600 font-bold animate-pulse mt-1">Mengupload ke Google Drive...</p>}
-                 
-                 <div className="relative mt-2">
-                    <div className="absolute inset-0 flex items-center" aria-hidden="true"><div className="w-full border-t border-indigo-200"></div></div>
-                    <div className="relative flex justify-center"><span className="bg-indigo-50 px-2 text-[10px] text-indigo-500 font-bold">ATAU PASTE LINK</span></div>
-                 </div>
-                 
-                 <input type="url" placeholder="Paste Link Foto dari G-Drive" value={form.imageUrl} onChange={e => setForm({...form, imageUrl: convertGDriveLink(e.target.value)})} className="w-full px-3 py-2 border border-indigo-200 bg-white rounded-lg" />
-             </div>
+          <div>
+            <label className="block mb-1.5">Upload Foto (HD via ImgBB)</label>
+            {form.imageUrl && <img src={form.imageUrl} alt="preview" className="w-16 h-16 object-cover rounded-xl border border-slate-200 mb-2 shadow-sm" />}
+            <input type="file" accept="image/*" onChange={handleImageUpload} disabled={isUploading} className="w-full file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer text-slate-500" />
+            {isUploading && <p className="text-[10px] text-amber-600 font-bold mt-1 animate-pulse">Mengupload ke server, harap tunggu...</p>}
           </div>
-          
-          <button type="submit" disabled={isUploading} className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md mt-2 text-sm disabled:opacity-50">Simpan Produk</button>
+          <button type="submit" disabled={isUploading} className="w-full py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-md mt-2 disabled:opacity-50">Simpan Produk</button>
         </form>
       </div>
     </div>
