@@ -26,10 +26,11 @@ import {
   Share2,
   Menu,
   List,
-  Filter
+  Filter,
+  Tag
 } from 'lucide-react';
 
-const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbzFWQWSIzez8BTZ9TN8rRs1LjFrufWU0lIpI9eNSk3RtApLkKGYweA4csqmah5nSnwa/exec';
+const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxgKE-x6bNLC7Eu61d_rqZtyZsEAa3EYANFJshRTxuZlRPciNaNUKvrpX5JcwEHz6hd/exec';
 
 const formatIndoDate = (dateStr) => {
   if (!dateStr) return '-';
@@ -52,7 +53,7 @@ const parseAndCleanItem = (rawName) => {
   return String(rawName).replace(/\(x\s*\d+\)/gi, '').trim();
 };
 
-const INITIAL_TENANTS = [{ id: 't1', name: 'Stand Snack', owner: 'PIC', phone: '628123456789' }];
+const INITIAL_TENANTS = [{ id: 't1', name: 'Stand Snack', description: 'Menjual aneka cemilan ringan', phone: '628123456789' }];
 const INITIAL_PRODUCTS = [{ id: 'p1', tenantId: 't1', name: 'Produk A', priceOwner: 5000, priceOrganizer: 1000, category: 'Makanan', imageUrl: '', available: true, description: '', variants: [] }];
 const INITIAL_BATCHES = [{ id: 'b1', name: 'Batch 1', startDate: '2026-08-01', endDate: '2026-08-31', readyDate: '2026-09-01', isActive: true, description: '' }];
 const INITIAL_CLASSES = [{ id: 'c1', name: 'Little Owl', phone: '628123456781' }];
@@ -115,6 +116,8 @@ export default function App() {
   // Filter & Urutkan Modal
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [sortOrder, setSortOrder] = useState('default'); // 'default', 'az', 'za'
+  const [selectedTenantFilter, setSelectedTenantFilter] = useState('all');
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('all');
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -143,7 +146,6 @@ export default function App() {
 
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [selectedTenantFilter, setSelectedTenantFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   const [checkoutData, setCheckoutData] = useState({
@@ -202,7 +204,18 @@ export default function App() {
            }));
            setProducts(parsedProducts);
         }
-        if (json.data.tenants !== undefined) setTenants(json.data.tenants);
+        
+        if (json.data.tenants !== undefined) {
+           // Self healing: map old "owner" to new "description" if description is missing
+           const mappedTenants = json.data.tenants.map(t => ({
+               id: t.id,
+               name: t.name,
+               description: t.description || t.owner || '',
+               phone: t.phone
+           }));
+           setTenants(mappedTenants);
+        }
+        
         if (json.data.classes !== undefined) setClassesList(json.data.classes);
         
         if (json.data.orders !== undefined) {
@@ -494,11 +507,17 @@ export default function App() {
     }
   };
 
+  const availableCategories = useMemo(() => {
+    const cats = products.map(p => p.category).filter(c => c && c.trim() !== '');
+    return [...new Set(cats)].sort();
+  }, [products]);
+
   const filteredProducts = useMemo(() => {
     let result = products.filter((p) => {
       const matchTenant = selectedTenantFilter === 'all' || p.tenantId === selectedTenantFilter;
+      const matchCategory = selectedCategoryFilter === 'all' || p.category === selectedCategoryFilter;
       const matchSearch = String(p.name || '').toLowerCase().includes(searchQuery.toLowerCase());
-      return matchTenant && matchSearch && p.available;
+      return matchTenant && matchCategory && matchSearch && p.available;
     });
 
     if (sortOrder === 'az') {
@@ -508,7 +527,7 @@ export default function App() {
     }
 
     return result;
-  }, [products, selectedTenantFilter, searchQuery, sortOrder]);
+  }, [products, selectedTenantFilter, selectedCategoryFilter, searchQuery, sortOrder]);
 
   const enrichOrderItems = (ord) => {
     if (!ord || !ord.items || !Array.isArray(ord.items)) return [];
@@ -596,7 +615,7 @@ export default function App() {
       return {
         tenantId: tenant.id,
         tenantName: tenant.name,
-        tenantOwner: tenant.owner,
+        tenantDesc: tenant.description || tenant.owner || '', // Mapping desc
         tenantPhone: tenant.phone || '',
         customerOrdersDetail,
         itemTotalsMap,
@@ -630,7 +649,7 @@ export default function App() {
           </div>
         )}
 
-        {/* HEADER STICKY (Berisi Logo dan Search Bar) */}
+        {/* HEADER STICKY (Search Bar menempel di atas) */}
         <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md shadow-sm border-b border-slate-200 flex flex-col transition-all">
           <div className="max-w-5xl w-full mx-auto px-4 py-2.5 flex items-center justify-between">
             <div className="flex items-center space-x-2.5">
@@ -683,7 +702,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Kolom Pencarian dan Filter (Menempel di bawah header, khusus mode pembeli) */}
+          {/* Search & Filter Bar (Mode Pembeli Saja) */}
           {activeTab === 'shop' && (
             <div className="max-w-5xl w-full mx-auto px-4 py-2.5 border-t border-slate-100 bg-slate-50/50 flex gap-2 items-center">
               <div className="relative flex-1">
@@ -702,7 +721,7 @@ export default function App() {
               >
                 <Filter className="w-4 h-4" />
                 <span className="hidden sm:inline">Filter</span>
-                {(selectedTenantFilter !== 'all' || sortOrder !== 'default') && (
+                {(selectedTenantFilter !== 'all' || selectedCategoryFilter !== 'all' || sortOrder !== 'default') && (
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-500 absolute -top-1 -right-1 border-2 border-white sm:static sm:border-0 sm:w-2 sm:h-2"></span>
                 )}
               </button>
@@ -710,7 +729,6 @@ export default function App() {
           )}
         </header>
 
-        {/* LOADING DATABASE */}
         {isCloudSyncing && products.length === 1 && products[0].id === 'p1' ? (
           <div className="flex flex-col items-center justify-center pt-32 space-y-4">
             <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
@@ -718,7 +736,6 @@ export default function App() {
           </div>
         ) : activeTab === 'shop' ? (
           <main className="max-w-5xl mx-auto px-4 pt-5">
-            {/* Tampilan Batch Banner */}
             {activeBatch && (
               <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-sm mb-5 relative overflow-hidden">
                 <div className="relative z-10">
@@ -733,12 +750,10 @@ export default function App() {
                     </p>
                   )}
                 </div>
-                {/* Ornamen Latar Banner */}
                 <Store className="absolute -right-4 -bottom-4 w-24 h-24 text-white/10 rotate-12" />
               </div>
             )}
 
-            {/* Grid Produk */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
               {filteredProducts.map((prod) => {
                 const tenant = tenants.find((t) => t.id === prod.tenantId);
@@ -771,7 +786,10 @@ export default function App() {
                     </div>
                     <div className="p-2.5 sm:p-3 flex-1 flex flex-col justify-between">
                       <div>
-                        <h3 className="font-bold text-slate-900 text-xs sm:text-sm line-clamp-2 leading-tight">{cleanName}</h3>
+                        <div className="flex justify-between items-start mb-0.5 gap-1">
+                          <h3 className="font-bold text-slate-900 text-xs sm:text-sm line-clamp-2 leading-tight">{cleanName}</h3>
+                        </div>
+                        {prod.category && <span className="inline-block text-[9px] text-amber-600 font-bold bg-amber-50 px-1.5 py-0.5 rounded mb-1">{prod.category}</span>}
                         {prod.description && <p className="text-[10px] text-slate-500 line-clamp-1 mt-0.5">{prod.description}</p>}
                       </div>
                       <div className="mt-2 pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -796,7 +814,6 @@ export default function App() {
                 );
               })}
               
-              {/* Jika Kosong */}
               {filteredProducts.length === 0 && (
                  <div className="col-span-2 md:col-span-3 lg:col-span-4 py-10 flex flex-col items-center justify-center text-slate-400">
                     <Search className="w-10 h-10 mb-2 opacity-20" />
@@ -805,7 +822,6 @@ export default function App() {
               )}
             </div>
 
-            {/* Bottom Float Cart Component */}
             {cart.length > 0 && (
               <div className="fixed bottom-4 left-4 right-4 max-w-md mx-auto z-40 animate-in slide-in-from-bottom-6">
                 <button onClick={() => setIsCartOpen(true)} className="w-full bg-amber-600 text-white p-3.5 rounded-2xl shadow-2xl flex items-center justify-between hover:bg-amber-700 transition-colors">
@@ -843,7 +859,6 @@ export default function App() {
               </div>
             ) : (
               <div className="space-y-4">
-                {/* Horizontal Admin Nav */}
                 <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-none border-b border-slate-200">
                   <button onClick={() => setAdminSubTab('batch_reports')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'batch_reports' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Rekap Per Tenant</button>
                   <button onClick={() => setAdminSubTab('orders')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'orders' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Semua Pesanan</button>
@@ -853,7 +868,6 @@ export default function App() {
                   <button onClick={() => setAdminSubTab('classes')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'classes' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Routing WA Kelas</button>
                 </div>
 
-                {/* Sub Tab: Laporan Rekapitulasi */}
                 {adminSubTab === 'batch_reports' && (
                   <div className="space-y-4 animate-in fade-in duration-300">
                     <div className="bg-white p-4 rounded-xl border shadow-sm flex flex-col sm:flex-row gap-3 justify-between sm:items-center">
@@ -883,7 +897,7 @@ export default function App() {
                             <div className="p-3 sm:p-4 bg-slate-900 text-white flex flex-col sm:flex-row justify-between sm:items-center gap-3">
                               <div>
                                 <h4 className="font-bold text-sm sm:text-base">{tenantRep.tenantName}</h4>
-                                <p className="text-[10px] sm:text-xs text-slate-300">PJ: {tenantRep.tenantOwner} {tenantRep.tenantPhone ? `(${tenantRep.tenantPhone})` : ''}</p>
+                                <p className="text-[10px] sm:text-xs text-slate-300">{tenantRep.tenantDesc} {tenantRep.tenantPhone ? `(WA: ${tenantRep.tenantPhone})` : ''}</p>
                               </div>
                               <div className="flex gap-2">
                                 <button 
@@ -948,7 +962,6 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Sub Tab: Semua Pesanan */}
                 {adminSubTab === 'orders' && (
                   <div className="space-y-3 animate-in fade-in duration-300">
                     <div className="bg-white p-3 rounded-xl border shadow-sm mb-2 text-xs text-slate-500 flex justify-between items-center">
@@ -1040,7 +1053,6 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Sub Tab: Produk & Harga */}
                 {adminSubTab === 'products' && (
                   <div className="space-y-4 animate-in fade-in duration-300">
                     <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border">
@@ -1066,7 +1078,7 @@ export default function App() {
                             )}
                             <div className="flex-1 text-xs">
                               <h4 className="font-bold text-sm text-slate-900">{parseAndCleanItem(p.name)}</h4>
-                              <p className="text-[10px] text-slate-500">{t?.name}</p>
+                              <p className="text-[10px] text-slate-500">{t?.name} {p.category && `• ${p.category}`}</p>
                               <p className="font-black text-amber-600 mt-1">{hasVariants ? 'Mulai ' : ''}{formatRupiah(sPrice)}</p>
                               {hasVariants && <p className="text-[9px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded w-fit mt-1 font-bold">{p.variants.length} Varian</p>}
                             </div>
@@ -1086,7 +1098,6 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Sub Tab: Kelola Batch */}
                 {adminSubTab === 'batches' && (
                   <div className="space-y-4 animate-in fade-in duration-300">
                     <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border">
@@ -1118,7 +1129,6 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Sub Tab: Kelas */}
                 {adminSubTab === 'classes' && (
                   <div className="space-y-4 animate-in fade-in duration-300">
                     <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border">
@@ -1149,7 +1159,6 @@ export default function App() {
                   </div>
                 )}
                 
-                {/* Sub Tab: Stand / Tenant */}
                 {adminSubTab === 'tenants' && (
                   <div className="space-y-4 animate-in fade-in duration-300">
                     <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border">
@@ -1163,7 +1172,7 @@ export default function App() {
                         <div key={t.id} className="bg-white p-3 rounded-xl border shadow-sm flex justify-between items-center">
                           <div>
                             <h4 className="font-bold text-sm text-slate-900">{t.name}</h4>
-                            <p className="text-[10px] text-slate-500 mt-0.5">PJ: {t.owner}</p>
+                            <p className="text-[10px] text-slate-500 mt-0.5">{t.description}</p>
                             <p className="text-[10px] text-emerald-700 font-bold">WA: {t.phone}</p>
                           </div>
                           <div className="flex gap-1.5">
@@ -1185,7 +1194,6 @@ export default function App() {
           </main>
         )}
 
-        {/* Modal Keranjang (Drawer) */}
         {isCartOpen && (
           <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm print:hidden">
             <div className="w-full max-w-sm bg-white h-full flex flex-col shadow-2xl animate-in slide-in-from-right-4 duration-300">
@@ -1221,7 +1229,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Modal Data Checkout Pembeli */}
         {isCheckoutModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
             <div className="bg-white rounded-2xl w-full max-w-sm p-5 relative shadow-2xl animate-in zoom-in-95 duration-200">
@@ -1262,7 +1269,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Modal Filter Pintar & Urutkan */}
         {isFilterModalOpen && (
           <div className="fixed inset-0 z-[60] flex justify-end sm:items-center sm:justify-center bg-black/60 backdrop-blur-sm print:hidden">
             <div className="w-full sm:max-w-sm bg-white h-auto max-h-[85vh] sm:rounded-2xl rounded-t-2xl flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 sm:slide-in-from-bottom-0 sm:zoom-in-95 mt-auto sm:mt-0">
@@ -1282,11 +1288,24 @@ export default function App() {
                 </div>
 
                 <div>
+                  <h3 className="font-bold text-xs text-slate-500 uppercase tracking-wider mb-3">Pilih Kategori Produk</h3>
+                  <div className="flex flex-col gap-2">
+                    <button onClick={() => setSelectedCategoryFilter('all')} className={`text-left px-3.5 py-3 rounded-xl text-xs sm:text-sm font-bold border transition-colors ${selectedCategoryFilter === 'all' ? 'bg-amber-100 border-amber-500 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Semua Kategori</button>
+                    {availableCategories.map(c => (
+                      <button key={c} onClick={() => setSelectedCategoryFilter(c)} className={`text-left px-3.5 py-3 rounded-xl text-xs sm:text-sm font-bold border transition-colors ${selectedCategoryFilter === c ? 'bg-amber-100 border-amber-500 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>{c}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
                   <h3 className="font-bold text-xs text-slate-500 uppercase tracking-wider mb-3">Pilih Stand / Tenant</h3>
                   <div className="flex flex-col gap-2">
                     <button onClick={() => setSelectedTenantFilter('all')} className={`text-left px-3.5 py-3 rounded-xl text-xs sm:text-sm font-bold border transition-colors ${selectedTenantFilter === 'all' ? 'bg-amber-100 border-amber-500 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Semua Stand</button>
                     {tenants.map(t => (
-                      <button key={t.id} onClick={() => setSelectedTenantFilter(t.id)} className={`text-left px-3.5 py-3 rounded-xl text-xs sm:text-sm font-bold border transition-colors ${selectedTenantFilter === t.id ? 'bg-amber-100 border-amber-500 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>{t.name}</button>
+                      <button key={t.id} onClick={() => setSelectedTenantFilter(t.id)} className={`text-left px-3.5 py-3 rounded-xl text-xs sm:text-sm font-bold border transition-colors flex flex-col justify-center items-start ${selectedTenantFilter === t.id ? 'bg-amber-100 border-amber-500 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                        <span>{t.name}</span>
+                        {t.description && <span className="font-normal text-[10px] text-slate-500 mt-0.5">{t.description}</span>}
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -1301,7 +1320,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Modal Pilih Varian */}
         {variantModal.isOpen && (
           <VariantSelectionModal 
             product={variantModal.product} 
@@ -1368,7 +1386,6 @@ export default function App() {
         )}
       </div>
 
-      {/* Komponen Rendering Print Dapur PDF */}
       {printData && (
         <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:bg-white print:overflow-visible print:h-auto">
           <style>{`
@@ -1415,7 +1432,7 @@ export default function App() {
             <h1 className="text-lg font-black text-emerald-800 mb-0.5">Bazaar DANUS PTA Little Darbi</h1>
             <h2 className="text-sm font-bold text-slate-900">Rekapitulasi Dapur Stand: {printData.tenantRep?.tenantName || '-'}</h2>
             <p className="text-[10px] text-slate-500 mb-5 border-b border-slate-300 pb-2">
-              Periode: {printData.currentBatch?.name || '-'} | Ready: {printData.currentBatch?.readyDate ? formatIndoDate(printData.currentBatch.readyDate) : '-'} | PJ: {printData.tenantRep?.tenantOwner || '-'} ({printData.tenantRep?.tenantPhone || '-'})
+              Periode: {printData.currentBatch?.name || '-'} | Ready: {printData.currentBatch?.readyDate ? formatIndoDate(printData.currentBatch.readyDate) : '-'} | Deskripsi: {printData.tenantRep?.tenantDesc || '-'} ({printData.tenantRep?.tenantPhone || '-'})
             </p>
 
             <h3 className="font-bold mt-5 mb-2 text-xs text-slate-800">1. Detail Pesanan Pembeli ({printData.tenantRep?.customerOrdersDetail?.length || 0})</h3>
@@ -1491,7 +1508,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Dialog Konfirmasi */}
       {confirmDialog.isOpen && (
         <ConfirmModal 
           message={confirmDialog.msg} 
@@ -1503,7 +1519,6 @@ export default function App() {
         />
       )}
 
-      {/* Lightbox Zoom Gambar Produk */}
       {zoomedImage && (
         <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/90 backdrop-blur-sm print:hidden" onClick={() => setZoomedImage(null)}>
           <button onClick={() => setZoomedImage(null)} className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors">
@@ -1628,16 +1643,16 @@ function ModalClassForm({ item, onClose, onSave }) {
 
 function ModalTenantForm({ item, onClose, onSave }) {
   const [name, setName] = useState(item?.name || '');
-  const [owner, setOwner] = useState(item?.owner || '');
+  const [description, setDescription] = useState(item?.description || item?.owner || '');
   const [phone, setPhone] = useState(item?.phone || '');
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
       <div className="bg-white rounded-2xl w-full max-w-xs p-6 relative shadow-xl">
         <button onClick={onClose} className="absolute top-4 right-4 p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"><X className="w-4 h-4 text-slate-500" /></button>
         <h3 className="font-bold text-base mb-4">{item ? 'Edit Stand' : 'Tambah Stand'}</h3>
-        <form onSubmit={(e) => { e.preventDefault(); onSave({ name, owner, phone }); }} className="space-y-4 text-xs font-medium">
+        <form onSubmit={(e) => { e.preventDefault(); onSave({ name, description, phone }); }} className="space-y-4 text-xs font-medium">
           <div><label className="block mb-1">Nama Stand</label><input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
-          <div><label className="block mb-1">PJ / Owner</label><input type="text" required value={owner} onChange={e => setOwner(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
+          <div><label className="block mb-1">Deskripsi Singkat (Pengganti PJ)</label><input type="text" placeholder="Misal: Jual Minuman Dingin" required value={description} onChange={e => setDescription(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
           <div><label className="block mb-1">No WA (628...)</label><input type="text" required value={phone} onChange={e => setPhone(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
           <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-colors">Simpan</button>
         </form>
@@ -1674,12 +1689,12 @@ function ModalBatchForm({ item, onClose, onSave }) {
 function ModalProductForm({ item, tenants, onClose, onSave }) {
   const [form, setForm] = useState({
     name: item?.name || '', tenantId: item?.tenantId || tenants[0]?.id || '',
+    category: item?.category || 'Makanan',
     priceOwner: item?.priceOwner || '', priceOrganizer: item?.priceOrganizer || '',
     imageUrl: item?.imageUrl || '', description: item?.description || ''
   });
   
   const [isUploading, setIsUploading] = useState(false);
-  const API_KEY_IMGBB = "e32aedd008c0808942d763d22d2a0f56";
 
   const [variants, setVariants] = useState(() => {
      if (!item?.variants) return [];
@@ -1692,31 +1707,42 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
     if(!file) return;
 
     setIsUploading(true);
-
     const reader = new FileReader();
     reader.readAsDataURL(file);
-    reader.onload = () => {
-      const base64Data = reader.result.split(',')[1];
-      
-      const formData = new FormData();
-      formData.append("image", base64Data);
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.src = ev.target.result;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        
+        const MAX_DIMENSION = 250; 
+        let width = img.width;
+        let height = img.height;
 
-      fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, {
-        method: "POST",
-        body: formData
-      })
-      .then(res => res.json())
-      .then(data => {
-        if(data && data.data && data.data.url) {
-           setForm({ ...form, imageUrl: data.data.url });
+        if (width > height) {
+          if (width > MAX_DIMENSION) {
+            height *= MAX_DIMENSION / width;
+            width = MAX_DIMENSION;
+          }
+        } else {
+          if (height > MAX_DIMENSION) {
+            width *= MAX_DIMENSION / height;
+            height = MAX_DIMENSION;
+          }
         }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        const base64Data = canvas.toDataURL('image/jpeg', 0.6);
+        setForm({...form, imageUrl: base64Data});
         setIsUploading(false);
-      })
-      .catch(err => {
-        console.error("ImgBB Upload Error:", err);
-        setIsUploading(false);
-      });
+      }
+      img.onerror = () => setIsUploading(false);
     };
+    reader.onerror = () => setIsUploading(false);
   };
   
   const hasVariants = variants.length > 0;
@@ -1740,6 +1766,9 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
           className="space-y-4 text-xs font-medium"
         >
           <div><label className="block mb-1">Nama Produk</label><input type="text" required value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
+          
+          <div><label className="block mb-1">Kategori Produk</label><input type="text" placeholder="Misal: Makanan, Minuman, Frozen Food" required value={form.category} onChange={e => setForm({...form, category: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
+          
           <div><label className="block mb-1">Stand / Tenant</label><select value={form.tenantId} onChange={e => setForm({...form, tenantId: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500">{tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
           
           {!hasVariants && (
@@ -1775,12 +1804,27 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
           </div>
 
           <div><label className="block mb-1">Deskripsi Singkat (Opsional)</label><input type="text" value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
+          
           <div>
-            <label className="block mb-1.5">Upload Foto (HD via ImgBB)</label>
+            <label className="block mb-1.5">Upload Foto (atau Paste Link G-Drive)</label>
             {form.imageUrl && <img src={form.imageUrl} alt="preview" className="w-16 h-16 object-cover rounded-xl border border-slate-200 mb-2 shadow-sm" />}
-            <input type="file" accept="image/*" onChange={handleImageUpload} disabled={isUploading} className="w-full file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer text-slate-500" />
-            {isUploading && <p className="text-[10px] text-amber-600 font-bold mt-1.5 animate-pulse">Mengupload gambar, harap tunggu...</p>}
+            
+            <input type="file" accept="image/*" onChange={handleImageUpload} disabled={isUploading} className="w-full file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer text-slate-500 mb-2" />
+            
+            <div className="flex items-center text-[10px] text-slate-400 mb-2 before:flex-1 before:border-t before:border-slate-200 before:mr-2 after:flex-1 after:border-t after:border-slate-200 after:ml-2">ATAU PASTE URL</div>
+            
+            <input type="url" placeholder="Paste link Google Drive disini..." value={form.imageUrl} onChange={(e) => {
+              let url = e.target.value;
+              if (url.includes('drive.google.com')) {
+                const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+                if (match && match[1]) { url = `https://drive.google.com/uc?id=${match[1]}`; }
+              }
+              setForm({...form, imageUrl: url});
+            }} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 text-[10px]" />
+            
+            {isUploading && <p className="text-[10px] text-amber-600 font-bold mt-1.5 animate-pulse">Mengompres gambar, harap tunggu...</p>}
           </div>
+
           <button type="submit" disabled={isUploading} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md mt-2 text-sm disabled:opacity-50 transition-colors">
             {isUploading ? 'Sedang Diproses...' : 'Simpan Produk'}
           </button>
