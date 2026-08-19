@@ -28,7 +28,7 @@ import {
   List
 } from 'lucide-react';
 
-const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwpfqbew8iEaovqo2Pxg6z_Opf-Kd8ttr4cQflpY6YPySHcgY1J4YlJu-Nr9ZwVg3lb/exec';
+const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbzIxw6pKYLgbqO9I9_BcMTLv64rb9ynu2o12kJW-sfXqauoKeobYykYlOSrxLkDp0EB/exec';
 
 const formatIndoDate = (dateStr) => {
   if (!dateStr) return '-';
@@ -109,6 +109,9 @@ export default function App() {
 
   // Dialog Konfirmasi Kustom
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, msg: '', onConfirm: null });
+
+  // State Zooming Global
+  const [zoomedImage, setZoomedImage] = useState(null);
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -744,15 +747,15 @@ export default function App() {
 
                 return (
                   <div key={prod.id} className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
-                    <div className="h-28 sm:h-36 w-full bg-slate-100 relative">
+                    <div className="h-28 sm:h-36 w-full bg-slate-100 relative group cursor-pointer overflow-hidden" onClick={() => prod.imageUrl && setZoomedImage(prod.imageUrl)}>
                       {prod.imageUrl ? (
-                        <img src={prod.imageUrl} alt={cleanName} className="w-full h-full object-cover" />
+                        <img src={prod.imageUrl} alt={cleanName} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-slate-300">
                           <ImageIcon className="w-6 h-6 sm:w-8 sm:h-8" />
                         </div>
                       )}
-                      <span className="absolute top-1.5 left-1.5 text-[9px] font-bold bg-white/90 px-1.5 py-0.5 rounded shadow-sm text-slate-700">
+                      <span className="absolute top-1.5 left-1.5 text-[9px] font-bold bg-white/90 px-1.5 py-0.5 rounded shadow-sm text-slate-700 z-10">
                         {tenant?.name || 'Stand'}
                       </span>
                     </div>
@@ -1034,7 +1037,7 @@ export default function App() {
                         return (
                           <div key={p.id} className="bg-white p-3 rounded-xl border flex gap-3 items-center shadow-sm">
                             {p.imageUrl ? (
-                              <img src={p.imageUrl} alt="img" className="w-14 h-14 rounded-lg object-cover border" />
+                              <img src={p.imageUrl} alt="img" className="w-14 h-14 rounded-lg object-cover border cursor-pointer" onClick={() => setZoomedImage(p.imageUrl)} />
                             ) : (
                               <div className="w-14 h-14 bg-slate-100 rounded-lg flex items-center justify-center border"><ImageIcon className="w-5 h-5 text-slate-400" /></div>
                             )}
@@ -1158,7 +1161,7 @@ export default function App() {
 
         {isCartOpen && (
           <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm print:hidden">
-            <div className="w-full max-w-sm bg-white h-full flex flex-col shadow-2xl">
+            <div className="w-full max-w-sm bg-white h-full flex flex-col shadow-2xl animate-in slide-in-from-right-4 duration-300">
               <div className="p-4 border-b flex justify-between items-center bg-slate-50">
                 <h2 className="font-bold text-sm flex items-center text-slate-900"><ShoppingCart className="w-4 h-4 mr-2" /> Keranjang ({cartSummary.totalItems})</h2>
                 <button onClick={() => setIsCartOpen(false)} className="p-1.5 bg-slate-200 hover:bg-slate-300 rounded-lg"><X className="w-4 h-4 text-slate-600" /></button>
@@ -1193,7 +1196,7 @@ export default function App() {
 
         {isCheckoutModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
-            <div className="bg-white rounded-2xl w-full max-w-sm p-5 relative shadow-2xl">
+            <div className="bg-white rounded-2xl w-full max-w-sm p-5 relative shadow-2xl animate-in zoom-in-95 duration-200">
               <button onClick={() => setIsCheckoutModalOpen(false)} className="absolute top-4 right-4 p-1.5 bg-slate-100 rounded-lg text-slate-500"><X className="w-4 h-4" /></button>
               <h3 className="font-black text-base mb-1 text-slate-900">Data Pemesan</h3>
               <p className="text-xs text-slate-500 mb-4 pb-4 border-b">Pesanan dicatat untuk: {activeBatch?.name}</p>
@@ -1239,6 +1242,7 @@ export default function App() {
                addToCart(chosenProduct, qty);
                setVariantModal({ isOpen: false, product: null });
             }}
+            setGlobalZoom={setZoomedImage}
           />
         )}
 
@@ -1246,6 +1250,7 @@ export default function App() {
           <ModalProductForm
             item={productModal.item}
             tenants={tenants}
+            webhookUrl={sheetWebhookUrl || DEFAULT_WEBHOOK_URL}
             onClose={() => setProductModal({ isOpen: false, item: null })}
             onSave={(formData) => {
               let updated;
@@ -1418,7 +1423,6 @@ export default function App() {
         </div>
       )}
 
-      {}
       {confirmDialog.isOpen && (
         <ConfirmModal 
           message={confirmDialog.msg} 
@@ -1429,11 +1433,20 @@ export default function App() {
           }}
         />
       )}
+
+      {zoomedImage && (
+        <div className="fixed inset-0 z-[100000] flex items-center justify-center bg-black/90 backdrop-blur-sm print:hidden" onClick={() => setZoomedImage(null)}>
+          <button onClick={() => setZoomedImage(null)} className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors">
+            <X className="w-6 h-6" />
+          </button>
+          <img src={zoomedImage} alt="Zoomed Product" className="max-w-[95%] max-h-[90vh] object-contain rounded-xl shadow-2xl animate-in zoom-in-95 duration-300" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </Fragment>
   );
 }
 
-function VariantSelectionModal({ product, onClose, onAddToCart }) {
+function VariantSelectionModal({ product, onClose, onAddToCart, setGlobalZoom }) {
   const [selectedVarIndex, setSelectedVarIndex] = useState(0);
   const [qty, setQty] = useState(1);
 
@@ -1445,11 +1458,11 @@ function VariantSelectionModal({ product, onClose, onAddToCart }) {
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
-      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-sm flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 sm:slide-in-from-bottom-0 sm:zoom-in-95">
-        <div className="relative h-32 sm:h-40 bg-slate-100 w-full shrink-0">
-          <button onClick={onClose} className="absolute top-3 right-3 p-1.5 bg-white/50 backdrop-blur rounded-full text-slate-800 z-10"><X className="w-5 h-5" /></button>
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-sm flex flex-col shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 sm:slide-in-from-bottom-0 sm:zoom-in-95 max-h-[90vh]">
+        <div className="relative h-32 sm:h-40 bg-slate-100 w-full shrink-0 group cursor-pointer overflow-hidden" onClick={() => product.imageUrl && setGlobalZoom(product.imageUrl)}>
+          <button onClick={(e) => { e.stopPropagation(); onClose(); }} className="absolute top-3 right-3 p-1.5 bg-white/50 backdrop-blur rounded-full text-slate-800 z-10 hover:bg-white/80"><X className="w-5 h-5" /></button>
           {product.imageUrl ? (
-            <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+            <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
           ) : (
              <div className="w-full h-full flex items-center justify-center text-slate-300"><ImageIcon className="w-8 h-8" /></div>
           )}
@@ -1514,7 +1527,7 @@ function VariantSelectionModal({ product, onClose, onAddToCart }) {
 function ConfirmModal({ message, onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
-      <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl text-center space-y-4">
+      <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl text-center space-y-4 animate-in zoom-in-95 duration-200">
         <AlertCircle className="w-12 h-12 text-red-500 mx-auto" />
         <h3 className="font-bold text-sm text-slate-900">{message}</h3>
         <div className="flex gap-3 justify-center pt-2">
@@ -1589,14 +1602,14 @@ function ModalBatchForm({ item, onClose, onSave }) {
   );
 }
 
-function ModalProductForm({ item, tenants, onClose, onSave }) {
+function ModalProductForm({ item, tenants, webhookUrl, onClose, onSave }) {
   const [form, setForm] = useState({
     name: item?.name || '', tenantId: item?.tenantId || tenants[0]?.id || '',
     priceOwner: item?.priceOwner || '', priceOrganizer: item?.priceOrganizer || '',
     imageUrl: item?.imageUrl || '', description: item?.description || ''
   });
+  const [isUploading, setIsUploading] = useState(false);
   
-  // Ambil state variants dari item, atau kosongkan jika baru
   const [variants, setVariants] = useState(() => {
      if (!item?.variants) return [];
      if (typeof item.variants === 'string') return JSON.parse(item.variants);
@@ -1606,22 +1619,41 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if(!file) return;
+    setIsUploading(true);
+    
     const reader = new FileReader();
     reader.readAsDataURL(file);
     reader.onload = (ev) => {
-      const img = new Image();
-      img.src = ev.target.result;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 400;
-        const scale = img.width > MAX_WIDTH ? MAX_WIDTH / img.width : 1;
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        setForm({...form, imageUrl: canvas.toDataURL('image/jpeg', 0.6)});
-      }
+      fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'uploadImage',
+          base64Data: ev.target.result
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+         if (data.status === 'success') {
+            setForm({...form, imageUrl: data.url});
+         } else {
+            alert("Upload gagal: " + data.message);
+         }
+         setIsUploading(false);
+      })
+      .catch(err => {
+         console.error(err);
+         alert("Gagal koneksi saat upload ke Google Drive.");
+         setIsUploading(false);
+      });
     }
+  };
+
+  const convertGDriveLink = (link) => {
+     if (!link) return '';
+     const match = link.match(/\/d\/(.*?)\//);
+     if (match && match[1]) return `https://drive.google.com/uc?id=${match[1]}`;
+     return link;
   };
   
   const hasVariants = variants.length > 0;
@@ -1629,7 +1661,7 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
       <div className="bg-white rounded-2xl w-full max-w-sm p-6 relative overflow-y-auto max-h-[90vh] shadow-xl scrollbar-none">
-        <button onClick={onClose} className="absolute top-4 right-4 p-1.5 bg-slate-100 rounded-lg"><X className="w-4 h-4 text-slate-500" /></button>
+        <button onClick={onClose} disabled={isUploading} className="absolute top-4 right-4 p-1.5 bg-slate-100 rounded-lg disabled:opacity-50"><X className="w-4 h-4 text-slate-500" /></button>
         <h3 className="font-bold text-base mb-4">{item ? 'Edit Produk' : 'Tambah Produk'}</h3>
         <form 
           onSubmit={(e) => { 
@@ -1680,12 +1712,25 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
           </div>
 
           <div><label className="block mb-1">Deskripsi Singkat (Opsional)</label><input type="text" value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl" /></div>
-          <div>
-            <label className="block mb-1.5">Upload Foto (Auto-Compress)</label>
-            {form.imageUrl && <img src={form.imageUrl} alt="preview" className="w-16 h-16 object-cover rounded-xl border border-slate-200 mb-2 shadow-sm" />}
-            <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer text-slate-500" />
+          
+          <div className="border border-indigo-100 bg-indigo-50/50 p-3 rounded-xl space-y-3">
+             <label className="block font-bold text-indigo-900">Upload Foto G-Drive (Brosur / Resolusi Tinggi)</label>
+             {form.imageUrl && <img src={form.imageUrl} alt="preview" className="w-16 h-16 object-cover rounded-xl border border-slate-200 shadow-sm" />}
+             
+             <div className="space-y-2">
+                 <input type="file" accept="image/*" onChange={handleImageUpload} disabled={isUploading} className="w-full file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-100 file:text-indigo-700 hover:file:bg-indigo-200 cursor-pointer text-slate-500" />
+                 {isUploading && <p className="text-[10px] text-indigo-600 font-bold animate-pulse mt-1">Mengupload ke Google Drive...</p>}
+                 
+                 <div className="relative mt-2">
+                    <div className="absolute inset-0 flex items-center" aria-hidden="true"><div className="w-full border-t border-indigo-200"></div></div>
+                    <div className="relative flex justify-center"><span className="bg-indigo-50 px-2 text-[10px] text-indigo-500 font-bold">ATAU PASTE LINK</span></div>
+                 </div>
+                 
+                 <input type="url" placeholder="Paste Link Foto dari G-Drive" value={form.imageUrl} onChange={e => setForm({...form, imageUrl: convertGDriveLink(e.target.value)})} className="w-full px-3 py-2 border border-indigo-200 bg-white rounded-lg" />
+             </div>
           </div>
-          <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md mt-2 text-sm">Simpan Produk</button>
+          
+          <button type="submit" disabled={isUploading} className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md mt-2 text-sm disabled:opacity-50">Simpan Produk</button>
         </form>
       </div>
     </div>
