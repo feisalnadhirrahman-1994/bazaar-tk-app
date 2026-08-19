@@ -1847,11 +1847,10 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
               value={form.imageUrl} 
               onChange={(e) => {
                 let val = e.target.value;
-                // Auto-Converter untuk Link Google Drive (Bypass 403 Forbidden Error 2024)
-                const gdMatch = val.match(/(?:file\/d\/|open\?id=|uc\?export=view&id=|uc\?id=)([\w-]+)/);
+                // Bypass 403 Forbidden & Login Prompts via Google Image CDN
+                const gdMatch = val.match(/(?:file\/d\/|open\?id=|uc\?export=view&id=|uc\?id=|thumbnail\?id=)([\w-]+)/);
                 if (gdMatch && gdMatch[1]) {
-                    // Menggunakan format thumbnail API resmi Google Drive untuk menghindari blokir CORS/Cookie
-                    val = `https://drive.google.com/thumbnail?id=${gdMatch[1]}&sz=w1000`;
+                    val = `https://lh3.googleusercontent.com/d/${gdMatch[1]}`;
                 }
                 setForm({...form, imageUrl: val});
               }} 
