@@ -32,6 +32,16 @@ import {
 
 const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxgKE-x6bNLC7Eu61d_rqZtyZsEAa3EYANFJshRTxuZlRPciNaNUKvrpX5JcwEHz6hd/exec';
 
+const PREDEFINED_CATEGORIES = [
+  "Makanan Siap Saji",
+  "Minuman",
+  "Frozen Food",
+  "Lauk Pauk",
+  "Roti & Kue",
+  "Snack & Cemilan",
+  "Kesehatan & Kecantikan"
+];
+
 const formatIndoDate = (dateStr) => {
   if (!dateStr) return '-';
   try {
@@ -1689,7 +1699,7 @@ function ModalBatchForm({ item, onClose, onSave }) {
 function ModalProductForm({ item, tenants, onClose, onSave }) {
   const [form, setForm] = useState({
     name: item?.name || '', tenantId: item?.tenantId || tenants[0]?.id || '',
-    category: item?.category || 'Makanan',
+    category: item?.category || PREDEFINED_CATEGORIES[0],
     priceOwner: item?.priceOwner || '', priceOrganizer: item?.priceOrganizer || '',
     imageUrl: item?.imageUrl || '', description: item?.description || ''
   });
@@ -1767,7 +1777,12 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
         >
           <div><label className="block mb-1">Nama Produk</label><input type="text" required value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
           
-          <div><label className="block mb-1">Kategori Produk</label><input type="text" placeholder="Misal: Makanan, Minuman, Frozen Food" required value={form.category} onChange={e => setForm({...form, category: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
+          <div>
+             <label className="block mb-1">Kategori Produk</label>
+             <select value={form.category} onChange={e => setForm({...form, category: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500">
+               {PREDEFINED_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+             </select>
+          </div>
           
           <div><label className="block mb-1">Stand / Tenant</label><select value={form.tenantId} onChange={e => setForm({...form, tenantId: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500">{tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
           
