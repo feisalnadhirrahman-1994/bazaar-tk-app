@@ -27,7 +27,7 @@ import {
   Menu,
   List,
   Filter,
-  Tag
+  RotateCcw
 } from 'lucide-react';
 
 const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxgKE-x6bNLC7Eu61d_rqZtyZsEAa3EYANFJshRTxuZlRPciNaNUKvrpX5JcwEHz6hd/exec';
@@ -119,13 +119,11 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState('');
   const [isCloudSyncing, setIsCloudSyncing] = useState(true);
 
-  // Dialog Konfirmasi & Zoom Image
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, msg: '', onConfirm: null });
   const [zoomedImage, setZoomedImage] = useState(null);
 
-  // Filter & Urutkan Modal
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
-  const [sortOrder, setSortOrder] = useState('default'); // 'default', 'az', 'za'
+  const [sortOrder, setSortOrder] = useState('default');
   const [selectedTenantFilter, setSelectedTenantFilter] = useState('all');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('all');
 
@@ -216,7 +214,6 @@ export default function App() {
         }
         
         if (json.data.tenants !== undefined) {
-           // Self healing: map old "owner" to new "description" if description is missing
            const mappedTenants = json.data.tenants.map(t => ({
                id: t.id,
                name: t.name,
@@ -737,6 +734,7 @@ export default function App() {
           )}
         </header>
 
+        {}
         {isCloudSyncing && products.length === 1 && products[0].id === 'p1' ? (
           <div className="flex flex-col items-center justify-center pt-32 space-y-4">
             <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
@@ -876,6 +874,7 @@ export default function App() {
                   <button onClick={() => setAdminSubTab('classes')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'classes' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Routing WA Kelas</button>
                 </div>
 
+                {}
                 {adminSubTab === 'batch_reports' && (
                   <div className="space-y-4 animate-in fade-in duration-300">
                     <div className="bg-white p-4 rounded-xl border shadow-sm flex flex-col sm:flex-row gap-3 justify-between sm:items-center">
@@ -970,6 +969,7 @@ export default function App() {
                   </div>
                 )}
 
+                {}
                 {adminSubTab === 'orders' && (
                   <div className="space-y-3 animate-in fade-in duration-300">
                     <div className="bg-white p-3 rounded-xl border shadow-sm mb-2 text-xs text-slate-500 flex justify-between items-center">
@@ -1061,6 +1061,7 @@ export default function App() {
                   </div>
                 )}
 
+                {}
                 {adminSubTab === 'products' && (
                   <div className="space-y-4 animate-in fade-in duration-300">
                     <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border">
@@ -1106,6 +1107,7 @@ export default function App() {
                   </div>
                 )}
 
+                {}
                 {adminSubTab === 'batches' && (
                   <div className="space-y-4 animate-in fade-in duration-300">
                     <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border">
@@ -1202,6 +1204,7 @@ export default function App() {
           </main>
         )}
 
+        {}
         {isCartOpen && (
           <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm print:hidden">
             <div className="w-full max-w-sm bg-white h-full flex flex-col shadow-2xl animate-in slide-in-from-right-4 duration-300">
@@ -1277,6 +1280,7 @@ export default function App() {
           </div>
         )}
 
+        {}
         {isFilterModalOpen && (
           <div className="fixed inset-0 z-[60] flex justify-end sm:items-center sm:justify-center bg-black/60 backdrop-blur-sm print:hidden">
             <div className="w-full sm:max-w-md bg-white h-auto max-h-[85vh] sm:rounded-2xl rounded-t-2xl flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 sm:slide-in-from-bottom-0 sm:zoom-in-95 mt-auto sm:mt-0">
@@ -1324,7 +1328,7 @@ export default function App() {
                   onClick={() => { setSelectedCategoryFilter('all'); setSelectedTenantFilter('all'); setSortOrder('default'); }} 
                   className="px-4 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-sm transition-colors"
                 >
-                  Reset
+                  <RotateCcw className="w-4 h-4 mx-auto" />
                 </button>
                 <button 
                   onClick={() => setIsFilterModalOpen(false)} 
@@ -1337,6 +1341,7 @@ export default function App() {
           </div>
         )}
 
+        {}
         {variantModal.isOpen && (
           <VariantSelectionModal 
             product={variantModal.product} 
@@ -1403,6 +1408,7 @@ export default function App() {
         )}
       </div>
 
+      {}
       {printData && (
         <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:bg-white print:overflow-visible print:h-auto">
           <style>{`
@@ -1525,6 +1531,7 @@ export default function App() {
         </div>
       )}
 
+      {}
       {confirmDialog.isOpen && (
         <ConfirmModal 
           message={confirmDialog.msg} 
@@ -1731,8 +1738,6 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
       img.src = ev.target.result;
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        
-        // Smart Bounding Box - Max Dimension (Width or Height) = 400px
         const MAX_DIMENSION = 400; 
         let width = img.width;
         let height = img.height;
@@ -1754,7 +1759,6 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
         
-        // JPEG 0.6 quality ensures the Base64 output is extremely small (<30KB)
         const base64Data = canvas.toDataURL('image/jpeg', 0.6);
         setForm({...form, imageUrl: base64Data});
         setIsUploading(false);
@@ -1843,10 +1847,11 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
               value={form.imageUrl} 
               onChange={(e) => {
                 let val = e.target.value;
-                // Auto-Converter: Mengubah link G-Drive biasa menjadi Direct Image Link
-                const gdMatch = val.match(/(?:file\/d\/|open\?id=|uc\?id=)([\w-]+)/);
+                // Auto-Converter untuk Link Google Drive (Bypass 403 Forbidden Error 2024)
+                const gdMatch = val.match(/(?:file\/d\/|open\?id=|uc\?export=view&id=|uc\?id=)([\w-]+)/);
                 if (gdMatch && gdMatch[1]) {
-                    val = `https://drive.google.com/uc?export=view&id=${gdMatch[1]}`;
+                    // Menggunakan format thumbnail API resmi Google Drive untuk menghindari blokir CORS/Cookie
+                    val = `https://drive.google.com/thumbnail?id=${gdMatch[1]}&sz=w1000`;
                 }
                 setForm({...form, imageUrl: val});
               }} 
