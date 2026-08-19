@@ -36,7 +36,7 @@ const PREDEFINED_CATEGORIES = [
   "Makanan Siap Saji",
   "Minuman",
   "Frozen Food",
-  "Lauk Pauk",
+  "Lauk Pauk & Frozen",
   "Roti & Kue",
   "Snack & Cemilan",
   "Kesehatan & Kecantikan"
@@ -64,7 +64,7 @@ const parseAndCleanItem = (rawName) => {
 };
 
 const INITIAL_TENANTS = [{ id: 't1', name: 'Stand Snack', description: 'Menjual aneka cemilan ringan', phone: '628123456789' }];
-const INITIAL_PRODUCTS = [{ id: 'p1', tenantId: 't1', name: 'Produk A', priceOwner: 5000, priceOrganizer: 1000, category: 'Makanan', imageUrl: '', available: true, description: '', variants: [] }];
+const INITIAL_PRODUCTS = [{ id: 'p1', tenantId: 't1', name: 'Produk A', priceOwner: 5000, priceOrganizer: 1000, category: 'Makanan Siap Saji', imageUrl: '', available: true, description: '', variants: [] }];
 const INITIAL_BATCHES = [{ id: 'b1', name: 'Batch 1', startDate: '2026-08-01', endDate: '2026-08-31', readyDate: '2026-09-01', isActive: true, description: '' }];
 const INITIAL_CLASSES = [{ id: 'c1', name: 'Little Owl', phone: '628123456781' }];
 
@@ -625,7 +625,7 @@ export default function App() {
       return {
         tenantId: tenant.id,
         tenantName: tenant.name,
-        tenantDesc: tenant.description || tenant.owner || '', // Mapping desc
+        tenantDesc: tenant.description || tenant.owner || '', 
         tenantPhone: tenant.phone || '',
         customerOrdersDetail,
         itemTotalsMap,
@@ -659,7 +659,6 @@ export default function App() {
           </div>
         )}
 
-        {/* HEADER STICKY (Search Bar menempel di atas) */}
         <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md shadow-sm border-b border-slate-200 flex flex-col transition-all">
           <div className="max-w-5xl w-full mx-auto px-4 py-2.5 flex items-center justify-between">
             <div className="flex items-center space-x-2.5">
@@ -712,7 +711,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Search & Filter Bar (Mode Pembeli Saja) */}
           {activeTab === 'shop' && (
             <div className="max-w-5xl w-full mx-auto px-4 py-2.5 border-t border-slate-100 bg-slate-50/50 flex gap-2 items-center">
               <div className="relative flex-1">
@@ -1182,10 +1180,10 @@ export default function App() {
                         <div key={t.id} className="bg-white p-3 rounded-xl border shadow-sm flex justify-between items-center">
                           <div>
                             <h4 className="font-bold text-sm text-slate-900">{t.name}</h4>
-                            <p className="text-[10px] text-slate-500 mt-0.5">{t.description}</p>
-                            <p className="text-[10px] text-emerald-700 font-bold">WA: {t.phone}</p>
+                            <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-1">{t.description}</p>
+                            <p className="text-[10px] text-emerald-700 font-bold mt-1">WA: {t.phone}</p>
                           </div>
-                          <div className="flex gap-1.5">
+                          <div className="flex gap-1.5 shrink-0">
                             <button onClick={() => setTenantModal({ isOpen: true, item: t })} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors"><Edit3 className="w-4 h-4" /></button>
                             <button onClick={() => {
                                 showConfirm(`Hapus stand ${t.name}?`, () => {
@@ -1204,6 +1202,7 @@ export default function App() {
           </main>
         )}
 
+        {}
         {isCartOpen && (
           <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm print:hidden">
             <div className="w-full max-w-sm bg-white h-full flex flex-col shadow-2xl animate-in slide-in-from-right-4 duration-300">
@@ -1279,15 +1278,16 @@ export default function App() {
           </div>
         )}
 
+        {}
         {isFilterModalOpen && (
           <div className="fixed inset-0 z-[60] flex justify-end sm:items-center sm:justify-center bg-black/60 backdrop-blur-sm print:hidden">
-            <div className="w-full sm:max-w-sm bg-white h-auto max-h-[85vh] sm:rounded-2xl rounded-t-2xl flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 sm:slide-in-from-bottom-0 sm:zoom-in-95 mt-auto sm:mt-0">
+            <div className="w-full sm:max-w-md bg-white h-auto max-h-[85vh] sm:rounded-2xl rounded-t-2xl flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 sm:slide-in-from-bottom-0 sm:zoom-in-95 mt-auto sm:mt-0">
               <div className="p-4 border-b flex justify-between items-center bg-slate-50 sm:rounded-t-2xl rounded-t-2xl">
                 <h2 className="font-bold text-sm flex items-center text-slate-900"><Filter className="w-4 h-4 mr-2" /> Filter & Urutkan</h2>
                 <button onClick={() => setIsFilterModalOpen(false)} className="p-1.5 bg-slate-200 hover:bg-slate-300 rounded-lg transition-colors"><X className="w-4 h-4 text-slate-600" /></button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-4 space-y-5 scrollbar-thin">
+              <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin">
                 <div>
                   <h3 className="font-bold text-xs text-slate-500 uppercase tracking-wider mb-3">Urutkan Abjad</h3>
                   <div className="grid grid-cols-3 gap-2">
@@ -1299,30 +1299,39 @@ export default function App() {
 
                 <div>
                   <h3 className="font-bold text-xs text-slate-500 uppercase tracking-wider mb-3">Pilih Kategori Produk</h3>
-                  <div className="flex flex-col gap-2">
-                    <button onClick={() => setSelectedCategoryFilter('all')} className={`text-left px-3.5 py-3 rounded-xl text-xs sm:text-sm font-bold border transition-colors ${selectedCategoryFilter === 'all' ? 'bg-amber-100 border-amber-500 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Semua Kategori</button>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => setSelectedCategoryFilter('all')} className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${selectedCategoryFilter === 'all' ? 'bg-amber-600 border-amber-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}>Semua Kategori</button>
                     {availableCategories.map(c => (
-                      <button key={c} onClick={() => setSelectedCategoryFilter(c)} className={`text-left px-3.5 py-3 rounded-xl text-xs sm:text-sm font-bold border transition-colors ${selectedCategoryFilter === c ? 'bg-amber-100 border-amber-500 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>{c}</button>
+                      <button key={c} onClick={() => setSelectedCategoryFilter(c)} className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all ${selectedCategoryFilter === c ? 'bg-amber-600 border-amber-600 text-white shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'}`}>{c}</button>
                     ))}
                   </div>
                 </div>
 
                 <div>
                   <h3 className="font-bold text-xs text-slate-500 uppercase tracking-wider mb-3">Pilih Stand / Tenant</h3>
-                  <div className="flex flex-col gap-2">
-                    <button onClick={() => setSelectedTenantFilter('all')} className={`text-left px-3.5 py-3 rounded-xl text-xs sm:text-sm font-bold border transition-colors ${selectedTenantFilter === 'all' ? 'bg-amber-100 border-amber-500 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Semua Stand</button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => setSelectedTenantFilter('all')} className={`text-left px-3 py-2.5 rounded-xl text-xs font-bold border transition-colors flex items-center justify-center ${selectedTenantFilter === 'all' ? 'bg-amber-100 border-amber-500 text-amber-800' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>Semua Stand</button>
                     {tenants.map(t => (
-                      <button key={t.id} onClick={() => setSelectedTenantFilter(t.id)} className={`text-left px-3.5 py-3 rounded-xl text-xs sm:text-sm font-bold border transition-colors flex flex-col justify-center items-start ${selectedTenantFilter === t.id ? 'bg-amber-100 border-amber-500 text-amber-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                        <span>{t.name}</span>
-                        {t.description && <span className="font-normal text-[10px] text-slate-500 mt-0.5">{t.description}</span>}
+                      <button key={t.id} onClick={() => setSelectedTenantFilter(t.id)} className={`text-left px-3 py-2 rounded-xl text-xs font-bold border transition-colors flex flex-col justify-center items-start ${selectedTenantFilter === t.id ? 'bg-amber-100 border-amber-500 text-amber-800' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                        <span className="line-clamp-1 w-full">{t.name}</span>
+                        {t.description && <span className="font-normal text-[9px] text-slate-500 mt-0.5 line-clamp-1 w-full">{t.description}</span>}
                       </button>
                     ))}
                   </div>
                 </div>
               </div>
 
-              <div className="p-4 border-t bg-white shadow-md sm:rounded-b-2xl">
-                <button onClick={() => setIsFilterModalOpen(false)} className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-md text-sm transition-colors">
+              <div className="p-4 border-t bg-white shadow-md sm:rounded-b-2xl flex gap-2">
+                <button 
+                  onClick={() => { setSelectedCategoryFilter('all'); setSelectedTenantFilter('all'); setSortOrder('default'); }} 
+                  className="px-4 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-sm transition-colors"
+                >
+                  Reset
+                </button>
+                <button 
+                  onClick={() => setIsFilterModalOpen(false)} 
+                  className="flex-1 py-3.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-md text-sm transition-colors"
+                >
                   Terapkan Filter
                 </button>
               </div>
@@ -1342,6 +1351,7 @@ export default function App() {
           />
         )}
 
+        {}
         {productModal.isOpen && (
           <ModalProductForm
             item={productModal.item}
@@ -1396,6 +1406,7 @@ export default function App() {
         )}
       </div>
 
+      {}
       {printData && (
         <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:bg-white print:overflow-visible print:h-auto">
           <style>{`
@@ -1518,6 +1529,7 @@ export default function App() {
         </div>
       )}
 
+      {}
       {confirmDialog.isOpen && (
         <ConfirmModal 
           message={confirmDialog.msg} 
@@ -1662,7 +1674,7 @@ function ModalTenantForm({ item, onClose, onSave }) {
         <h3 className="font-bold text-base mb-4">{item ? 'Edit Stand' : 'Tambah Stand'}</h3>
         <form onSubmit={(e) => { e.preventDefault(); onSave({ name, description, phone }); }} className="space-y-4 text-xs font-medium">
           <div><label className="block mb-1">Nama Stand</label><input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
-          <div><label className="block mb-1">Deskripsi Singkat (Pengganti PJ)</label><input type="text" placeholder="Misal: Jual Minuman Dingin" required value={description} onChange={e => setDescription(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
+          <div><label className="block mb-1">Deskripsi Singkat</label><input type="text" placeholder="Misal: Minuman Dingin & Snack" required value={description} onChange={e => setDescription(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
           <div><label className="block mb-1">No WA (628...)</label><input type="text" required value={phone} onChange={e => setPhone(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
           <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-colors">Simpan</button>
         </form>
@@ -1725,7 +1737,8 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
       img.onload = () => {
         const canvas = document.createElement('canvas');
         
-        const MAX_DIMENSION = 250; 
+        // Smart Bounding Box - Max Dimension (Width or Height) = 400px
+        const MAX_DIMENSION = 400; 
         let width = img.width;
         let height = img.height;
 
@@ -1746,6 +1759,7 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
         
+        // JPEG 0.6 quality ensures the Base64 output is extremely small (<30KB)
         const base64Data = canvas.toDataURL('image/jpeg', 0.6);
         setForm({...form, imageUrl: base64Data});
         setIsUploading(false);
@@ -1821,23 +1835,16 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
           <div><label className="block mb-1">Deskripsi Singkat (Opsional)</label><input type="text" value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
           
           <div>
-            <label className="block mb-1.5">Upload Foto (atau Paste Link G-Drive)</label>
+            <label className="block mb-1.5">Upload Foto (Auto-Compress)</label>
             {form.imageUrl && <img src={form.imageUrl} alt="preview" className="w-16 h-16 object-cover rounded-xl border border-slate-200 mb-2 shadow-sm" />}
             
             <input type="file" accept="image/*" onChange={handleImageUpload} disabled={isUploading} className="w-full file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer text-slate-500 mb-2" />
             
-            <div className="flex items-center text-[10px] text-slate-400 mb-2 before:flex-1 before:border-t before:border-slate-200 before:mr-2 after:flex-1 after:border-t after:border-slate-200 after:ml-2">ATAU PASTE URL</div>
+            <div className="flex items-center text-[10px] text-slate-400 mb-2 before:flex-1 before:border-t before:border-slate-200 before:mr-2 after:flex-1 after:border-t after:border-slate-200 after:ml-2">ATAU PASTE URL (KHUSUS DESKTOP)</div>
             
-            <input type="url" placeholder="Paste link Google Drive disini..." value={form.imageUrl} onChange={(e) => {
-              let url = e.target.value;
-              if (url.includes('drive.google.com')) {
-                const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-                if (match && match[1]) { url = `https://drive.google.com/uc?id=${match[1]}`; }
-              }
-              setForm({...form, imageUrl: url});
-            }} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 text-[10px]" />
+            <input type="url" placeholder="Opsional jika upload error..." value={form.imageUrl} onChange={(e) => setForm({...form, imageUrl: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 text-[10px]" />
             
-            {isUploading && <p className="text-[10px] text-amber-600 font-bold mt-1.5 animate-pulse">Mengompres gambar, harap tunggu...</p>}
+            {isUploading && <p className="text-[10px] text-amber-600 font-bold mt-1.5 animate-pulse">Memproses kompresi gambar otomatis...</p>}
           </div>
 
           <button type="submit" disabled={isUploading} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md mt-2 text-sm disabled:opacity-50 transition-colors">
