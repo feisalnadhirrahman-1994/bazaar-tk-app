@@ -673,7 +673,6 @@ export default function App() {
           </div>
         </header>
 
-        {}
         {isCloudSyncing && products.length === 1 && products[0].id === 'p1' ? (
           <div className="flex flex-col items-center justify-center pt-32 space-y-4">
             <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
@@ -1160,7 +1159,6 @@ export default function App() {
           </main>
         )}
 
-        {}
         {isCartOpen && (
           <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm print:hidden">
             <div className="w-full max-w-sm bg-white h-full flex flex-col shadow-2xl animate-in slide-in-from-right-4 duration-300">
@@ -1236,7 +1234,6 @@ export default function App() {
           </div>
         )}
 
-        {}
         {variantModal.isOpen && (
           <VariantSelectionModal 
             product={variantModal.product} 
@@ -1303,7 +1300,6 @@ export default function App() {
         )}
       </div>
 
-      {}
       {printData && (
         <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:bg-white print:overflow-visible print:h-auto">
           <style>{`
@@ -1426,7 +1422,7 @@ export default function App() {
         </div>
       )}
 
-      {}
+      {/* Confirmation and Zoom Modals */}
       {confirmDialog.isOpen && (
         <ConfirmModal 
           message={confirmDialog.msg} 
@@ -1527,7 +1523,6 @@ function VariantSelectionModal({ product, onClose, onAddToCart, setGlobalZoom })
   );
 }
 
-
 function ConfirmModal({ message, onConfirm, onCancel }) {
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
@@ -1609,7 +1604,7 @@ function ModalBatchForm({ item, onClose, onSave }) {
 function ModalProductForm({ item, tenants, onClose, onSave }) {
   const [form, setForm] = useState({
     name: item?.name || '', tenantId: item?.tenantId || tenants[0]?.id || '',
-    priceOwner: item?.priceOwner || '', priceOrganizer: item?.priceOrganizer || '',
+    priceOwner: item?.priceOwner || 0, priceOrganizer: item?.priceOrganizer || 0,
     imageUrl: item?.imageUrl || '', description: item?.description || ''
   });
   
@@ -1622,34 +1617,47 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
      return item.variants;
   });
 
-  const handleImageUpload = async (e) => {
+  const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if(!file) return;
+    
     setIsUploading(true);
     
-    const formData = new FormData();
-    formData.append('image', file);
-    
-    // INTEGRASI IMGBB API KEY DARI USER
-    const IMGBB_API_KEY = 'e32aedd008c0808942d763d22d2a0f56'; 
-    
-    try {
-      const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
-        method: 'POST',
-        body: formData
-      });
-      const data = await res.json();
-      
-      if (data.success) {
-        setForm({...form, imageUrl: data.data.url});
-      } else {
-        alert("Gagal upload gambar: " + data.error.message);
-      }
-    } catch (error) {
-      console.error(error);
-      alert("Gagal terhubung ke server gambar. Pastikan internet stabil.");
-    } finally {
-      setIsUploading(false);
+    // UBAH DULU KE BASE64 AGAR IMGBB TIDAK LAMA MEMPROSES RAW FILE
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = async (ev) => {
+        // Hapus header data base64 (misal: "data:image/jpeg;base64,") agar murni string
+        const base64Data = ev.target.result.split(',')[1];
+        
+        const formData = new FormData();
+        formData.append('image', base64Data);
+        
+        const IMGBB_API_KEY = 'e32aedd008c0808942d763d22d2a0f56'; 
+        
+        try {
+          const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+            method: 'POST',
+            body: formData
+          });
+          const data = await res.json();
+          
+          if (data.success) {
+            // Jika berhasil, update form dengan link direct dari ImgBB
+            setForm({...form, imageUrl: data.data.url});
+          } else {
+            alert("Gagal upload gambar: " + data.error.message);
+          }
+        } catch (error) {
+          console.error("ImgBB Fetch Error:", error);
+          alert("Gagal terhubung ke server gambar. Pastikan internet stabil.");
+        } finally {
+          setIsUploading(false);
+        }
+    };
+    reader.onerror = () => {
+        alert("Gagal membaca file gambar Anda.");
+        setIsUploading(false);
     }
   };
   
