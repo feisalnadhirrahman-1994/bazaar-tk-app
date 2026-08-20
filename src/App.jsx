@@ -37,7 +37,6 @@ const PREDEFINED_CATEGORIES = [
   "Minuman",
   "Frozen Food",
   "Lauk Pauk & Frozen",
-  "Lauk Pauk Matang",
   "Roti & Kue",
   "Snack & Cemilan",
   "Kesehatan & Kecantikan"
@@ -709,7 +708,6 @@ export default function App() {
             </div>
           </div>
 
-          {}
           {activeTab === 'shop' && (
             <div className="max-w-5xl w-full mx-auto px-4 py-2.5 border-t border-slate-100 bg-slate-50/50 flex gap-2 items-center">
               <div className="relative flex-1">
@@ -736,6 +734,7 @@ export default function App() {
           )}
         </header>
 
+        {}
         {isCloudSyncing && products.length === 1 && products[0].id === 'p1' ? (
           <div className="flex flex-col items-center justify-center pt-32 space-y-4">
             <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
@@ -761,7 +760,6 @@ export default function App() {
               </div>
             )}
 
-            {}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
               {filteredProducts.map((prod) => {
                 const tenant = tenants.find((t) => t.id === prod.tenantId);
@@ -852,7 +850,6 @@ export default function App() {
           </main>
         ) : (
           <main className="max-w-5xl mx-auto px-4 pt-4">
-            {}
             {!isAdminLoggedIn ? (
               <div className="max-w-xs mx-auto bg-white rounded-2xl border p-6 shadow-xl mt-10">
                 <div className="text-center mb-5">
@@ -868,7 +865,6 @@ export default function App() {
               </div>
             ) : (
               <div className="space-y-4">
-                {}
                 <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-none border-b border-slate-200">
                   <button onClick={() => setAdminSubTab('batch_reports')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'batch_reports' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Rekap Per Tenant</button>
                   <button onClick={() => setAdminSubTab('orders')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'orders' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Semua Pesanan</button>
@@ -1244,7 +1240,6 @@ export default function App() {
           </div>
         )}
 
-        {}
         {isCheckoutModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
             <div className="bg-white rounded-2xl w-full max-w-sm p-5 relative shadow-2xl animate-in zoom-in-95 duration-200">
@@ -1346,6 +1341,7 @@ export default function App() {
           </div>
         )}
 
+        {}
         {variantModal.isOpen && (
           <VariantSelectionModal 
             product={variantModal.product} 
@@ -1358,7 +1354,6 @@ export default function App() {
           />
         )}
 
-        {}
         {productModal.isOpen && (
           <ModalProductForm
             item={productModal.item}
@@ -1536,6 +1531,7 @@ export default function App() {
         </div>
       )}
 
+      {}
       {confirmDialog.isOpen && (
         <ConfirmModal 
           message={confirmDialog.msg} 
@@ -1706,7 +1702,7 @@ function ModalBatchForm({ item, onClose, onSave }) {
           <div><label className="block mb-1">Nama Batch</label><input type="text" required value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
           <div><label className="block mb-1">Tgl Mulai PO</label><input type="date" required value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
           <div><label className="block mb-1">Tgl Tutup PO</label><input type="date" required value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
-          <div><label className="block mb-1 text-emerald-700">Tgl Ready / Distribusi</label><input type="date" required value={form.readyDate} onChange={e => setForm({...form, readyDate: e.target.value})} className="w-full px-3 py-2 border border-emerald-300 rounded-xl bg-emerald-50 focus:outline-none focus:border-emerald-500" /></div>
+          <div><label className="block mb-1 text-emerald-700">Tgl Ready / Distribusi</label><input type="date" required value={form.readyDate} onChange={e => setForm({...form, readyDate: e.target.value})} className="w-full px-3 py-2 border border-emerald-300 rounded-xl bg-emerald-50 focus:outline-none" /></div>
           <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-colors">Simpan</button>
         </form>
       </div>
@@ -1741,11 +1737,11 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
       const img = new Image();
       img.src = ev.target.result;
       img.onload = () => {
-        const MAX_CHARS = 48000;
+        const canvas = document.createElement('canvas');
+        const MAX_DIMENSION = 400; 
         let width = img.width;
         let height = img.height;
-        
-        const MAX_DIMENSION = 1200; 
+
         if (width > height) {
           if (width > MAX_DIMENSION) {
             height *= MAX_DIMENSION / width;
@@ -1758,31 +1754,14 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
           }
         }
 
-        let quality = 0.85;
-        let base64Data = '';
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
         
-        const compress = () => {
-           const canvas = document.createElement('canvas');
-           canvas.width = width;
-           canvas.height = height;
-           const ctx = canvas.getContext('2d');
-           
-           ctx.fillStyle = '#FFFFFF';
-           ctx.fillRect(0, 0, width, height);
-           ctx.drawImage(img, 0, 0, width, height);
-           
-           base64Data = canvas.toDataURL('image/jpeg', quality);
-           
-           if (base64Data.length > MAX_CHARS && width > 200) {
-               width *= 0.9; 
-               quality = Math.max(0.5, quality - 0.05); 
-               compress(); 
-           } else {
-               setForm({...form, imageUrl: base64Data});
-               setIsUploading(false);
-           }
-        };
-        compress();
+        const base64Data = canvas.toDataURL('image/jpeg', 0.6);
+        setForm({...form, imageUrl: base64Data});
+        setIsUploading(false);
       }
       img.onerror = () => setIsUploading(false);
     };
@@ -1855,29 +1834,31 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
           <div><label className="block mb-1">Deskripsi Singkat (Opsional)</label><input type="text" value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
           
           <div>
-            <label className="block mb-1.5">Upload Foto (Smart Auto-Fit Quality)</label>
+            <label className="block mb-1.5">Upload Foto (Auto-Compress)</label>
             {form.imageUrl && <img src={form.imageUrl} alt="preview" className="w-16 h-16 object-cover rounded-xl border border-slate-200 mb-2 shadow-sm" />}
             
             <input type="file" accept="image/*" onChange={handleImageUpload} disabled={isUploading} className="w-full file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer text-slate-500 mb-2" />
             
-            {isUploading && <p className="text-[10px] text-emerald-600 font-bold mt-1.5 animate-pulse">Menghitung rasio gambar terbaik, harap tunggu...</p>}
-            
-            <div className="flex items-center text-[10px] text-slate-400 my-2 before:flex-1 before:border-t before:border-slate-200 before:mr-2 after:flex-1 after:border-t after:border-slate-200 after:ml-2">ATAU PASTE URL G-DRIVE</div>
+            <div className="flex items-center text-[10px] text-slate-400 mb-2 before:flex-1 before:border-t before:border-slate-200 before:mr-2 after:flex-1 after:border-t after:border-slate-200 after:ml-2">ATAU PASTE URL GOOGLE DRIVE</div>
             
             <input 
               type="url" 
-              placeholder="Paste link gambar disini..." 
+              placeholder="Paste link Google Drive disini..." 
               value={form.imageUrl} 
               onChange={(e) => {
                 let val = e.target.value;
+                // Mengubah format menjadi uc?id= sesuai request Anda
+                // Regex ini juga akan memperbaiki link lh3 atau thumbnail yang sudah terlanjur di-paste sebelumnya
                 const gdMatch = val.match(/(?:file\/d\/|open\?id=|uc\?export=view&id=|uc\?id=|thumbnail\?id=|d\/)([\w-]+)/);
                 if (gdMatch && gdMatch[1]) {
-                    val = `https://lh3.googleusercontent.com/d/${gdMatch[1]}`;
+                    val = `https://drive.google.com/uc?id=${gdMatch[1]}`;
                 }
                 setForm({...form, imageUrl: val});
               }} 
               className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500 text-[10px]" 
             />
+            
+            {isUploading && <p className="text-[10px] text-amber-600 font-bold mt-1.5 animate-pulse">Memproses kompresi gambar otomatis...</p>}
           </div>
 
           <button type="submit" disabled={isUploading} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md mt-2 text-sm disabled:opacity-50 transition-colors">
