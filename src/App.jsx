@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, Fragment } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Fragment } from 'react';
 import { 
   ShoppingBag, 
   ShoppingCart, 
@@ -63,6 +63,49 @@ const parseAndCleanItem = (rawName) => {
   return String(rawName).replace(/\(x\s*\d+\)/gi, '').trim();
 };
 
+// --- FIX: normalisasi variants -----------------------------------------------
+// Selalu kembalikan ARRAY, apapun bentuk inputnya (array / JSON string / null).
+const normalizeVariants = (raw) => {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    if (!s) return [];
+    try {
+      const parsed = JSON.parse(s);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.warn('Gagal parse variants:', s, e);
+      return [];
+    }
+  }
+  return [];
+};
+
+// Dikirim ke Google Sheets SELALU sebagai JSON string, dan key `variants`
+// dijamin selalu ada supaya header kolom J tidak pernah hilang lagi.
+const serializeProductForSheet = (p) => ({
+  ...p,
+  variants: JSON.stringify(normalizeVariants(p.variants)),
+});
+
+// --- FIX: pemecah "Rincian Items" yang aman terhadap koma di dalam nama produk
+// "Es Sirsak Kelapa (Sirkel), [Ukuran 1 Liter] (x1), Yakitori Chicken (x2)"
+// dipecah per "(xN)", bukan per koma.
+const splitRincianItems = (text) => {
+  const out = [];
+  const re = /\(x\s*(\d+)\s*\)/gi;
+  let last = 0;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const chunk = text.slice(last, m.index).replace(/^\s*,\s*/, '').trim();
+    if (chunk) out.push({ name: chunk, qty: parseInt(m[1], 10) || 1 });
+    last = re.lastIndex;
+  }
+  const tail = text.slice(last).replace(/^\s*,\s*/, '').trim();
+  if (tail) out.push({ name: tail, qty: 1 });
+  return out;
+};
+
 const INITIAL_TENANTS = [{ id: 't1', name: 'Stand Snack', description: 'Menjual aneka cemilan ringan', phone: '628123456789' }];
 const INITIAL_PRODUCTS = [{ id: 'p1', tenantId: 't1', name: 'Produk A', priceOwner: 5000, priceOrganizer: 1000, category: 'Makanan Siap Saji', imageUrl: '', available: true, description: '', variants: [] }];
 const INITIAL_BATCHES = [{ id: 'b1', name: 'Batch 1', startDate: '2026-08-01', endDate: '2026-08-31', readyDate: '2026-09-01', isActive: true, description: '' }];
@@ -118,6 +161,12 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
   const [toastMessage, setToastMessage] = useState('');
   const [isCloudSyncing, setIsCloudSyncing] = useState(true);
+
+  // FIX: kunci pengaman. Selama data cloud belum pernah berhasil ditarik,
+  // DILARANG push ke Sheets — inilah penyebab kolom variants terhapus:
+  // admin edit produk sebelum sync awal selesai, lalu state localStorage yang
+  // basi (tanpa key `variants`) menimpa seluruh sheet Products.
+  const cloudLoadedRef = useRef(false);
 
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, msg: '', onConfirm: null });
   const [zoomedImage, setZoomedImage] = useState(null);
@@ -208,7 +257,7 @@ export default function App() {
         if (json.data.products !== undefined) {
            const parsedProducts = json.data.products.map(p => ({
                ...p,
-               variants: typeof p.variants === 'string' ? (p.variants ? JSON.parse(p.variants) : []) : (p.variants || [])
+               variants: normalizeVariants(p.variants)
            }));
            setProducts(parsedProducts);
         }
@@ -257,13 +306,14 @@ export default function App() {
 
                 const rincianText = String(getVal(['Rincian Items', 'items', 'formattedItemsText', 'Rincian']) || '');
                 if (rincianText && rincianText !== 'undefined' && rincianText !== '-') {
-                  const itemStrings = rincianText.split(',');
-                  itemStrings.forEach(itemStr => {
-                    const match = itemStr.trim().match(/^(.*?)\s*\(x(\d+)\)$/i);
-                    if (match) {
-                      let rawName = match[1].trim(); 
-                      const qty = parseInt(match[2], 10);
-                      
+                  // FIX: dipecah per "(xN)", bukan per koma, supaya nama produk
+                  // yang mengandung koma tidak pecah jadi item palsu.
+                  const itemStrings = splitRincianItems(rincianText);
+                  itemStrings.forEach(parsedItem => {
+                    {
+                      let rawName = parsedItem.name;
+                      const qty = parsedItem.qty;
+
                       let baseName = rawName;
                       let variantName = '';
                       const varMatch = rawName.match(/^(.*?) \[([^\]]+)\]$/);
@@ -272,38 +322,45 @@ export default function App() {
                           variantName = varMatch[2].trim();
                       }
 
-                      const product = productsData.find(p => String(p.name || '').toLowerCase() === baseName.toLowerCase());
+                      // FIX: trim kedua sisi. Beberapa nama produk punya spasi/koma
+                      // di ujung ("Es Sirsak Kelapa (Sirkel), ", "NaturaWorld ")
+                      // sehingga pencocokan persis selalu gagal → harga terbaca 0.
+                      const norm = (s) => String(s || '').trim().replace(/[,;]+$/, '').trim().toLowerCase();
+                      const product = productsData.find(p => norm(p.name) === norm(baseName));
                       
                       if (product) {
                           let pOwner = Number(product.priceOwner) || 0;
                           let pOrg = Number(product.priceOrganizer) || 0;
                           let finalId = product.id;
                           
-                          let parsedVariants = typeof product.variants === 'string' ? JSON.parse(product.variants || '[]') : (product.variants || []);
-                          
-                          if (variantName && Array.isArray(parsedVariants)) {
+                          const parsedVariants = normalizeVariants(product.variants);
+
+                          if (variantName) {
                               const variant = parsedVariants.find(v => String(v.name).toLowerCase() === variantName.toLowerCase());
                               if (variant) {
                                   pOwner = Number(variant.priceOwner) || 0;
                                   pOrg = Number(variant.priceOrganizer) || 0;
                                   finalId = `${product.id}|${variant.name}`;
+                              } else {
+                                  // FIX: varian tercatat di order tapi tidak ada di master produk.
+                                  // Jangan diam-diam jadi 0 — tandai supaya kelihatan di rekap.
+                                  finalId = `${product.id}|${variantName}`;
+                                  console.warn(`[REKAP] Varian "${variantName}" pada produk "${product.name}" tidak ditemukan di master. Harga terbaca 0.`);
                               }
                           }
 
                           parsedItems.push({
                               id: finalId, name: rawName, tenantId: product.tenantId,
                               priceOwner: pOwner, priceOrganizer: pOrg,
-                              qty: qty, subtotal: (pOwner + pOrg) * qty
+                              qty: qty, subtotal: (pOwner + pOrg) * qty,
+                              priceMissing: (pOwner + pOrg) === 0
                           });
                       } else {
+                          console.warn(`[REKAP] Produk "${rawName}" tidak ditemukan di master.`);
                           parsedItems.push({
-                            id: 'p-unknown', name: rawName, tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: qty, subtotal: 0
+                            id: 'p-unknown', name: rawName, tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: qty, subtotal: 0, priceMissing: true
                           });
                       }
-                    } else if (itemStr.trim()) {
-                       parsedItems.push({
-                          id: 'p-unknown', name: itemStr.trim(), tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: 1, subtotal: 0
-                        });
                     }
                   });
                 }
@@ -335,6 +392,7 @@ export default function App() {
             setAdminAuth(typeof json.data.settings.adminAuth === 'string' ? JSON.parse(json.data.settings.adminAuth) : json.data.settings.adminAuth);
           } catch(e) {}
         }
+        cloudLoadedRef.current = true;   // FIX: baru boleh push setelah ini
         if (!silent) showToast('Data Tersinkronisasi dari Cloud!');
       }
     } catch (e) {
@@ -352,10 +410,30 @@ export default function App() {
   const syncPushToCloud = (overrideData = {}) => {
     const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
     if (!targetUrl) return;
-    
+
+    // FIX #1 — PENGAMAN UTAMA.
+    // syncAll menimpa SELURUH sheet. Kalau data cloud belum pernah berhasil
+    // ditarik, isi state masih berasal dari localStorage yang bisa basi
+    // (mis. dari versi app sebelum fitur varian ada). Push dari kondisi itu
+    // yang menghapus kolom variants beserta header-nya.
+    if (!cloudLoadedRef.current) {
+      showToast('Data cloud belum termuat. Tunggu sync selesai sebelum menyimpan.');
+      console.warn('syncPushToCloud dibatalkan: data cloud belum termuat.');
+      return;
+    }
+
+    const outProducts = (overrideData.products || products).map(serializeProductForSheet);
+
+    // FIX #2 — rem darurat. Kalau tiba-tiba jumlah produk anjlok drastis,
+    // hampir pasti state-nya rusak, bukan admin benar-benar menghapus massal.
+    if (!overrideData.products && outProducts.length === 0 && products.length === 0) {
+      showToast('Sinkronisasi dibatalkan: daftar produk kosong.');
+      return;
+    }
+
     const payload = {
       action: 'syncAll',
-      products: overrideData.products || products,
+      products: outProducts,
       tenants: overrideData.tenants || tenants,
       batches: overrideData.batches || batches,
       classes: overrideData.classes || classesList,
@@ -549,11 +627,13 @@ export default function App() {
         
         if (pOwner === 0 && pOrg === 0) {
             const variantName = String(it.id).includes('|') ? String(it.id).split('|')[1] : null;
-            if (variantName && Array.isArray(dbProduct.variants)) {
-                const v = dbProduct.variants.find(x => x.name === variantName);
-                if (v) { pOwner = Number(v.priceOwner); pOrg = Number(v.priceOrganizer); }
+            const dbVariants = normalizeVariants(dbProduct.variants);   // FIX: tahan bentuk string
+            if (variantName) {
+                // FIX: cocokkan case-insensitive, sama seperti parser order.
+                const v = dbVariants.find(x => String(x.name).toLowerCase() === variantName.toLowerCase());
+                if (v) { pOwner = Number(v.priceOwner) || 0; pOrg = Number(v.priceOrganizer) || 0; }
             } else {
-                pOwner = Number(dbProduct.priceOwner); pOrg = Number(dbProduct.priceOrganizer);
+                pOwner = Number(dbProduct.priceOwner) || 0; pOrg = Number(dbProduct.priceOrganizer) || 0;
             }
         }
 
@@ -1721,9 +1801,7 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
   const [isUploading, setIsUploading] = useState(false);
 
   const [variants, setVariants] = useState(() => {
-     if (!item?.variants) return [];
-     if (typeof item.variants === 'string') return JSON.parse(item.variants);
-     return item.variants;
+     return normalizeVariants(item?.variants);   // FIX: tidak crash kalau JSON rusak
   });
 
   const handleImageUpload = (e) => {
