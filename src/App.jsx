@@ -27,10 +27,13 @@ import {
   Menu,
   List,
   Filter,
-  RotateCcw
+  RotateCcw,
+  Clock,
+  Download,
+  FileText
 } from 'lucide-react';
 
-const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxgKE-x6bNLC7Eu61d_rqZtyZsEAa3EYANFJshRTxuZlRPciNaNUKvrpX5JcwEHz6hd/exec';
+const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbyyfkDa12D55oAB_l_rU15U4EENvXAb1IwBz6WRY6DaoYrZobvi9D0dF_UaMUi9iBAU/exec';
 
 const PREDEFINED_CATEGORIES = [
   "Makanan Siap Saji",
@@ -51,6 +54,103 @@ const formatIndoDate = (dateStr) => {
   } catch (e) {
     return dateStr;
   }
+};
+
+
+// ============================================================================
+// PENULIS XLSX MINIMAL (ZIP store-only) — tanpa dependency tambahan.
+// Dipakai untuk fitur "Export Excel" di menu Semua Pesanan.
+// ============================================================================
+// ---- Penulis XLSX minimal (ZIP store-only). Tanpa dependency. ----
+const crcTable = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t;
+})();
+const crc32 = (buf) => { let c = 0xFFFFFFFF; for (let i = 0; i < buf.length; i++) c = crcTable[(c ^ buf[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+const enc = (s) => new TextEncoder().encode(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[m]))
+                            .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+const colName = (n) => { let s = ''; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; };
+
+function zip(files) {
+  const chunks = [], central = []; let offset = 0;
+  const u16 = (v) => [v & 255, (v >> 8) & 255];
+  const u32 = (v) => [v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >>> 24) & 255];
+  for (const f of files) {
+    const data = enc(f.data), crc = crc32(data);
+    const nameB = enc(f.name);
+    const local = new Uint8Array([...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nameB.length), ...u16(0)]);
+    chunks.push(local, nameB, data);
+    central.push(new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nameB.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset)]), nameB);
+    offset += local.length + nameB.length + data.length;
+  }
+  const cdStart = offset; let cdLen = 0;
+  for (const c of central) cdLen += c.length;
+  const end = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cdLen), ...u32(cdStart), ...u16(0)]);
+  const all = [...chunks, ...central, end];
+  let total = 0; for (const a of all) total += a.length;
+  const out = new Uint8Array(total); let p = 0;
+  for (const a of all) { out.set(a, p); p += a.length; }
+  return out;
+}
+
+const buildXlsx = function(sheetName, rows, colWidths) {
+  const body = rows.map((row, ri) => {
+    const cells = row.map((v, ci) => {
+      const ref = colName(ci + 1) + (ri + 1);
+      if (v === null || v === undefined || v === '') return '';
+      if (typeof v === 'number' && isFinite(v)) return `<c r="${ref}" s="${ri === 0 ? 1 : 0}"><v>${v}</v></c>`;
+      return `<c r="${ref}" s="${ri === 0 ? 1 : 0}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
+    }).join('');
+    return `<row r="${ri + 1}">${cells}</row>`;
+  }).join('');
+  const cols = (colWidths || []).map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('');
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${body}</sheetData></worksheet>`;
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF2F5597"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  return zip([
+    { name: '[Content_Types].xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>` },
+    { name: '_rels/.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+    { name: 'xl/workbook.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${esc(sheetName).slice(0, 31)}" sheetId="1" r:id="rId1"/></sheets></workbook>` },
+    { name: 'xl/_rels/workbook.xml.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+    { name: 'xl/styles.xml', data: styles },
+    { name: 'xl/worksheets/sheet1.xml', data: sheet },
+  ]);
+};
+
+const downloadBlob = (bytes, filename, mime) => {
+  const blob = new Blob([bytes], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+// Cek apakah suatu tanggal (YYYY-MM-DD) sudah lewat, dibandingkan tanggal lokal hari ini.
+const toDateOnly = (v) => {
+  if (!v) return null;
+  const s = String(v).slice(0, 10);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) { const d = new Date(v); return isNaN(d) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+};
+
+// Status periode batch: 'before' | 'open' | 'closed'
+const getBatchWindow = (batch) => {
+  if (!batch) return 'closed';
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = toDateOnly(batch.startDate);
+  const end = toDateOnly(batch.endDate);
+  if (start && today < start) return 'before';
+  if (end && today > end) return 'closed';   // toleransi sampai akhir hari tanggal berakhir
+  return 'open';
 };
 
 const formatRupiah = (num) => {
@@ -225,6 +325,12 @@ export default function App() {
 
   const [reportSelectedBatchId, setReportSelectedBatchId] = useState('');
   const [reportSelectedStatus, setReportSelectedStatus] = useState('Paid');
+
+  // Filter khusus tab "Semua Pesanan". Export Excel & Print PDF mengikuti filter ini.
+  const [orderFilterBatchId, setOrderFilterBatchId] = useState('ALL');
+  const [orderFilterStatus, setOrderFilterStatus] = useState('ALL');
+  const [orderSearch, setOrderSearch] = useState('');
+  const [printOrders, setPrintOrders] = useState(null);
 
   useEffect(() => { localStorage.setItem('ld_bazaar_tenants', JSON.stringify(tenants)); }, [tenants]);
   useEffect(() => { localStorage.setItem('ld_bazaar_products', JSON.stringify(products)); }, [products]);
@@ -455,6 +561,12 @@ export default function App() {
     return batches.find((b) => todayStr >= b.startDate && todayStr <= b.endDate) || batches[0];
   }, [batches]);
 
+  // FIX: status periode pemesanan. 'before' = belum dibuka, 'open' = jalan,
+  // 'closed' = tanggal berakhir sudah lewat. Sebelumnya tidak pernah dicek
+  // sehingga pembeli tetap bisa checkout walau batch sudah tutup.
+  const batchWindow = useMemo(() => getBatchWindow(activeBatch), [activeBatch]);
+  const isOrderingOpen = batchWindow === 'open';
+
   const handleAdminLogin = (e) => {
     e.preventDefault();
     if (loginForm.username.trim() === adminAuth.username && loginForm.password.trim() === adminAuth.password) {
@@ -468,6 +580,11 @@ export default function App() {
   };
 
   const addToCart = (productObj, qty = 1) => {
+    // FIX: blokir penambahan ke keranjang di luar periode batch.
+    if (!isOrderingOpen) {
+      showToast(batchWindow === 'before' ? 'Periode pemesanan belum dibuka.' : 'Periode pemesanan sudah ditutup.');
+      return;
+    }
     setCart((prev) => {
       const existing = prev.find((item) => item.id === productObj.id);
       if (existing) {
@@ -505,7 +622,17 @@ export default function App() {
   const handleCheckoutSubmit = (e) => {
     e.preventDefault();
     if (!activeBatch || !checkoutData.namaAnak.trim() || !checkoutData.namaOrtu.trim() || cart.length === 0) return;
-    if (isSubmitting) return; 
+    if (isSubmitting) return;
+
+    // FIX: penjaga terakhir. Walau tombol sudah dinonaktifkan, checkout tetap
+    // ditolak kalau periode batch belum dibuka atau sudah lewat.
+    if (!isOrderingOpen) {
+      showToast(batchWindow === 'before'
+        ? `Periode ${activeBatch.name} belum dibuka.`
+        : `Periode ${activeBatch.name} sudah ditutup (${formatIndoDate(activeBatch.endDate)}).`);
+      setIsCheckoutModalOpen(false);
+      return;
+    }
     
     setIsSubmitting(true);
 
@@ -652,6 +779,94 @@ export default function App() {
         subtotal: (Number(it.priceOwner || 0) + Number(it.priceOrganizer || 0)) * (it.qty || 1)
       };
     }).filter(Boolean);
+  };
+
+  // ---- Daftar pesanan sesuai filter tab "Semua Pesanan" -----------------------
+  const filteredOrders = useMemo(() => {
+    const q = orderSearch.trim().toLowerCase();
+    return (Array.isArray(orders) ? orders : []).filter((o) => {
+      if (!o || typeof o !== 'object') return false;
+      if (orderFilterBatchId !== 'ALL' && o.batchId !== orderFilterBatchId) return false;
+      if (orderFilterStatus !== 'ALL' && (o.status || 'Unpaid') !== orderFilterStatus) return false;
+      if (!q) return true;
+      const c = o.customer || {};
+      return [o.orderId, c.namaAnak, c.kelas, c.namaOrtu].some(v => String(v || '').toLowerCase().includes(q));
+    });
+  }, [orders, orderFilterBatchId, orderFilterStatus, orderSearch]);
+
+  // Ringkasan angka untuk header tab + baris total di export.
+  const filteredOrdersSummary = useMemo(() => {
+    return filteredOrders.reduce((acc, o) => {
+      const items = enrichOrderItems(o);
+      const gross = items.reduce((n, it) => n + (Number(it.subtotal) || 0), 0);
+      const owner = items.reduce((n, it) => n + (Number(it.priceOwner) || 0) * (Number(it.qty) || 1), 0);
+      const org = items.reduce((n, it) => n + (Number(it.priceOrganizer) || 0) * (Number(it.qty) || 1), 0);
+      acc.gross += gross; acc.owner += owner; acc.org += org;
+      acc.items += items.reduce((n, it) => n + (Number(it.qty) || 1), 0);
+      if ((o.status || 'Unpaid') === 'Paid') acc.paid += 1; else acc.unpaid += 1;
+      return acc;
+    }, { gross: 0, owner: 0, org: 0, items: 0, paid: 0, unpaid: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredOrders, products]);
+
+  // Label filter aktif, dipakai di nama file dan judul dokumen cetak.
+  const orderFilterLabel = useMemo(() => {
+    const b = orderFilterBatchId === 'ALL' ? 'Semua Batch' : (batches.find(x => x.id === orderFilterBatchId)?.name || orderFilterBatchId);
+    const st = orderFilterStatus === 'ALL' ? 'Semua Status' : orderFilterStatus;
+    return `${b} - ${st}`;
+  }, [orderFilterBatchId, orderFilterStatus, batches]);
+
+  // Satu baris per ITEM, supaya bisa dilihat produk & harganya per pesanan.
+  const buildOrderRows = () => {
+    const header = ['No Order', 'Tanggal', 'Batch', 'Nama Anak', 'Kelas', 'Nama Ortu', 'Status',
+                    'Produk', 'Stand', 'Qty', 'Harga Satuan', 'Hak Vendor', 'Hak Panitia', 'Subtotal', 'Catatan'];
+    const rows = [header];
+    filteredOrders.forEach((o) => {
+      const c = o.customer || {};
+      const batchName = batches.find(b => b.id === o.batchId)?.name || o.batchId || '-';
+      const tgl = o.date ? new Date(o.date) : null;
+      const tglStr = tgl && !isNaN(tgl) ? tgl.toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }) : '-';
+      const items = enrichOrderItems(o);
+      if (items.length === 0) {
+        rows.push([o.orderId || '-', tglStr, batchName, c.namaAnak || '-', c.kelas || '-', c.namaOrtu || '-',
+                   o.status || 'Unpaid', '(tidak ada item)', '-', 0, 0, 0, 0, 0, c.catatan || '-']);
+        return;
+      }
+      items.forEach((it) => {
+        const qty = Number(it.qty) || 1;
+        const po = Number(it.priceOwner) || 0;
+        const pg = Number(it.priceOrganizer) || 0;
+        rows.push([
+          o.orderId || '-', tglStr, batchName, c.namaAnak || '-', c.kelas || '-', c.namaOrtu || '-',
+          o.status || 'Unpaid',
+          parseAndCleanItem(it.name),
+          tenants.find(t => t.id === it.tenantId)?.name || '-',
+          qty, po + pg, po * qty, pg * qty, (po + pg) * qty,
+          c.catatan || '-'
+        ]);
+      });
+    });
+    rows.push([]);
+    rows.push(['TOTAL', '', '', '', '', '', '', `${filteredOrders.length} pesanan`, '',
+               filteredOrdersSummary.items, '', filteredOrdersSummary.owner, filteredOrdersSummary.org, filteredOrdersSummary.gross, '']);
+    return rows;
+  };
+
+  const handleExportOrdersExcel = () => {
+    if (filteredOrders.length === 0) { showToast('Tidak ada pesanan untuk diexport.'); return; }
+    try {
+      const rows = buildOrderRows();
+      const widths = [13, 16, 12, 26, 24, 18, 9, 38, 20, 6, 13, 13, 13, 13, 26];
+      const bytes = buildXlsx('Pesanan', rows, widths);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const safe = orderFilterLabel.replace(/[^a-zA-Z0-9 -]/g, '').trim().replace(/\s+/g, '-');
+      downloadBlob(bytes, `Pesanan-Bazaar-${safe}-${stamp}.xlsx`,
+                   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      showToast(`${filteredOrders.length} pesanan diexport ke Excel.`);
+    } catch (err) {
+      console.error('Export Excel gagal:', err);
+      showToast('Export Excel gagal. Cek console.');
+    }
   };
 
   const batchReportData = useMemo(() => {
@@ -822,8 +1037,24 @@ export default function App() {
           </div>
         ) : activeTab === 'shop' ? (
           <main className="max-w-5xl mx-auto px-4 pt-5">
+            {}
+            {activeBatch && !isOrderingOpen && (
+              <div className="bg-rose-50 border-2 border-rose-200 text-rose-800 rounded-2xl p-4 shadow-sm mb-4 flex items-start gap-3">
+                <Clock className="w-5 h-5 shrink-0 mt-0.5 text-rose-500" />
+                <div>
+                  <p className="font-black text-sm leading-tight">
+                    {batchWindow === 'before' ? 'Periode pemesanan belum dibuka' : 'Periode pemesanan sudah ditutup'}
+                  </p>
+                  <p className="text-[11px] mt-1 leading-relaxed">
+                    {batchWindow === 'before'
+                      ? <>Periode <b>{activeBatch.name}</b> baru dibuka pada <b>{formatIndoDate(activeBatch.startDate)}</b>. Katalog bisa dilihat, tapi pemesanan belum bisa dilakukan.</>
+                      : <>Periode <b>{activeBatch.name}</b> berakhir <b>{formatIndoDate(activeBatch.endDate)}</b>. Katalog masih bisa dilihat, tapi pemesanan sudah ditutup. Nantikan periode berikutnya ya!</>}
+                  </p>
+                </div>
+              </div>
+            )}
             {activeBatch && (
-              <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-sm mb-5 relative overflow-hidden">
+              <div className={`${isOrderingOpen ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-gradient-to-r from-slate-400 to-slate-500'} text-white rounded-2xl p-4 shadow-sm mb-5 relative overflow-hidden`}>
                 <div className="relative z-10">
                   <div className="flex flex-wrap items-center gap-2 mb-1">
                     <span className="bg-white/20 text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">{activeBatch.name}</span>
@@ -888,10 +1119,12 @@ export default function App() {
                           </div>
                         ) : (
                           <button 
+                            disabled={!isOrderingOpen}
+                            title={isOrderingOpen ? '' : 'Periode pemesanan sedang ditutup'}
                             onClick={() => hasVariants ? setVariantModal({ isOpen: true, product: prod }) : addToCart(prod)} 
-                            className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[10px] sm:text-xs font-semibold flex items-center justify-center w-full sm:w-auto shadow-sm transition-colors"
+                            className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:hover:bg-slate-300 text-white rounded-lg text-[10px] sm:text-xs font-semibold flex items-center justify-center w-full sm:w-auto shadow-sm transition-colors"
                           >
-                            {hasVariants ? <><List className="w-3 h-3 mr-1" /> Pilih Varian</> : <><Plus className="w-3 h-3 mr-1" /> Pesan</>}
+                            {!isOrderingOpen ? <><Clock className="w-3 h-3 mr-1" /> Ditutup</> : hasVariants ? <><List className="w-3 h-3 mr-1" /> Pilih Varian</> : <><Plus className="w-3 h-3 mr-1" /> Pesan</>}
                           </button>
                         )}
                       </div>
@@ -1052,11 +1285,65 @@ export default function App() {
                 {}
                 {adminSubTab === 'orders' && (
                   <div className="space-y-3 animate-in fade-in duration-300">
-                    <div className="bg-white p-3 rounded-xl border shadow-sm mb-2 text-xs text-slate-500 flex justify-between items-center">
-                      <span>Klik "Simpan Status" untuk memperbarui status pesanan ke cloud.</span>
-                      <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded">Total: {Array.isArray(orders) ? orders.length : 0}</span>
+                    {}
+                    <div className="bg-white p-3 sm:p-4 rounded-xl border shadow-sm space-y-3">
+                      <div className="flex flex-col lg:flex-row lg:items-center gap-2">
+                        <div className="flex flex-wrap gap-2 text-xs flex-1">
+                          <select value={orderFilterBatchId} onChange={(e) => setOrderFilterBatchId(e.target.value)} className="p-2 border rounded-lg bg-slate-50 font-semibold focus:outline-none focus:border-indigo-500">
+                            <option value="ALL">Semua Batch</option>
+                            {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                          </select>
+                          <select value={orderFilterStatus} onChange={(e) => setOrderFilterStatus(e.target.value)} className="p-2 border rounded-lg bg-slate-50 font-semibold focus:outline-none focus:border-indigo-500">
+                            <option value="ALL">Semua Status</option>
+                            <option value="Paid">Paid</option>
+                            <option value="Unpaid">Unpaid</option>
+                          </select>
+                          <div className="relative flex-1 min-w-[150px]">
+                            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                              type="text" value={orderSearch} onChange={(e) => setOrderSearch(e.target.value)}
+                              placeholder="Cari no order / nama anak / kelas / ortu"
+                              className="w-full pl-8 pr-2 py-2 border rounded-lg bg-slate-50 font-semibold focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleExportOrdersExcel}
+                            disabled={filteredOrders.length === 0}
+                            className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg flex items-center shadow-sm transition-colors"
+                          >
+                            <Download className="w-4 h-4 mr-1.5" /> Export Excel
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (filteredOrders.length === 0) { showToast('Tidak ada pesanan untuk dicetak.'); return; }
+                              setPrintOrders({ list: filteredOrders, label: orderFilterLabel, summary: filteredOrdersSummary });
+                            }}
+                            disabled={filteredOrders.length === 0}
+                            className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg flex items-center shadow-sm transition-colors"
+                          >
+                            <FileText className="w-4 h-4 mr-1.5" /> Print PDF
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-[10px] font-bold pt-1 border-t">
+                        <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded">{filteredOrders.length} pesanan</span>
+                        <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded">{filteredOrdersSummary.paid} Paid</span>
+                        <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded">{filteredOrdersSummary.unpaid} Unpaid</span>
+                        <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded">{filteredOrdersSummary.items} item</span>
+                        <span className="bg-slate-900 text-white px-2 py-1 rounded">Total {formatRupiah(filteredOrdersSummary.gross)}</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400">Klik "Simpan Status" untuk memperbarui status pesanan ke cloud. Export mengikuti filter di atas.</p>
                     </div>
-                    {Array.isArray(orders) && orders.map((ord, idx) => {
+
+                    {filteredOrders.length === 0 && (
+                      <div className="bg-white p-8 rounded-xl border text-center text-xs text-slate-400">
+                        Tidak ada pesanan yang cocok dengan filter.
+                      </div>
+                    )}
+
+                    {filteredOrders.map((ord, idx) => {
                       if (!ord || typeof ord !== 'object') return null;
                       const enrichedItems = enrichOrderItems(ord) || [];
                       const cust = ord.customer && typeof ord.customer === 'object' ? ord.customer : {};
@@ -1312,8 +1599,8 @@ export default function App() {
                   <span>Total:</span>
                   <span className="text-amber-600">{formatRupiah(cartSummary.totalSellingPrice)}</span>
                 </div>
-                <button onClick={() => { setIsCartOpen(false); setIsCheckoutModalOpen(true); }} className="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-md text-sm flex items-center justify-center transition-colors">
-                  Lanjut Checkout <Send className="w-4 h-4 ml-2" />
+                <button disabled={!isOrderingOpen} onClick={() => { setIsCartOpen(false); setIsCheckoutModalOpen(true); }} className="w-full py-3 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:hover:bg-slate-300 text-white font-bold rounded-xl shadow-md text-sm flex items-center justify-center transition-colors">
+                  {isOrderingOpen ? <>Lanjut Checkout <Send className="w-4 h-4 ml-2" /></> : <><Clock className="w-4 h-4 mr-2" /> Periode Ditutup</>}
                 </button>
               </div>
             </div>
@@ -1489,6 +1776,120 @@ export default function App() {
       </div>
 
       {}
+      {}
+      {printOrders && (
+        <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:bg-white print:overflow-visible print:h-auto">
+          <style>{`
+            @media print {
+              @page { size: A4 landscape; margin: 8mm; }
+              body { margin: 0; background-color: white; }
+              html, body { height: max-content !important; overflow: visible !important; }
+              .no-print { display: none !important; }
+              * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .order-block { break-inside: avoid; page-break-inside: avoid; }
+              thead { display: table-header-group; }
+            }
+          `}</style>
+
+          <div className="no-print sticky top-0 bg-slate-900 text-white p-4 shadow-md flex justify-between items-center z-50">
+            <h2 className="font-bold text-sm">Cetak Daftar Pesanan — {printOrders.label}</h2>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => window.print()} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-bold transition-colors">
+                Simpan sbg PDF
+              </button>
+              <button onClick={() => setPrintOrders(null)} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 rounded-lg text-xs font-bold transition-colors">
+                Tutup
+              </button>
+            </div>
+          </div>
+
+          <div className="p-6 max-w-6xl mx-auto bg-white text-black text-[10px] print:p-0 print:m-0 print:w-full print:max-w-none shadow-xl print:shadow-none my-8 print:my-0">
+            <div className="border-b-2 border-slate-800 pb-2 mb-4">
+              <h2 className="text-sm font-bold text-slate-900">Daftar Pesanan Bazaar DANUS — PTA Little Darbi</h2>
+              <p className="text-[10px] text-slate-600 mt-0.5">
+                Filter: {printOrders.label} &nbsp;|&nbsp; {printOrders.list.length} pesanan
+                ({printOrders.summary.paid} Paid, {printOrders.summary.unpaid} Unpaid)
+                &nbsp;|&nbsp; Dicetak: {new Date().toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short' })}
+              </p>
+            </div>
+
+            <table className="w-full border-collapse mb-5">
+              <thead>
+                <tr className="bg-slate-800 text-white">
+                  <th className="border border-slate-300 p-1.5 text-left">No Order</th>
+                  <th className="border border-slate-300 p-1.5 text-left">Tanggal</th>
+                  <th className="border border-slate-300 p-1.5 text-left">Nama Anak</th>
+                  <th className="border border-slate-300 p-1.5 text-left">Kelas</th>
+                  <th className="border border-slate-300 p-1.5 text-left">Ortu</th>
+                  <th className="border border-slate-300 p-1.5 text-left">Produk</th>
+                  <th className="border border-slate-300 p-1.5 text-center">Qty</th>
+                  <th className="border border-slate-300 p-1.5 text-right">Subtotal</th>
+                  <th className="border border-slate-300 p-1.5 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {printOrders.list.map((ord, oi) => {
+                  const c = ord.customer || {};
+                  const items = enrichOrderItems(ord);
+                  const rowCount = Math.max(items.length, 1);
+                  const orderTotal = items.reduce((n, it) => n + (Number(it.subtotal) || 0), 0);
+                  const tgl = ord.date ? new Date(ord.date) : null;
+                  const tglStr = tgl && !isNaN(tgl) ? tgl.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: '2-digit' }) : '-';
+                  return (
+                    <Fragment key={ord.orderId || oi}>
+                      {(items.length ? items : [null]).map((it, ii) => (
+                        <tr key={ii} className={oi % 2 ? 'bg-slate-50' : ''}>
+                          {ii === 0 && <td rowSpan={rowCount} className="border border-slate-300 p-1.5 font-bold align-top">{ord.orderId || '-'}</td>}
+                          {ii === 0 && <td rowSpan={rowCount} className="border border-slate-300 p-1.5 align-top whitespace-nowrap">{tglStr}</td>}
+                          {ii === 0 && <td rowSpan={rowCount} className="border border-slate-300 p-1.5 align-top">{c.namaAnak || '-'}</td>}
+                          {ii === 0 && <td rowSpan={rowCount} className="border border-slate-300 p-1.5 align-top">{c.kelas || '-'}</td>}
+                          {ii === 0 && <td rowSpan={rowCount} className="border border-slate-300 p-1.5 align-top">{c.namaOrtu || '-'}</td>}
+                          <td className="border border-slate-300 p-1.5">{it ? parseAndCleanItem(it.name) : '(tidak ada item)'}</td>
+                          <td className="border border-slate-300 p-1.5 text-center">{it ? (it.qty || 1) : '-'}</td>
+                          <td className="border border-slate-300 p-1.5 text-right">{it ? formatRupiah(it.subtotal) : '-'}</td>
+                          {ii === 0 && (
+                            <td rowSpan={rowCount} className={`border border-slate-300 p-1.5 text-center font-bold align-top ${(ord.status || 'Unpaid') === 'Paid' ? 'text-emerald-700' : 'text-red-600'}`}>
+                              {ord.status || 'Unpaid'}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-100 order-block">
+                        <td colSpan={6} className="border border-slate-300 p-1.5 text-right font-bold">
+                          Total {ord.orderId || '-'}{c.catatan && c.catatan !== '-' ? ` — Catatan: ${c.catatan}` : ''}
+                        </td>
+                        <td colSpan={3} className="border border-slate-300 p-1.5 text-right font-bold">{formatRupiah(orderTotal)}</td>
+                      </tr>
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="bg-slate-800 text-white font-bold">
+                  <td colSpan={6} className="border border-slate-300 p-2 text-right">TOTAL KESELURUHAN ({printOrders.summary.items} item)</td>
+                  <td colSpan={3} className="border border-slate-300 p-2 text-right text-xs">{formatRupiah(printOrders.summary.gross)}</td>
+                </tr>
+              </tfoot>
+            </table>
+
+            <div className="grid grid-cols-3 gap-3 text-[10px]">
+              <div className="border border-slate-300 p-2 rounded">
+                <div className="text-slate-500">Hak Vendor</div>
+                <div className="font-bold text-emerald-700 text-xs">{formatRupiah(printOrders.summary.owner)}</div>
+              </div>
+              <div className="border border-slate-300 p-2 rounded">
+                <div className="text-slate-500">Hak Panitia</div>
+                <div className="font-bold text-orange-700 text-xs">{formatRupiah(printOrders.summary.org)}</div>
+              </div>
+              <div className="border border-slate-300 p-2 rounded">
+                <div className="text-slate-500">Total Tagihan</div>
+                <div className="font-bold text-slate-900 text-xs">{formatRupiah(printOrders.summary.gross)}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {printData && (
         <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:bg-white print:overflow-visible print:h-auto">
           <style>{`
