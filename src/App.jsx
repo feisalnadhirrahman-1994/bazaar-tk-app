@@ -33,7 +33,30 @@ import {
   FileText
 } from 'lucide-react';
 
+// Deployment Apps Script yang aktif.
 const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbyyfkDa12D55oAB_l_rU15U4EENvXAb1IwBz6WRY6DaoYrZobvi9D0dF_UaMUi9iBAU/exec';
+
+// URL deployment lama yang sudah tidak dipakai.
+// PENTING: browser yang pernah membuka app menyimpan URL webhook di localStorage,
+// jadi mengganti DEFAULT_WEBHOOK_URL saja TIDAK cukup — mereka akan tetap
+// menembak script lama. Daftar ini dipakai untuk memaksa pindah ke URL baru.
+// Kalau nanti deploy ulang dengan URL baru lagi, pindahkan URL lama ke sini.
+const RETIRED_WEBHOOK_URLS = [
+  'https://script.google.com/macros/s/AKfycbxgKE-x6bNLC7Eu61d_rqZtyZsEAa3EYANFJshRTxuZlRPciNaNUKvrpX5JcwEHz6hd/exec',
+];
+
+const resolveWebhookUrl = () => {
+  let saved = '';
+  try { saved = localStorage.getItem('ld_bazaar_sheet_webhook') || ''; } catch (e) { saved = ''; }
+  saved = saved.trim();
+  const isRetired = RETIRED_WEBHOOK_URLS.some(u => saved === u || saved.replace(/\/+$/, '') === u.replace(/\/+$/, ''));
+  if (!saved || isRetired) {
+    try { localStorage.setItem('ld_bazaar_sheet_webhook', DEFAULT_WEBHOOK_URL); } catch (e) { /* abaikan */ }
+    if (isRetired) console.info('Webhook lama terdeteksi, dialihkan ke deployment terbaru.');
+    return DEFAULT_WEBHOOK_URL;
+  }
+  return saved;
+};
 
 const PREDEFINED_CATEGORIES = [
   "Makanan Siap Saji",
@@ -290,10 +313,7 @@ export default function App() {
     return saved ? JSON.parse(saved) : { username: 'admin', password: '123' };
   });
 
-  const [sheetWebhookUrl, setSheetWebhookUrl] = useState(() => {
-    const saved = localStorage.getItem('ld_bazaar_sheet_webhook');
-    return saved && saved.trim() !== '' ? saved : DEFAULT_WEBHOOK_URL;
-  });
+  const [sheetWebhookUrl, setSheetWebhookUrl] = useState(resolveWebhookUrl);
 
   const [classesList, setClassesList] = useState(() => JSON.parse(localStorage.getItem('ld_bazaar_classes')) || INITIAL_CLASSES);
   const [tenants, setTenants] = useState(() => JSON.parse(localStorage.getItem('ld_bazaar_tenants')) || INITIAL_TENANTS);
@@ -471,8 +491,16 @@ export default function App() {
                   });
                 }
 
+                // FIX: sheet menyimpan waktu di kolom "Timestamp", bukan "date".
+                // Tanpa ini kolom Tanggal di export/cetak selalu tampil "-".
+                const rawDate = getVal(['date', 'Timestamp', 'tanggal', 'Tanggal']);
+                let orderDate = '';
+                if (rawDate instanceof Date) orderDate = rawDate.toISOString();
+                else if (rawDate) orderDate = String(rawDate);
+
                 return {
-                  ...o, orderId, batchId, status, totalAmount, customer: parsedCust, items: parsedItems
+                  ...o, orderId, batchId, status, totalAmount, date: orderDate,
+                  customer: parsedCust, items: parsedItems
                 };
               } catch (parseError) {
                 console.warn('Skipping malformed row:', parseError);
@@ -1781,13 +1809,19 @@ export default function App() {
         <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:bg-white print:overflow-visible print:h-auto">
           <style>{`
             @media print {
-              @page { size: A4 landscape; margin: 8mm; }
+              @page { size: A4 landscape; margin: 10mm 8mm; }
               body { margin: 0; background-color: white; }
               html, body { height: max-content !important; overflow: visible !important; }
               .no-print { display: none !important; }
               * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-              .order-block { break-inside: avoid; page-break-inside: avoid; }
+              /* Kunci: tiap pesanan satu <tbody>, dan tbody tidak boleh dipotong.
+                 Ini yang bikin baris Total tidak lagi nyangkut ke halaman berikutnya. */
+              tbody.order-block { break-inside: avoid; page-break-inside: avoid; }
+              tr { break-inside: avoid; page-break-inside: avoid; }
               thead { display: table-header-group; }
+              tfoot { display: table-row-group; }   /* jangan diulang tiap halaman */
+              .doc-summary { break-inside: avoid; page-break-inside: avoid; }
+              .doc-header { break-after: avoid; page-break-after: avoid; }
             }
           `}</style>
 
@@ -1803,92 +1837,104 @@ export default function App() {
             </div>
           </div>
 
-          <div className="p-6 max-w-6xl mx-auto bg-white text-black text-[10px] print:p-0 print:m-0 print:w-full print:max-w-none shadow-xl print:shadow-none my-8 print:my-0">
-            <div className="border-b-2 border-slate-800 pb-2 mb-4">
+          <div className="p-6 max-w-6xl mx-auto bg-white text-black text-[9.5px] print:p-0 print:m-0 print:w-full print:max-w-none shadow-xl print:shadow-none my-8 print:my-0">
+            <div className="doc-header border-b-2 border-slate-800 pb-2 mb-3">
               <h2 className="text-sm font-bold text-slate-900">Daftar Pesanan Bazaar DANUS — PTA Little Darbi</h2>
-              <p className="text-[10px] text-slate-600 mt-0.5">
+              <p className="text-[9.5px] text-slate-600 mt-0.5">
                 Filter: {printOrders.label} &nbsp;|&nbsp; {printOrders.list.length} pesanan
                 ({printOrders.summary.paid} Paid, {printOrders.summary.unpaid} Unpaid)
                 &nbsp;|&nbsp; Dicetak: {new Date().toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short' })}
               </p>
             </div>
 
-            <table className="w-full border-collapse mb-5">
+            <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '8%' }} /><col style={{ width: '7%' }} /><col style={{ width: '15%' }} />
+                <col style={{ width: '13%' }} /><col style={{ width: '10%' }} /><col style={{ width: '27%' }} />
+                <col style={{ width: '4%' }} /><col style={{ width: '10%' }} /><col style={{ width: '6%' }} />
+              </colgroup>
               <thead>
                 <tr className="bg-slate-800 text-white">
-                  <th className="border border-slate-300 p-1.5 text-left">No Order</th>
-                  <th className="border border-slate-300 p-1.5 text-left">Tanggal</th>
-                  <th className="border border-slate-300 p-1.5 text-left">Nama Anak</th>
-                  <th className="border border-slate-300 p-1.5 text-left">Kelas</th>
-                  <th className="border border-slate-300 p-1.5 text-left">Ortu</th>
-                  <th className="border border-slate-300 p-1.5 text-left">Produk</th>
-                  <th className="border border-slate-300 p-1.5 text-center">Qty</th>
-                  <th className="border border-slate-300 p-1.5 text-right">Subtotal</th>
-                  <th className="border border-slate-300 p-1.5 text-center">Status</th>
+                  <th className="border border-slate-400 p-1 text-left">No Order</th>
+                  <th className="border border-slate-400 p-1 text-left">Tanggal</th>
+                  <th className="border border-slate-400 p-1 text-left">Nama Anak</th>
+                  <th className="border border-slate-400 p-1 text-left">Kelas</th>
+                  <th className="border border-slate-400 p-1 text-left">Ortu</th>
+                  <th className="border border-slate-400 p-1 text-left">Produk</th>
+                  <th className="border border-slate-400 p-1 text-center">Qty</th>
+                  <th className="border border-slate-400 p-1 text-right">Subtotal</th>
+                  <th className="border border-slate-400 p-1 text-center">Status</th>
                 </tr>
               </thead>
-              <tbody>
-                {printOrders.list.map((ord, oi) => {
-                  const c = ord.customer || {};
-                  const items = enrichOrderItems(ord);
-                  const rowCount = Math.max(items.length, 1);
-                  const orderTotal = items.reduce((n, it) => n + (Number(it.subtotal) || 0), 0);
-                  const tgl = ord.date ? new Date(ord.date) : null;
-                  const tglStr = tgl && !isNaN(tgl) ? tgl.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: '2-digit' }) : '-';
-                  return (
-                    <Fragment key={ord.orderId || oi}>
-                      {(items.length ? items : [null]).map((it, ii) => (
-                        <tr key={ii} className={oi % 2 ? 'bg-slate-50' : ''}>
-                          {ii === 0 && <td rowSpan={rowCount} className="border border-slate-300 p-1.5 font-bold align-top">{ord.orderId || '-'}</td>}
-                          {ii === 0 && <td rowSpan={rowCount} className="border border-slate-300 p-1.5 align-top whitespace-nowrap">{tglStr}</td>}
-                          {ii === 0 && <td rowSpan={rowCount} className="border border-slate-300 p-1.5 align-top">{c.namaAnak || '-'}</td>}
-                          {ii === 0 && <td rowSpan={rowCount} className="border border-slate-300 p-1.5 align-top">{c.kelas || '-'}</td>}
-                          {ii === 0 && <td rowSpan={rowCount} className="border border-slate-300 p-1.5 align-top">{c.namaOrtu || '-'}</td>}
-                          <td className="border border-slate-300 p-1.5">{it ? parseAndCleanItem(it.name) : '(tidak ada item)'}</td>
-                          <td className="border border-slate-300 p-1.5 text-center">{it ? (it.qty || 1) : '-'}</td>
-                          <td className="border border-slate-300 p-1.5 text-right">{it ? formatRupiah(it.subtotal) : '-'}</td>
-                          {ii === 0 && (
-                            <td rowSpan={rowCount} className={`border border-slate-300 p-1.5 text-center font-bold align-top ${(ord.status || 'Unpaid') === 'Paid' ? 'text-emerald-700' : 'text-red-600'}`}>
-                              {ord.status || 'Unpaid'}
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                      <tr className="bg-slate-100 order-block">
-                        <td colSpan={6} className="border border-slate-300 p-1.5 text-right font-bold">
-                          Total {ord.orderId || '-'}{c.catatan && c.catatan !== '-' ? ` — Catatan: ${c.catatan}` : ''}
-                        </td>
-                        <td colSpan={3} className="border border-slate-300 p-1.5 text-right font-bold">{formatRupiah(orderTotal)}</td>
+
+              {printOrders.list.map((ord, oi) => {
+                const c = ord.customer || {};
+                const items = enrichOrderItems(ord);
+                const rowCount = Math.max(items.length, 1);
+                const orderTotal = items.reduce((n, it) => n + (Number(it.subtotal) || 0), 0);
+                const tgl = ord.date ? new Date(ord.date) : null;
+                const tglStr = tgl && !isNaN(tgl)
+                  ? tgl.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: '2-digit' })
+                  : '-';
+                const isPaid = (ord.status || 'Unpaid') === 'Paid';
+                const zebra = oi % 2 ? 'bg-slate-50' : '';
+                const hasCatatan = c.catatan && String(c.catatan).trim() !== '' && String(c.catatan).trim() !== '-';
+                return (
+                  <tbody key={ord.orderId || oi} className="order-block">
+                    {(items.length ? items : [null]).map((it, ii) => (
+                      <tr key={ii} className={zebra}>
+                        {ii === 0 && <td rowSpan={rowCount} className="border border-slate-400 p-1 font-bold align-top break-words">{ord.orderId || '-'}</td>}
+                        {ii === 0 && <td rowSpan={rowCount} className="border border-slate-400 p-1 align-top">{tglStr}</td>}
+                        {ii === 0 && <td rowSpan={rowCount} className="border border-slate-400 p-1 align-top break-words">{c.namaAnak || '-'}</td>}
+                        {ii === 0 && <td rowSpan={rowCount} className="border border-slate-400 p-1 align-top break-words">{c.kelas || '-'}</td>}
+                        {ii === 0 && <td rowSpan={rowCount} className="border border-slate-400 p-1 align-top break-words">{c.namaOrtu || '-'}</td>}
+                        <td className="border border-slate-400 p-1 break-words">{it ? parseAndCleanItem(it.name) : '(tidak ada item)'}</td>
+                        <td className="border border-slate-400 p-1 text-center">{it ? (it.qty || 1) : '-'}</td>
+                        <td className="border border-slate-400 p-1 text-right whitespace-nowrap">{it ? formatRupiah(it.subtotal) : '-'}</td>
+                        {ii === 0 && (
+                          <td rowSpan={rowCount} className={`border border-slate-400 p-1 text-center font-bold align-top ${isPaid ? 'text-emerald-700' : 'text-red-600'}`}>
+                            {ord.status || 'Unpaid'}
+                          </td>
+                        )}
                       </tr>
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="bg-slate-800 text-white font-bold">
-                  <td colSpan={6} className="border border-slate-300 p-2 text-right">TOTAL KESELURUHAN ({printOrders.summary.items} item)</td>
-                  <td colSpan={3} className="border border-slate-300 p-2 text-right text-xs">{formatRupiah(printOrders.summary.gross)}</td>
-                </tr>
-              </tfoot>
+                    ))}
+                    <tr className="bg-slate-200">
+                      <td colSpan={6} className="border border-slate-400 p-1 text-right font-bold">
+                        Total {ord.orderId || '-'}
+                        {hasCatatan && <span className="font-normal italic text-slate-600"> — Catatan: {c.catatan}</span>}
+                      </td>
+                      <td colSpan={3} className="border border-slate-400 p-1 text-right font-bold whitespace-nowrap">{formatRupiah(orderTotal)}</td>
+                    </tr>
+                  </tbody>
+                );
+              })}
             </table>
 
-            <div className="grid grid-cols-3 gap-3 text-[10px]">
-              <div className="border border-slate-300 p-2 rounded">
-                <div className="text-slate-500">Hak Vendor</div>
-                <div className="font-bold text-emerald-700 text-xs">{formatRupiah(printOrders.summary.owner)}</div>
+            {}
+            <div className="doc-summary mt-4 border-t-2 border-slate-800 pt-3">
+              <div className="flex justify-between items-center bg-slate-800 text-white px-3 py-2 rounded-t">
+                <span className="font-bold">TOTAL KESELURUHAN — {printOrders.list.length} pesanan, {printOrders.summary.items} item</span>
+                <span className="font-bold text-xs">{formatRupiah(printOrders.summary.gross)}</span>
               </div>
-              <div className="border border-slate-300 p-2 rounded">
-                <div className="text-slate-500">Hak Panitia</div>
-                <div className="font-bold text-orange-700 text-xs">{formatRupiah(printOrders.summary.org)}</div>
-              </div>
-              <div className="border border-slate-300 p-2 rounded">
-                <div className="text-slate-500">Total Tagihan</div>
-                <div className="font-bold text-slate-900 text-xs">{formatRupiah(printOrders.summary.gross)}</div>
+              <div className="grid grid-cols-3 border border-t-0 border-slate-400">
+                <div className="p-2 border-r border-slate-400">
+                  <div className="text-slate-500">Hak Vendor</div>
+                  <div className="font-bold text-emerald-700 text-xs">{formatRupiah(printOrders.summary.owner)}</div>
+                </div>
+                <div className="p-2 border-r border-slate-400">
+                  <div className="text-slate-500">Hak Panitia</div>
+                  <div className="font-bold text-orange-700 text-xs">{formatRupiah(printOrders.summary.org)}</div>
+                </div>
+                <div className="p-2">
+                  <div className="text-slate-500">Status</div>
+                  <div className="font-bold text-slate-900 text-xs">{printOrders.summary.paid} Paid / {printOrders.summary.unpaid} Unpaid</div>
+                </div>
               </div>
             </div>
           </div>
         </div>
       )}
+
 
       {printData && (
         <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:bg-white print:overflow-visible print:h-auto">
