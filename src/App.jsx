@@ -323,6 +323,14 @@ export default function App() {
   const [orderSearch, setOrderSearch] = useState('');
   const [printOrders, setPrintOrders] = useState(null);
 
+  // Peserta batch: stand mana yang ikut, dan produk mana yang dikecualikan.
+  // batchTenants      : { [batchId]: Set(tenantId) }
+  // batchExclusions   : { [batchId]: Set(productId) }
+  const [batchTenants, setBatchTenants] = useState({});
+  const [batchExclusions, setBatchExclusions] = useState({});
+  const [pesertaBatchId, setPesertaBatchId] = useState('');
+  const [standTertutup, setStandTertutup] = useState({});
+
   // Bersihkan sisa cache era spreadsheet sekali saat app dibuka.
   useEffect(() => { purgeLegacyCache(); }, []);
 
@@ -373,18 +381,29 @@ export default function App() {
     try {
       const wantOrders = withOrders === null ? isAdminLoggedIn : withOrders;
 
-      const [tRes, cRes, bRes, pRes] = await Promise.all([
+      const [tRes, cRes, bRes, pRes, btRes, beRes] = await Promise.all([
         supabase.from('tenants').select('*').order('name'),
         supabase.from('classes').select('*').order('name'),
         supabase.from('batches').select('*').order('start_date', { ascending: false }),
         supabase.from('products').select('*, product_variants(*)').order('name'),
+        supabase.from('batch_tenants').select('batch_id, tenant_id'),
+        supabase.from('batch_product_exclusions').select('batch_id, product_id'),
       ]);
 
-      const firstErr = [tRes, cRes, bRes, pRes].find((r) => r.error);
+      const firstErr = [tRes, cRes, bRes, pRes, btRes, beRes].find((r) => r.error);
       if (firstErr) throw firstErr.error;
+
+      const bt = {};
+      btRes.data.forEach((r) => { (bt[r.batch_id] ||= new Set()).add(r.tenant_id); });
+      setBatchTenants(bt);
+      const be = {};
+      beRes.data.forEach((r) => { (be[r.batch_id] ||= new Set()).add(r.product_id); });
+      setBatchExclusions(be);
 
       setTenants(tRes.data.map((t) => ({
         id: t.id, name: t.name, description: t.owner || '', phone: t.phone || '',
+        bankName: t.bank_name || '', bankAccount: t.bank_account || '',
+        bankAccountName: t.bank_account_name || '',
       })));
       setClassesList(cRes.data.map((c) => ({ id: c.id, name: c.name, phone: c.phone || '' })));
 
@@ -395,7 +414,10 @@ export default function App() {
       }));
       setBatches(mappedBatches);
       const act = mappedBatches.find((b) => b.isActive) || mappedBatches[0];
-      if (act) setReportSelectedBatchId((prev) => prev || act.id);
+      if (act) {
+        setReportSelectedBatchId((prev) => prev || act.id);
+        setPesertaBatchId((prev) => prev || act.id);
+      }
 
       setProducts(pRes.data.map(mapProduct));
 
@@ -470,6 +492,38 @@ export default function App() {
   const lempar = ({ error }) => { if (error) throw error; };
 
   // --- Produk --------------------------------------------------------------
+  /** Apakah sebuah produk tampil di batch tertentu. */
+  const produkIkutBatch = (p, batchId) => {
+    if (!batchId) return false;
+    const ikut = batchTenants[batchId];
+    if (!ikut || !ikut.has(p.tenantId)) return false;       // standnya tidak ikut
+    return !(batchExclusions[batchId]?.has(p.id));          // produknya tidak dikecualikan
+  };
+
+  /** Centang/lepas satu stand dari sebuah batch. */
+  const toggleStandBatch = (batchId, tenantId, ikut) =>
+    simpan(ikut ? 'Stand ditambahkan ke batch.' : 'Stand dikeluarkan dari batch.', async () => {
+      if (ikut) {
+        lempar(await supabase.from('batch_tenants')
+          .upsert({ batch_id: batchId, tenant_id: tenantId }, { onConflict: 'batch_id,tenant_id' }));
+      } else {
+        lempar(await supabase.from('batch_tenants')
+          .delete().eq('batch_id', batchId).eq('tenant_id', tenantId));
+      }
+    });
+
+  /** Centang/lepas satu produk di sebuah batch (lewat daftar pengecualian). */
+  const toggleProdukBatch = (batchId, productId, ikut) =>
+    simpan(ikut ? 'Produk ditampilkan di batch.' : 'Produk disembunyikan di batch.', async () => {
+      if (ikut) {
+        lempar(await supabase.from('batch_product_exclusions')
+          .delete().eq('batch_id', batchId).eq('product_id', productId));
+      } else {
+        lempar(await supabase.from('batch_product_exclusions')
+          .upsert({ batch_id: batchId, product_id: productId }, { onConflict: 'batch_id,product_id' }));
+      }
+    });
+
   const saveProduct = (form, existing) => simpan('Produk tersimpan!', async () => {
     const id = existing?.id || 'p-' + Date.now();
     lempar(await supabase.from('products').upsert({
@@ -518,6 +572,9 @@ export default function App() {
       name: String(form.name).trim(),
       owner: form.description?.trim() || null,
       phone: form.phone ? String(form.phone).trim() : null,
+      bank_name: form.bankName?.trim() || null,
+      bank_account: form.bankAccount ? String(form.bankAccount).trim() : null,
+      bank_account_name: form.bankAccountName?.trim() || null,
     })));
 
   const deleteTenant = (id) => simpan('Stand dihapus.', async () =>
@@ -750,16 +807,37 @@ export default function App() {
   };
 
   const availableCategories = useMemo(() => {
-    const cats = products.map(p => p.category).filter(c => c && c.trim() !== '');
+    const cats = products
+      .filter((p) => produkIkutBatch(p, activeBatch?.id))
+      .map((p) => p.category).filter((c) => c && c.trim() !== '');
     return [...new Set(cats)].sort();
-  }, [products]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, activeBatch, batchTenants, batchExclusions]);
+
+  /**
+   * Produk dikelompokkan per stand untuk tab "Produk & Harga".
+   * Sebelumnya daftarnya datar, jadi produk baru tenggelam di antara 87 kartu.
+   */
+  const productsByTenant = useMemo(() => {
+    const urutTenant = [...tenants].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    return urutTenant
+      .map((tenant) => ({
+        tenant,
+        items: products
+          .filter((p) => p.tenantId === tenant.id)
+          .sort((a, b) => String(a.name).localeCompare(String(b.name))),
+      }))
+      .filter((g) => g.items.length > 0);
+  }, [products, tenants]);
 
   const filteredProducts = useMemo(() => {
     let result = products.filter((p) => {
       const matchTenant = selectedTenantFilter === 'all' || p.tenantId === selectedTenantFilter;
       const matchCategory = selectedCategoryFilter === 'all' || p.category === selectedCategoryFilter;
       const matchSearch = String(p.name || '').toLowerCase().includes(searchQuery.toLowerCase());
-      return matchTenant && matchCategory && matchSearch && p.available;
+      // Hanya produk dari stand yang ikut batch aktif, dan tidak dikecualikan.
+      const ikutBatch = produkIkutBatch(p, activeBatch?.id);
+      return matchTenant && matchCategory && matchSearch && p.available && ikutBatch;
     });
 
     if (sortOrder === 'az') {
@@ -769,7 +847,9 @@ export default function App() {
     }
 
     return result;
-  }, [products, selectedTenantFilter, selectedCategoryFilter, searchQuery, sortOrder]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, selectedTenantFilter, selectedCategoryFilter, searchQuery, sortOrder,
+      activeBatch, batchTenants, batchExclusions]);
 
   const enrichOrderItems = (ord) => {
     if (!ord || !ord.items || !Array.isArray(ord.items)) return [];
@@ -950,6 +1030,9 @@ export default function App() {
         tenantName: tenant.name,
         tenantDesc: tenant.description || tenant.owner || '', 
         tenantPhone: tenant.phone || '',
+        tenantBankName: tenant.bankName || '',
+        tenantBankAccount: tenant.bankAccount || '',
+        tenantBankAccountName: tenant.bankAccountName || '',
         customerOrdersDetail,
         itemTotalsMap,
         tenantTotalGross,
@@ -1264,6 +1347,14 @@ export default function App() {
                               <div>
                                 <h4 className="font-bold text-sm sm:text-base">{tenantRep.tenantName}</h4>
                                 <p className="text-[10px] sm:text-xs text-slate-300">{tenantRep.tenantDesc} {tenantRep.tenantPhone ? `(WA: ${tenantRep.tenantPhone})` : ''}</p>
+                                {tenantRep.tenantBankAccount ? (
+                                  <p className="text-[10px] sm:text-xs text-amber-300 font-bold mt-1">
+                                    {tenantRep.tenantBankName} {tenantRep.tenantBankAccount}
+                                    {tenantRep.tenantBankAccountName ? ` a.n. ${tenantRep.tenantBankAccountName}` : ''}
+                                  </p>
+                                ) : (
+                                  <p className="text-[10px] text-slate-400 italic mt-1">Rekening belum diisi</p>
+                                )}
                               </div>
                               <div className="flex gap-2">
                                 <button 
@@ -1272,6 +1363,10 @@ export default function App() {
                                       if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
                                       
                                       let text = `REKAP PESANAN - ${tenantRep.tenantName.toUpperCase()}\n`;
+                                      if (tenantRep.tenantBankAccount) {
+                                        text += `Rekening: ${tenantRep.tenantBankName} ${tenantRep.tenantBankAccount}` +
+                                                `${tenantRep.tenantBankAccountName ? ' a.n. ' + tenantRep.tenantBankAccountName : ''}\n`;
+                                      }
                                       text += `Periode: ${currentBatch?.name || '-'}\n`;
                                       text += `Tanggal ready: ${currentBatch?.readyDate ? formatIndoDate(currentBatch.readyDate) : '-'}\n\n`;
                                       
@@ -1470,9 +1565,27 @@ export default function App() {
                         <Plus className="w-3.5 h-3.5 mr-1" /> Tambah Produk
                       </button>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {products.map(p => {
-                        const t = tenants.find(x => x.id === p.tenantId);
+                    {productsByTenant.length === 0 && (
+                      <div className="bg-white p-8 rounded-xl border text-center text-xs text-slate-400">Belum ada produk.</div>
+                    )}
+
+                    {productsByTenant.map(({ tenant, items }) => (
+                      <div key={tenant.id} className="bg-white rounded-xl border shadow-sm overflow-hidden">
+                        <button
+                          onClick={() => setStandTertutup((prev) => ({ ...prev, [tenant.id]: !prev[tenant.id] }))}
+                          className="w-full flex justify-between items-center gap-2 px-4 py-3 bg-slate-100 hover:bg-slate-200 transition-colors text-left"
+                        >
+                          <span className="font-bold text-sm text-slate-900">{tenant.name}</span>
+                          <span className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold bg-white border text-slate-600 px-2 py-0.5 rounded-full">{items.length} produk</span>
+                            <span className="text-slate-400 text-xs">{standTertutup[tenant.id] ? '▸' : '▾'}</span>
+                          </span>
+                        </button>
+
+                        {!standTertutup[tenant.id] && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3">
+                      {items.map(p => {
+                        const t = tenant;
                         const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
                         const sPrice = hasVariants 
                             ? Math.min(...p.variants.map(v => Number(v.priceOwner) + Number(v.priceOrganizer))) 
@@ -1500,13 +1613,95 @@ export default function App() {
                           </div>
                         )
                       })}
-                    </div>
+                        </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
 
                 {}
                 {adminSubTab === 'batches' && (
                   <div className="space-y-4 animate-in fade-in duration-300">
+
+                    {}
+                    <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+                      <div className="p-3 sm:p-4 bg-slate-900 text-white">
+                        <h3 className="font-bold text-sm">Peserta Batch</h3>
+                        <p className="text-[10px] text-slate-300 mt-1 leading-relaxed">
+                          Pilih stand yang ikut. Semua produk stand itu otomatis tampil, lalu hilangkan centang
+                          produk yang tidak dijual periode ini. Produk tidak perlu dihapus.
+                        </p>
+                      </div>
+
+                      <div className="p-3 border-b bg-slate-50 flex flex-wrap gap-2 items-center text-xs">
+                        <span className="font-bold text-slate-600">Batch:</span>
+                        <select
+                          value={pesertaBatchId}
+                          onChange={(e) => setPesertaBatchId(e.target.value)}
+                          className="p-2 border rounded-lg bg-white font-semibold focus:outline-none focus:border-indigo-500"
+                        >
+                          {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        </select>
+                        {(() => {
+                          const ikut = batchTenants[pesertaBatchId];
+                          const nStand = ikut ? ikut.size : 0;
+                          const nProduk = products.filter((p) => produkIkutBatch(p, pesertaBatchId)).length;
+                          return (
+                            <>
+                              <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded font-bold">{nStand} stand ikut</span>
+                              <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded font-bold">{nProduk} produk tampil</span>
+                            </>
+                          );
+                        })()}
+                      </div>
+
+                      {!pesertaBatchId ? (
+                        <p className="p-6 text-center text-xs text-slate-400">Pilih batch dulu.</p>
+                      ) : (
+                        <div className="divide-y max-h-[32rem] overflow-y-auto">
+                          {productsByTenant.map(({ tenant, items }) => {
+                            const standIkut = !!batchTenants[pesertaBatchId]?.has(tenant.id);
+                            return (
+                              <div key={tenant.id} className={standIkut ? '' : 'bg-slate-50'}>
+                                <label className="flex items-center gap-2.5 px-4 py-2.5 cursor-pointer hover:bg-slate-100 transition-colors">
+                                  <input
+                                    type="checkbox"
+                                    checked={standIkut}
+                                    onChange={(e) => toggleStandBatch(pesertaBatchId, tenant.id, e.target.checked)}
+                                    className="w-4 h-4 accent-indigo-600 shrink-0"
+                                  />
+                                  <span className={`font-bold text-xs ${standIkut ? 'text-slate-900' : 'text-slate-400'}`}>{tenant.name}</span>
+                                  <span className="text-[10px] text-slate-400 ml-auto">{items.length} produk</span>
+                                </label>
+
+                                {standIkut && (
+                                  <div className="pl-10 pr-4 pb-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+                                    {items.map((p) => {
+                                      const tampil = !batchExclusions[pesertaBatchId]?.has(p.id);
+                                      return (
+                                        <label key={p.id} className="flex items-center gap-2 py-1 cursor-pointer text-[11px]">
+                                          <input
+                                            type="checkbox"
+                                            checked={tampil}
+                                            onChange={(e) => toggleProdukBatch(pesertaBatchId, p.id, e.target.checked)}
+                                            className="w-3.5 h-3.5 accent-emerald-600 shrink-0"
+                                          />
+                                          <span className={tampil ? 'text-slate-700' : 'text-slate-400 line-through'}>
+                                            {parseAndCleanItem(p.name)}
+                                          </span>
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
                     <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border">
                       <h3 className="font-bold text-sm">Kelola Batch Periode</h3>
                       <button onClick={() => setBatchModal({ isOpen: true, item: null })} className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-lg flex items-center shadow-sm transition-colors">
@@ -1971,6 +2166,12 @@ export default function App() {
             <p className="text-[10px] text-slate-500 mb-5 border-b border-slate-300 pb-2">
               Periode: {printData.currentBatch?.name || '-'} | Ready: {printData.currentBatch?.readyDate ? formatIndoDate(printData.currentBatch.readyDate) : '-'} | Deskripsi: {printData.tenantRep?.tenantDesc || '-'} ({printData.tenantRep?.tenantPhone || '-'})
             </p>
+            <p className="text-[11px] mt-1 font-bold text-slate-900">
+              {printData.tenantRep?.tenantBankAccount
+                ? <>Pembayaran ke: {printData.tenantRep.tenantBankName} {printData.tenantRep.tenantBankAccount}
+                    {printData.tenantRep.tenantBankAccountName ? ` a.n. ${printData.tenantRep.tenantBankAccountName}` : ''}</>
+                : <span className="font-normal italic text-slate-500">Rekening pembayaran belum diisi di Kelola Stand.</span>}
+            </p>
 
             <h3 className="font-bold mt-5 mb-2 text-xs text-slate-800">1. Detail Pesanan Pembeli ({printData.tenantRep?.customerOrdersDetail?.length || 0})</h3>
             <table className="w-full border-collapse border border-slate-300 text-[10px] mb-6">
@@ -2185,15 +2386,29 @@ function ModalTenantForm({ item, onClose, onSave }) {
   const [name, setName] = useState(item?.name || '');
   const [description, setDescription] = useState(item?.description || item?.owner || '');
   const [phone, setPhone] = useState(item?.phone || '');
+  const [bankName, setBankName] = useState(item?.bankName || '');
+  const [bankAccount, setBankAccount] = useState(item?.bankAccount || '');
+  const [bankAccountName, setBankAccountName] = useState(item?.bankAccountName || '');
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
-      <div className="bg-white rounded-2xl w-full max-w-xs p-6 relative shadow-xl">
+      <div className="bg-white rounded-2xl w-full max-w-xs p-6 relative shadow-xl max-h-[90vh] overflow-y-auto scrollbar-none">
         <button onClick={onClose} className="absolute top-4 right-4 p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"><X className="w-4 h-4 text-slate-500" /></button>
         <h3 className="font-bold text-base mb-4">{item ? 'Edit Stand' : 'Tambah Stand'}</h3>
-        <form onSubmit={(e) => { e.preventDefault(); onSave({ name, description, phone }); }} className="space-y-4 text-xs font-medium">
+        <form onSubmit={(e) => { e.preventDefault(); onSave({ name, description, phone, bankName, bankAccount, bankAccountName }); }} className="space-y-4 text-xs font-medium">
           <div><label className="block mb-1">Nama Stand</label><input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
           <div><label className="block mb-1">Deskripsi Singkat</label><input type="text" placeholder="Misal: Minuman Dingin & Snack" required value={description} onChange={e => setDescription(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
           <div><label className="block mb-1">No WA (628...)</label><input type="text" required value={phone} onChange={e => setPhone(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
+
+          <div className="pt-3 border-t">
+            <p className="font-bold text-slate-700 mb-2">Rekening Pembayaran</p>
+            <p className="text-[10px] text-slate-400 mb-2.5 leading-relaxed">Muncul di Rekap Per Stand dan ikut tercetak di PDF rekap. Boleh dikosongkan.</p>
+            <div className="space-y-2.5">
+              <div><label className="block mb-1">Nama Bank</label><input type="text" placeholder="BCA" value={bankName} onChange={e => setBankName(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
+              <div><label className="block mb-1">No Rekening</label><input type="text" inputMode="numeric" placeholder="1234567890" value={bankAccount} onChange={e => setBankAccount(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
+              <div><label className="block mb-1">Atas Nama</label><input type="text" placeholder="Nama pemilik rekening" value={bankAccountName} onChange={e => setBankAccountName(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
+            </div>
+          </div>
+
           <button type="submit" className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-colors">Simpan</button>
         </form>
       </div>
