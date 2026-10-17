@@ -334,7 +334,6 @@ export default function App() {
 
   // --- Kasir bazaar offline -------------------------------------------------
   const [posCart, setPosCart] = useState([]);           // [{key, productId, variantId, name, tenantId, price, qty}]
-  const [posSearch, setPosSearch] = useState('');
   const [posBayar, setPosBayar] = useState('Tunai');
   const [posPembeli, setPosPembeli] = useState('');
   const [posSubmitting, setPosSubmitting] = useState(false);
@@ -836,13 +835,29 @@ export default function App() {
     }
   };
 
+  /**
+   * Kanal katalog yang sedang ditampilkan. Layar Kasir memakai produk offline,
+   * sisanya produk online. Filter, pencarian, dan aturan etalase dipakai
+   * bersama supaya kasir tidak perlu belajar tata letak yang berbeda.
+   */
+  const katalogKanal = (activeTab === 'admin' && adminSubTab === 'kasir') ? 'offline' : 'online';
+
+  // Ganti layar, filter kategori/stand direset — kategori produk offline
+  // belum tentu ada di produk online, dan sebaliknya.
+  useEffect(() => {
+    setSearchQuery('');
+    setSelectedCategoryFilter('all');
+    setSelectedTenantFilter('all');
+    setSortOrder('default');
+  }, [katalogKanal]);
+
   const availableCategories = useMemo(() => {
     const cats = products
-      .filter((p) => p.channel === 'online' && produkIkutBatch(p, activeBatch?.id))
+      .filter((p) => p.channel === katalogKanal && produkIkutBatch(p, activeBatch?.id))
       .map((p) => p.category).filter((c) => c && c.trim() !== '');
     return [...new Set(cats)].sort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, activeBatch, batchTenants, batchExclusions]);
+  }, [products, activeBatch, batchTenants, batchExclusions, katalogKanal]);
 
   /**
    * Urutan stand yang dipakai SELURUH app. Diurutkan di sisi app, bukan
@@ -887,13 +902,13 @@ export default function App() {
       .map((tenant) => ({
         tenant,
         items: products
-          .filter((p) => p.tenantId === tenant.id && p.available && p.channel === 'online'
+          .filter((p) => p.tenantId === tenant.id && p.available && p.channel === katalogKanal
                       && produkIkutBatch(p, activeBatch?.id))
           .sort((a, b) => String(a.name).localeCompare(String(b.name))),
       }))
       .filter((g) => g.items.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, tenantsUrut, activeBatch, batchTenants, batchExclusions]);
+  }, [products, tenantsUrut, activeBatch, batchTenants, batchExclusions, katalogKanal]);
 
   const filteredProducts = useMemo(() => {
     let result = products.filter((p) => {
@@ -904,7 +919,7 @@ export default function App() {
       const ikutBatch = produkIkutBatch(p, activeBatch?.id);
       // Produk offline tidak pernah muncul di halaman pembeli.
       return matchTenant && matchCategory && matchSearch && p.available
-             && p.channel === 'online' && ikutBatch;
+             && p.channel === katalogKanal && ikutBatch;
     });
 
     if (sortOrder === 'az') {
@@ -916,7 +931,7 @@ export default function App() {
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [products, selectedTenantFilter, selectedCategoryFilter, searchQuery, sortOrder,
-      activeBatch, batchTenants, batchExclusions]);
+      activeBatch, batchTenants, batchExclusions, katalogKanal]);
 
   const enrichOrderItems = (ord) => {
     if (!ord || !ord.items || !Array.isArray(ord.items)) return [];
@@ -1154,49 +1169,13 @@ export default function App() {
     }
   };
 
-  /**
-   * Daftar tombol untuk layar Kasir. Produk bervarian dipecah jadi satu tombol
-   * per varian — di depan antrean, memilih langsung lebih cepat daripada
-   * membuka modal dulu.
-   */
-  const posItems = useMemo(() => {
-    const q = posSearch.trim().toLowerCase();
-    const out = [];
-    offlineByTenant.forEach(({ tenant, items }) => {
-      items.forEach((p) => {
-        if (!p.available) return;
-        if (!produkIkutBatch(p, activeBatch?.id)) return;
-        const vars = Array.isArray(p.variants) && p.variants.length
-          ? p.variants
-          : [null];
-        vars.forEach((v) => {
-          const nama = v ? `${parseAndCleanItem(p.name)} [${v.name}]` : parseAndCleanItem(p.name);
-          if (q && !(nama.toLowerCase().includes(q) || tenant.name.toLowerCase().includes(q))) return;
-          out.push({
-            key: v ? `${p.id}|${v.id}` : p.id,
-            productId: p.id,
-            variantId: v ? v.id : null,
-            name: nama,
-            tenantName: tenant.name,
-            tenantId: tenant.id,
-            price: v
-              ? Number(v.priceOwner) + Number(v.priceOrganizer)
-              : Number(p.priceOwner) + Number(p.priceOrganizer),
-          });
-        });
-      });
-    });
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [offlineByTenant, posSearch, activeBatch, batchTenants, batchExclusions]);
-
   const posTotal = useMemo(
     () => posCart.reduce((n, i) => n + i.price * i.qty, 0), [posCart]);
 
-  const posTambah = (item) => setPosCart((prev) => {
+  const posTambah = (item, jumlah = 1) => setPosCart((prev) => {
     const ada = prev.find((x) => x.key === item.key);
-    if (ada) return prev.map((x) => x.key === item.key ? { ...x, qty: x.qty + 1 } : x);
-    return [...prev, { ...item, qty: 1 }];
+    if (ada) return prev.map((x) => x.key === item.key ? { ...x, qty: x.qty + jumlah } : x);
+    return [...prev, { ...item, qty: jumlah }];
   });
 
   const posUbahQty = (key, delta) => setPosCart((prev) => prev
@@ -1243,13 +1222,17 @@ export default function App() {
    * Satu kartu produk. Dipakai etalase (baris geser) maupun hasil pencarian
    * (grid datar), supaya perilakunya tidak pernah berbeda di antara keduanya.
    */
-  const KartuProduk = ({ prod, tenant, showTenant }) => {
+  const KartuProduk = ({ prod, tenant, showTenant, pos = false }) => {
     const hasVariants = Array.isArray(prod.variants) && prod.variants.length > 0;
     const displayPriceText = hasVariants
       ? `Mulai ${formatRupiah(Math.min(...prod.variants.map((v) => Number(v.priceOwner) + Number(v.priceOrganizer))))}`
       : formatRupiah(Number(prod.priceOwner || 0) + Number(prod.priceOrganizer || 0));
     const cleanName = parseAndCleanItem(prod.name);
-    const inCart = hasVariants ? null : cart.find((item) => item.id === prod.id);
+    // Kasir memakai keranjangnya sendiri, tapi tombol dan perilakunya sama.
+    const inCart = hasVariants
+      ? null
+      : (pos ? posCart.find((i) => i.key === prod.id) : cart.find((i) => i.id === prod.id));
+    const bolehPesan = pos ? true : isOrderingOpen;
 
     return (
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden h-full transition-all hover:shadow-md">
@@ -1286,19 +1269,37 @@ export default function App() {
           <div className="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
             <span className="text-xs sm:text-sm font-black text-amber-600">{displayPriceText}</span>
             {inCart ? (
-              <div className="flex items-center space-x-1.5 bg-amber-50 border border-amber-200 p-0.5 rounded-lg w-fit">
-                <button onClick={() => updateCartQty(prod.id, -1)} className="w-6 h-6 bg-white rounded font-bold text-amber-700 shadow-sm text-xs flex items-center justify-center">-</button>
+              <div className={`flex items-center space-x-1.5 ${pos ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'} border p-0.5 rounded-lg w-fit`}>
+                <button
+                  onClick={() => pos ? posUbahQty(prod.id, -1) : updateCartQty(prod.id, -1)}
+                  className={`w-6 h-6 bg-white rounded font-bold ${pos ? 'text-emerald-700' : 'text-amber-700'} shadow-sm text-xs flex items-center justify-center`}
+                >-</button>
                 <span className="text-[11px] font-bold px-1.5">{inCart.qty}</span>
-                <button onClick={() => updateCartQty(prod.id, 1)} className="w-6 h-6 bg-amber-600 text-white rounded font-bold shadow-sm text-xs flex items-center justify-center">+</button>
+                <button
+                  onClick={() => pos ? posUbahQty(prod.id, 1) : updateCartQty(prod.id, 1)}
+                  className={`w-6 h-6 ${pos ? 'bg-emerald-600' : 'bg-amber-600'} text-white rounded font-bold shadow-sm text-xs flex items-center justify-center`}
+                >+</button>
               </div>
             ) : (
               <button
-                disabled={!isOrderingOpen}
-                title={isOrderingOpen ? '' : 'Periode pemesanan sedang ditutup'}
-                onClick={() => hasVariants ? setVariantModal({ isOpen: true, product: prod }) : addToCart(prod)}
-                className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:hover:bg-slate-300 text-white rounded-lg text-[10px] sm:text-xs font-semibold flex items-center justify-center w-full shadow-sm transition-colors"
+                disabled={!bolehPesan}
+                title={bolehPesan ? '' : 'Periode pemesanan sedang ditutup'}
+                onClick={() => {
+                  if (hasVariants) { setVariantModal({ isOpen: true, product: prod, pos }); return; }
+                  if (pos) {
+                    posTambah({
+                      key: prod.id, productId: prod.id, variantId: null,
+                      name: parseAndCleanItem(prod.name), tenantName: tenant?.name || '',
+                      tenantId: prod.tenantId,
+                      price: Number(prod.priceOwner || 0) + Number(prod.priceOrganizer || 0),
+                    });
+                  } else {
+                    addToCart(prod);
+                  }
+                }}
+                className={`px-2.5 py-1.5 ${pos ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-900 hover:bg-slate-800'} disabled:bg-slate-300 disabled:cursor-not-allowed disabled:hover:bg-slate-300 text-white rounded-lg text-[10px] sm:text-xs font-semibold flex items-center justify-center w-full shadow-sm transition-colors`}
               >
-                {!isOrderingOpen ? <><Clock className="w-3 h-3 mr-1" /> Ditutup</> : hasVariants ? <><List className="w-3 h-3 mr-1" /> Pilih Varian</> : <><Plus className="w-3 h-3 mr-1" /> Pesan</>}
+                {!bolehPesan ? <><Clock className="w-3 h-3 mr-1" /> Ditutup</> : hasVariants ? <><List className="w-3 h-3 mr-1" /> Pilih Varian</> : <><Plus className="w-3 h-3 mr-1" /> {pos ? 'Tambah' : 'Pesan'}</>}
               </button>
             )}
           </div>
@@ -1306,6 +1307,68 @@ export default function App() {
       </div>
     );
   };
+
+  /**
+   * Katalog produk: etalase per stand saat utuh, grid datar saat difilter.
+   * Dipakai halaman pembeli maupun layar Kasir — aturan dan tombolnya sama,
+   * yang berbeda hanya keranjang tujuannya.
+   */
+  const KatalogProduk = ({ pos = false }) => (
+    <>
+      {modeEtalase ? (
+        <div className="space-y-6">
+          {etalase.map(({ tenant, items }) => (
+            <section key={tenant.id}>
+              <div className="flex items-baseline justify-between gap-3 mb-2.5">
+                <h3 className="font-black text-slate-900 text-sm sm:text-base leading-tight truncate">
+                  {tenant.name}
+                </h3>
+                <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap shrink-0">
+                  {items.length} produk
+                </span>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x scrollbar-none">
+                {items.map((prod) => (
+                  <div key={prod.id} className="w-40 sm:w-44 shrink-0 snap-start">
+                    <KartuProduk prod={prod} tenant={tenant} showTenant={false} pos={pos} />
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+
+          {etalase.length === 0 && (
+            <div className="py-12 flex flex-col items-center justify-center text-slate-400">
+              <Store className="w-10 h-10 mb-2 opacity-20" />
+              <p className="text-xs font-medium">
+                {pos ? 'Belum ada produk offline dari stand peserta periode ini.'
+                     : 'Belum ada stand yang ikut periode ini.'}
+              </p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+          {filteredProducts.map((prod) => (
+            <KartuProduk
+              key={prod.id}
+              prod={prod}
+              tenant={tenants.find((t) => t.id === prod.tenantId)}
+              showTenant
+              pos={pos}
+            />
+          ))}
+
+          {filteredProducts.length === 0 && (
+            <div className="col-span-2 md:col-span-3 lg:col-span-4 py-10 flex flex-col items-center justify-center text-slate-400">
+              <Search className="w-10 h-10 mb-2 opacity-20" />
+              <p className="text-xs font-medium">Tidak ada produk yang cocok dengan filter.</p>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
 
   return (
     <Fragment>
@@ -1437,56 +1500,7 @@ export default function App() {
               </div>
             )}
 
-            {}
-            {modeEtalase ? (
-              <div className="space-y-6">
-                {etalase.map(({ tenant, items }) => (
-                  <section key={tenant.id}>
-                    <div className="flex items-baseline justify-between gap-3 mb-2.5">
-                      <h3 className="font-black text-slate-900 text-sm sm:text-base leading-tight truncate">
-                        {tenant.name}
-                      </h3>
-                      <span className="text-[10px] font-bold text-slate-400 whitespace-nowrap shrink-0">
-                        {items.length} produk
-                      </span>
-                    </div>
-                    {}
-                    <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 snap-x scrollbar-none">
-                      {items.map((prod) => (
-                        <div key={prod.id} className="w-40 sm:w-44 shrink-0 snap-start">
-                          <KartuProduk prod={prod} tenant={tenant} showTenant={false} />
-                        </div>
-                      ))}
-                    </div>
-                  </section>
-                ))}
-
-                {etalase.length === 0 && (
-                  <div className="py-12 flex flex-col items-center justify-center text-slate-400">
-                    <Store className="w-10 h-10 mb-2 opacity-20" />
-                    <p className="text-xs font-medium">Belum ada stand yang ikut periode ini.</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-                {filteredProducts.map((prod) => (
-                  <KartuProduk
-                    key={prod.id}
-                    prod={prod}
-                    tenant={tenants.find((t) => t.id === prod.tenantId)}
-                    showTenant
-                  />
-                ))}
-
-                {filteredProducts.length === 0 && (
-                  <div className="col-span-2 md:col-span-3 lg:col-span-4 py-10 flex flex-col items-center justify-center text-slate-400">
-                    <Search className="w-10 h-10 mb-2 opacity-20" />
-                    <p className="text-xs font-medium">Tidak ada produk yang cocok dengan filter.</p>
-                  </div>
-                )}
-              </div>
-            )}
+            <KatalogProduk />
 
             {cart.length > 0 && (
               <div className="fixed bottom-4 left-4 right-4 max-w-md mx-auto z-40 animate-in slide-in-from-bottom-6">
@@ -1837,44 +1851,36 @@ export default function App() {
                       </div>
                     )}
 
-                    <div className="relative">
-                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                      <input
-                        type="text" value={posSearch} onChange={(e) => setPosSearch(e.target.value)}
-                        placeholder="Cari produk atau stand..."
-                        className="w-full pl-9 pr-3 py-2.5 border rounded-xl bg-white text-xs font-semibold focus:outline-none focus:border-emerald-500"
-                      />
+                    {}
+                    <div className="flex gap-2 items-center">
+                      <div className="relative flex-1 min-w-0">
+                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Cari produk..."
+                          className="w-full pl-9 pr-3 py-2.5 border rounded-xl bg-white text-xs font-semibold focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                      <button
+                        onClick={() => setIsFilterModalOpen(true)}
+                        className="px-3 py-2.5 bg-white border rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center gap-1.5 shrink-0 transition-colors"
+                      >
+                        <Filter className="w-3.5 h-3.5" /> Filter
+                      </button>
+                      {(selectedCategoryFilter !== 'all' || selectedTenantFilter !== 'all' || sortOrder !== 'default' || searchQuery) && (
+                        <button
+                          onClick={() => { setSearchQuery(''); setSelectedCategoryFilter('all'); setSelectedTenantFilter('all'); setSortOrder('default'); }}
+                          className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-bold text-slate-600 flex items-center gap-1.5 shrink-0 transition-colors"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" /> Reset
+                        </button>
+                      )}
                     </div>
 
-                    {posItems.length === 0 ? (
-                      <div className="bg-white p-8 rounded-xl border text-center text-xs text-slate-400">
-                        {offlineByTenant.length === 0
-                          ? 'Belum ada produk offline. Tambahkan dulu di tab Produk Offline.'
-                          : 'Tidak ada produk yang cocok, atau standnya belum ikut periode ini.'}
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {posItems.map((it) => {
-                          const diKeranjang = posCart.find((x) => x.key === it.key);
-                          return (
-                            <button
-                              key={it.key}
-                              onClick={() => posTambah(it)}
-                              className={`text-left p-2.5 rounded-xl border-2 bg-white transition-colors ${diKeranjang ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-300'}`}
-                            >
-                              <p className="font-bold text-[11px] text-slate-900 leading-tight line-clamp-2">{it.name}</p>
-                              <p className="text-[9px] text-slate-400 mt-0.5 truncate">{it.tenantName}</p>
-                              <p className="font-black text-emerald-700 text-xs mt-1">{formatRupiah(it.price)}</p>
-                              {diKeranjang && (
-                                <p className="text-[9px] font-black text-white bg-emerald-600 rounded px-1.5 py-0.5 w-fit mt-1">
-                                  {diKeranjang.qty} di keranjang
-                                </p>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
+                    {}
+                    <div className={posCart.length > 0 ? 'pb-2' : ''}>
+                      <KatalogProduk pos />
+                    </div>
 
                     {}
                     {posCart.length > 0 && (
@@ -2044,11 +2050,13 @@ export default function App() {
                         {(() => {
                           const ikut = batchTenants[pesertaBatchId];
                           const nStand = ikut ? ikut.size : 0;
-                          const nProduk = products.filter((p) => produkIkutBatch(p, pesertaBatchId)).length;
+                          const nOn = products.filter((p) => p.channel === 'online' && produkIkutBatch(p, pesertaBatchId)).length;
+                          const nOff = products.filter((p) => p.channel === 'offline' && produkIkutBatch(p, pesertaBatchId)).length;
                           return (
                             <>
                               <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded font-bold">{nStand} stand ikut</span>
-                              <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded font-bold">{nProduk} produk tampil</span>
+                              <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded font-bold">{nOn} produk online</span>
+                              <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded font-bold">{nOff} produk offline</span>
                             </>
                           );
                         })()}
@@ -2074,21 +2082,37 @@ export default function App() {
                                 </label>
 
                                 {standIkut && (
-                                  <div className="pl-10 pr-4 pb-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-                                    {items.map((p) => {
-                                      const tampil = !batchExclusions[pesertaBatchId]?.has(p.id);
+                                  <div className="pl-10 pr-4 pb-3 space-y-2.5">
+                                    {[
+                                      { kanal: 'online',  label: 'Online',  warna: 'text-amber-700 bg-amber-50',   aksen: 'accent-amber-600' },
+                                      { kanal: 'offline', label: 'Offline', warna: 'text-emerald-700 bg-emerald-50', aksen: 'accent-emerald-600' },
+                                    ].map(({ kanal, label, warna, aksen }) => {
+                                      const sub = items.filter((p) => p.channel === kanal);
+                                      if (sub.length === 0) return null;
                                       return (
-                                        <label key={p.id} className="flex items-center gap-2 py-1 cursor-pointer text-[11px]">
-                                          <input
-                                            type="checkbox"
-                                            checked={tampil}
-                                            onChange={(e) => toggleProdukBatch(pesertaBatchId, p.id, e.target.checked)}
-                                            className="w-3.5 h-3.5 accent-emerald-600 shrink-0"
-                                          />
-                                          <span className={tampil ? 'text-slate-700' : 'text-slate-400 line-through'}>
-                                            {parseAndCleanItem(p.name)}
-                                          </span>
-                                        </label>
+                                        <div key={kanal}>
+                                          <p className={`text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded w-fit mb-1 ${warna}`}>
+                                            {label} &middot; {sub.length}
+                                          </p>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+                                            {sub.map((p) => {
+                                              const tampil = !batchExclusions[pesertaBatchId]?.has(p.id);
+                                              return (
+                                                <label key={p.id} className="flex items-center gap-2 py-1 cursor-pointer text-[11px]">
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={tampil}
+                                                    onChange={(e) => toggleProdukBatch(pesertaBatchId, p.id, e.target.checked)}
+                                                    className={`w-3.5 h-3.5 ${aksen} shrink-0`}
+                                                  />
+                                                  <span className={tampil ? 'text-slate-700' : 'text-slate-400 line-through'}>
+                                                    {parseAndCleanItem(p.name)}
+                                                  </span>
+                                                </label>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
                                       );
                                     })}
                                   </div>
@@ -2357,10 +2381,25 @@ export default function App() {
         {}
         {variantModal.isOpen && (
           <VariantSelectionModal 
+            pos={variantModal.pos}
             product={variantModal.product} 
             onClose={() => setVariantModal({ isOpen: false, product: null })}
             onAddToCart={(chosenProduct, qty) => {
-               addToCart(chosenProduct, qty);
+               if (variantModal.pos) {
+                 // Keranjang kasir memakai kunci yang sama: `${productId}|${variantId}`.
+                 const [productId, variantId] = String(chosenProduct.id).split('|');
+                 posTambah({
+                   key: chosenProduct.id,
+                   productId,
+                   variantId: Number(variantId) || null,
+                   name: chosenProduct.name,
+                   tenantName: tenants.find((t) => t.id === chosenProduct.tenantId)?.name || '',
+                   tenantId: chosenProduct.tenantId,
+                   price: Number(chosenProduct.priceOwner) + Number(chosenProduct.priceOrganizer),
+                 }, qty);
+               } else {
+                 addToCart(chosenProduct, qty);
+               }
                setVariantModal({ isOpen: false, product: null });
             }}
             setGlobalZoom={setZoomedImage}
@@ -2710,7 +2749,7 @@ export default function App() {
   );
 }
 
-function VariantSelectionModal({ product, onClose, onAddToCart, setGlobalZoom }) {
+function VariantSelectionModal({ product, onClose, onAddToCart, setGlobalZoom, pos = false }) {
   const [selectedVarIndex, setSelectedVarIndex] = useState(0);
   const [qty, setQty] = useState(1);
 
@@ -2778,9 +2817,9 @@ function VariantSelectionModal({ product, onClose, onAddToCart, setGlobalZoom })
                 };
                 onAddToCart(compositeProduct, qty);
              }}
-             className="w-full py-3.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold flex justify-between items-center px-4 shadow-md transition-colors"
+             className={`w-full py-3.5 ${pos ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'} text-white rounded-xl font-bold flex justify-between items-center px-4 shadow-md transition-colors`}
            >
-             <span>Tambah Pesanan</span>
+             <span>{pos ? 'Tambah ke Kasir' : 'Tambah Pesanan'}</span>
              <span>{formatRupiah(total)}</span>
            </button>
         </div>
