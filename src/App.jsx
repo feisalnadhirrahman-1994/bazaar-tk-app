@@ -888,6 +888,17 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const semuaByTenant    = useMemo(() => kelompokkanProduk(null), [products, tenantsUrut]);
 
+  /**
+   * Kunci produk offline yang sudah ada: "stand|nama". Dipakai untuk menandai
+   * produk online yang kembarannya sudah dibuat di kasir, supaya tidak disalin
+   * dua kali tanpa sadar.
+   */
+  const kunciOffline = useMemo(() => new Set(
+    products
+      .filter((p) => p.channel === 'offline')
+      .map((p) => `${p.tenantId}|${String(p.name || '').trim().toLowerCase()}`)
+  ), [products]);
+
   /** Etalase hanya masuk akal saat katalog ditampilkan utuh. */
   // Memilih urutan A-Z juga mematikan etalase: kalau tidak, tombol itu jadi
   // kendali mati yang kelihatan bisa ditekan tapi tidak mengubah apa pun.
@@ -2412,6 +2423,8 @@ export default function App() {
             tenants={tenants}
             onClose={() => setProductModal({ isOpen: false, item: null })}
             channel={productModal.channel || productModal.item?.channel || 'online'}
+            sumberOnline={productsByTenant}
+            kunciOffline={kunciOffline}
             onSave={(formData) => {
               saveProduct(formData, productModal.item);
               setProductModal({ isOpen: false, item: null });
@@ -2920,7 +2933,10 @@ function ModalBatchForm({ item, onClose, onSave }) {
   );
 }
 
-function ModalProductForm({ item, tenants, onClose, onSave, channel = 'online' }) {
+function ModalProductForm({
+  item, tenants, onClose, onSave, channel = 'online',
+  sumberOnline = [], kunciOffline,
+}) {
   const [form, setForm] = useState({
     name: item?.name || '', tenantId: item?.tenantId || tenants[0]?.id || '',
     category: item?.category || PREDEFINED_CATEGORIES[0],
@@ -2995,6 +3011,46 @@ function ModalProductForm({ item, tenants, onClose, onSave, channel = 'online' }
   
   const hasVariants = variants.length > 0;
 
+  // --------------------------------------------------------------------------
+  //  Salin dari produk online.
+  //  Hanya mengisi form. TIDAK memanggil onSave, jadi tidak ada apa pun yang
+  //  tersimpan sampai tombol "Simpan Produk" ditekan sendiri.
+  // --------------------------------------------------------------------------
+  const [disalinDari, setDisalinDari] = useState(null);
+  const bolehSalin = channel === 'offline' && !item && sumberOnline.length > 0;
+
+  const angkaKeInput = (n) => (n === 0 || n === null || n === undefined ? '' : String(n));
+
+  const salinDariOnline = (id) => {
+    const asal = sumberOnline.flatMap((g) => g.items).find((p) => p.id === id);
+    if (!asal) return;
+    setForm({
+      name: asal.name || '',
+      tenantId: asal.tenantId || tenants[0]?.id || '',
+      category: asal.category || PREDEFINED_CATEGORIES[0],
+      priceOwner: angkaKeInput(asal.priceOwner),
+      priceOrganizer: angkaKeInput(asal.priceOrganizer),
+      imageUrl: asal.imageUrl || '',
+      description: asal.description || '',
+    });
+    setVariants(normalizeVariants(asal.variants).map((v) => ({
+      name: v.name,
+      priceOwner: angkaKeInput(v.priceOwner),
+      priceOrganizer: angkaKeInput(v.priceOrganizer),
+    })));
+    setDisalinDari(asal.name);
+  };
+
+  const kosongkanForm = () => {
+    setForm({
+      name: '', tenantId: tenants[0]?.id || '',
+      category: PREDEFINED_CATEGORIES[0],
+      priceOwner: '', priceOrganizer: '', imageUrl: '', description: '',
+    });
+    setVariants([]);
+    setDisalinDari(null);
+  };
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
       <div className="bg-white rounded-2xl w-full max-w-sm p-6 relative overflow-y-auto max-h-[90vh] shadow-xl scrollbar-none">
@@ -3003,7 +3059,59 @@ function ModalProductForm({ item, tenants, onClose, onSave, channel = 'online' }
         <p className={`text-[10px] font-bold mb-4 px-2 py-1 rounded w-fit ${channel === 'offline' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
           {channel === 'offline' ? 'Produk Offline \u2014 hanya untuk Kasir' : 'Produk Online \u2014 tampil di halaman pembeli'}
         </p>
-        <form 
+
+        {bolehSalin && (
+          <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium">
+            <label className="block text-xs font-bold text-slate-700 mb-1">Salin dari produk online</label>
+            <p className="text-[10px] text-slate-500 leading-snug mb-2">
+              Isi form otomatis dari produk yang sudah ada, supaya tidak setup dua kali.
+              Produk <b>belum tersimpan</b> &mdash; semua kolom, termasuk harga, masih bisa diubah.
+            </p>
+            <select
+              value=""
+              onChange={(e) => { if (e.target.value) salinDariOnline(e.target.value); }}
+              className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white focus:outline-none focus:border-emerald-500"
+            >
+              <option value="">&mdash; Pilih produk online &mdash;</option>
+              {sumberOnline.map((g) => (
+                <optgroup key={g.tenant.id} label={g.tenant.name}>
+                  {g.items.map((p) => {
+                    const sudah = kunciOffline?.has(
+                      `${p.tenantId}|${String(p.name || '').trim().toLowerCase()}`
+                    );
+                    const jmlVarian = normalizeVariants(p.variants).length;
+                    return (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                        {jmlVarian > 0 ? ` (${jmlVarian} varian)` : ''}
+                        {sudah ? ' \u2014 sudah ada di kasir' : ''}
+                      </option>
+                    );
+                  })}
+                </optgroup>
+              ))}
+            </select>
+
+            {disalinDari && (
+              <div className="mt-2.5 flex items-start gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-px" />
+                <p className="text-[10px] text-emerald-700 font-bold leading-snug flex-1">
+                  Data &ldquo;{disalinDari}&rdquo; sudah dimuat. Sesuaikan harga nett &amp; margin
+                  untuk harga offline, lalu tekan Simpan Produk.
+                </p>
+                <button
+                  type="button"
+                  onClick={kosongkanForm}
+                  className="text-[10px] font-bold text-slate-500 hover:text-slate-700 flex items-center gap-0.5 shrink-0"
+                >
+                  <RotateCcw className="w-3 h-3" /> Kosongkan
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        <form
           onSubmit={(e) => { 
             e.preventDefault(); 
             const finalVariants = variants.map(v => ({...v, priceOwner: Number(v.priceOwner), priceOrganizer: Number(v.priceOrganizer)}));
