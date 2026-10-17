@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, Fragment } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Fragment } from 'react';
 import { 
   ShoppingBag, 
   ShoppingCart, 
@@ -27,10 +27,35 @@ import {
   Menu,
   List,
   Filter,
-  RotateCcw
+  RotateCcw,
+  Clock,
+  Download,
+  FileText
 } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
 
-const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbxgKE-x6bNLC7Eu61d_rqZtyZsEAa3EYANFJshRTxuZlRPciNaNUKvrpX5JcwEHz6hd/exec';
+// ============================================================================
+//  SUPABASE — satu-satunya sumber data sejak 17 Oktober 2026.
+//  Google Sheets + Apps Script sudah dipensiunkan; sheet lama jadi arsip.
+//  Publishable key memang dipakai di browser dan aman dibagikan: yang
+//  menjaga data adalah Row Level Security di sisi database, bukan kunci ini.
+// ============================================================================
+const SUPABASE_URL = 'https://gpxkbtdyyblsirkqmyss.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_E5E8YHYwjI5ycpfgReTXDw_x-tRvwWo';
+const IMAGE_BUCKET = 'product-images';
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+// Sisa cache localStorage dari era spreadsheet. Dibersihkan sekali supaya
+// tidak ada data basi (termasuk password admin lama) yang tertinggal di
+// browser panitia maupun orang tua.
+const purgeLegacyCache = () => {
+  ['ld_bazaar_products', 'ld_bazaar_tenants', 'ld_bazaar_batches',
+   'ld_bazaar_orders', 'ld_bazaar_classes', 'ld_bazaar_admin_auth',
+   'ld_bazaar_sheet_webhook'].forEach((k) => {
+    try { localStorage.removeItem(k); } catch (e) { /* abaikan */ }
+  });
+};
 
 const PREDEFINED_CATEGORIES = [
   "Makanan Siap Saji",
@@ -53,6 +78,103 @@ const formatIndoDate = (dateStr) => {
   }
 };
 
+
+// ============================================================================
+// PENULIS XLSX MINIMAL (ZIP store-only) — tanpa dependency tambahan.
+// Dipakai untuk fitur "Export Excel" di menu Semua Pesanan.
+// ============================================================================
+// ---- Penulis XLSX minimal (ZIP store-only). Tanpa dependency. ----
+const crcTable = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t;
+})();
+const crc32 = (buf) => { let c = 0xFFFFFFFF; for (let i = 0; i < buf.length; i++) c = crcTable[(c ^ buf[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+const enc = (s) => new TextEncoder().encode(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[m]))
+                            .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+const colName = (n) => { let s = ''; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); } return s; };
+
+function zip(files) {
+  const chunks = [], central = []; let offset = 0;
+  const u16 = (v) => [v & 255, (v >> 8) & 255];
+  const u32 = (v) => [v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >>> 24) & 255];
+  for (const f of files) {
+    const data = enc(f.data), crc = crc32(data);
+    const nameB = enc(f.name);
+    const local = new Uint8Array([...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nameB.length), ...u16(0)]);
+    chunks.push(local, nameB, data);
+    central.push(new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nameB.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset)]), nameB);
+    offset += local.length + nameB.length + data.length;
+  }
+  const cdStart = offset; let cdLen = 0;
+  for (const c of central) cdLen += c.length;
+  const end = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(cdLen), ...u32(cdStart), ...u16(0)]);
+  const all = [...chunks, ...central, end];
+  let total = 0; for (const a of all) total += a.length;
+  const out = new Uint8Array(total); let p = 0;
+  for (const a of all) { out.set(a, p); p += a.length; }
+  return out;
+}
+
+const buildXlsx = function(sheetName, rows, colWidths) {
+  const body = rows.map((row, ri) => {
+    const cells = row.map((v, ci) => {
+      const ref = colName(ci + 1) + (ri + 1);
+      if (v === null || v === undefined || v === '') return '';
+      if (typeof v === 'number' && isFinite(v)) return `<c r="${ref}" s="${ri === 0 ? 1 : 0}"><v>${v}</v></c>`;
+      return `<c r="${ref}" s="${ri === 0 ? 1 : 0}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
+    }).join('');
+    return `<row r="${ri + 1}">${cells}</row>`;
+  }).join('');
+  const cols = (colWidths || []).map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('');
+  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${body}</sheetData></worksheet>`;
+  const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF2F5597"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  return zip([
+    { name: '[Content_Types].xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>` },
+    { name: '_rels/.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+    { name: 'xl/workbook.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${esc(sheetName).slice(0, 31)}" sheetId="1" r:id="rId1"/></sheets></workbook>` },
+    { name: 'xl/_rels/workbook.xml.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+    { name: 'xl/styles.xml', data: styles },
+    { name: 'xl/worksheets/sheet1.xml', data: sheet },
+  ]);
+};
+
+const downloadBlob = (bytes, filename, mime) => {
+  const blob = new Blob([bytes], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+// Cek apakah suatu tanggal (YYYY-MM-DD) sudah lewat, dibandingkan tanggal lokal hari ini.
+const toDateOnly = (v) => {
+  if (!v) return null;
+  const s = String(v).slice(0, 10);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) { const d = new Date(v); return isNaN(d) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+};
+
+// Status periode batch: 'before' | 'open' | 'closed'
+const getBatchWindow = (batch) => {
+  if (!batch) return 'closed';
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = toDateOnly(batch.startDate);
+  const end = toDateOnly(batch.endDate);
+  if (start && today < start) return 'before';
+  if (end && today > end) return 'closed';   // toleransi sampai akhir hari tanggal berakhir
+  return 'open';
+};
+
 const formatRupiah = (num) => {
   const validNum = Number(num) || 0;
   return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(validNum);
@@ -62,6 +184,26 @@ const parseAndCleanItem = (rawName) => {
   if (!rawName) return '';
   return String(rawName).replace(/\(x\s*\d+\)/gi, '').trim();
 };
+
+// --- FIX: normalisasi variants -----------------------------------------------
+// Selalu kembalikan ARRAY, apapun bentuk inputnya (array / JSON string / null).
+const normalizeVariants = (raw) => {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    if (!s) return [];
+    try {
+      const parsed = JSON.parse(s);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.warn('Gagal parse variants:', s, e);
+      return [];
+    }
+  }
+  return [];
+};
+
+
 
 const INITIAL_TENANTS = [{ id: 't1', name: 'Stand Snack', description: 'Menjual aneka cemilan ringan', phone: '628123456789' }];
 const INITIAL_PRODUCTS = [{ id: 'p1', tenantId: 't1', name: 'Produk A', priceOwner: 5000, priceOrganizer: 1000, category: 'Makanan Siap Saji', imageUrl: '', available: true, description: '', variants: [] }];
@@ -119,6 +261,12 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState('');
   const [isCloudSyncing, setIsCloudSyncing] = useState(true);
 
+  // FIX: kunci pengaman. Selama data cloud belum pernah berhasil ditarik,
+  // DILARANG push ke Sheets — inilah penyebab kolom variants terhapus:
+  // admin edit produk sebelum sync awal selesai, lalu state localStorage yang
+  // basi (tanpa key `variants`) menimpa seluruh sheet Products.
+  const cloudLoadedRef = useRef(false);
+
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, msg: '', onConfirm: null });
   const [zoomedImage, setZoomedImage] = useState(null);
 
@@ -136,21 +284,13 @@ export default function App() {
     setConfirmDialog({ isOpen: true, msg, onConfirm });
   };
 
-  const [adminAuth, setAdminAuth] = useState(() => {
-    const saved = localStorage.getItem('ld_bazaar_admin_auth');
-    return saved ? JSON.parse(saved) : { username: 'admin', password: '123' };
-  });
-
-  const [sheetWebhookUrl, setSheetWebhookUrl] = useState(() => {
-    const saved = localStorage.getItem('ld_bazaar_sheet_webhook');
-    return saved && saved.trim() !== '' ? saved : DEFAULT_WEBHOOK_URL;
-  });
-
-  const [classesList, setClassesList] = useState(() => JSON.parse(localStorage.getItem('ld_bazaar_classes')) || INITIAL_CLASSES);
-  const [tenants, setTenants] = useState(() => JSON.parse(localStorage.getItem('ld_bazaar_tenants')) || INITIAL_TENANTS);
-  const [products, setProducts] = useState(() => JSON.parse(localStorage.getItem('ld_bazaar_products')) || INITIAL_PRODUCTS);
-  const [batches, setBatches] = useState(() => JSON.parse(localStorage.getItem('ld_bazaar_batches')) || INITIAL_BATCHES);
-  const [orders, setOrders] = useState(() => JSON.parse(localStorage.getItem('ld_bazaar_orders')) || []);
+  // Data selalu datang dari Supabase. Tidak ada lagi cache localStorage:
+  // itulah yang dulu membuat state basi menimpa seluruh sheet.
+  const [classesList, setClassesList] = useState(INITIAL_CLASSES);
+  const [tenants, setTenants] = useState(INITIAL_TENANTS);
+  const [products, setProducts] = useState(INITIAL_PRODUCTS);
+  const [batches, setBatches] = useState(INITIAL_BATCHES);
+  const [orders, setOrders] = useState([]);
 
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
@@ -177,198 +317,236 @@ export default function App() {
   const [reportSelectedBatchId, setReportSelectedBatchId] = useState('');
   const [reportSelectedStatus, setReportSelectedStatus] = useState('Paid');
 
-  useEffect(() => { localStorage.setItem('ld_bazaar_tenants', JSON.stringify(tenants)); }, [tenants]);
-  useEffect(() => { localStorage.setItem('ld_bazaar_products', JSON.stringify(products)); }, [products]);
-  useEffect(() => { localStorage.setItem('ld_bazaar_batches', JSON.stringify(batches)); }, [batches]);
-  useEffect(() => { localStorage.setItem('ld_bazaar_orders', JSON.stringify(orders)); }, [orders]);
-  useEffect(() => { localStorage.setItem('ld_bazaar_classes', JSON.stringify(classesList)); }, [classesList]);
-  useEffect(() => { localStorage.setItem('ld_bazaar_admin_auth', JSON.stringify(adminAuth)); }, [adminAuth]);
-  useEffect(() => { localStorage.setItem('ld_bazaar_sheet_webhook', sheetWebhookUrl); }, [sheetWebhookUrl]);
+  // Filter khusus tab "Semua Pesanan". Export Excel & Print PDF mengikuti filter ini.
+  const [orderFilterBatchId, setOrderFilterBatchId] = useState('ALL');
+  const [orderFilterStatus, setOrderFilterStatus] = useState('ALL');
+  const [orderSearch, setOrderSearch] = useState('');
+  const [printOrders, setPrintOrders] = useState(null);
 
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const urlSheet = urlParams.get('sheet') || urlParams.get('s');
-    if (urlSheet) {
-      setSheetWebhookUrl(urlSheet);
-      localStorage.setItem('ld_bazaar_sheet_webhook', urlSheet);
-      showToast('URL Webhook Tersimpan!');
-    }
-  }, []);
+  // Bersihkan sisa cache era spreadsheet sekali saat app dibuka.
+  useEffect(() => { purgeLegacyCache(); }, []);
 
-  const fetchCloudData = async (silent = false) => {
-    const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
-    if (!targetUrl) return;
+  // --- Pemetaan baris Supabase ke bentuk yang sudah dipakai seluruh UI ----
+  // Sengaja dipertahankan sama persis dengan bentuk lama, supaya tampilan,
+  // rekap, export Excel dan cetak PDF tidak perlu diubah sedikit pun.
+  const mapProduct = (p) => ({
+    id: p.id, tenantId: p.tenant_id, name: p.name,
+    priceOwner: Number(p.price_owner) || 0,
+    priceOrganizer: Number(p.price_organizer) || 0,
+    description: p.description || '', category: p.category || '',
+    imageUrl: p.image_url || '', available: p.available !== false,
+    variants: (p.product_variants || [])
+      .slice()
+      .sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
+      .map((v) => ({
+        id: v.id, name: v.name,
+        priceOwner: Number(v.price_owner) || 0,
+        priceOrganizer: Number(v.price_organizer) || 0,
+      })),
+  });
+
+  const mapOrder = (o) => ({
+    id: o.id, orderId: o.code, batchId: o.batch_id, date: o.created_at,
+    status: o.status,
+    customer: {
+      namaAnak: o.nama_anak, kelas: o.kelas,
+      namaOrtu: o.nama_ortu, catatan: o.catatan || '-',
+    },
+    items: (o.order_items || []).map((i) => ({
+      id: i.variant_id ? `${i.product_id}|${i.variant_id}` : i.product_id,
+      name: i.product_name, tenantId: i.tenant_id,
+      priceOwner: Number(i.price_owner) || 0,
+      priceOrganizer: Number(i.price_organizer) || 0,
+      qty: Number(i.qty) || 1,
+      subtotal: (Number(i.price_owner) + Number(i.price_organizer)) * (Number(i.qty) || 1),
+    })),
+    totalAmount: (o.order_items || []).reduce(
+      (n, i) => n + (Number(i.price_owner) + Number(i.price_organizer)) * (Number(i.qty) || 1), 0),
+  });
+
+  /**
+   * Tarik katalog dari Supabase. Order ikut ditarik hanya kalau admin login —
+   * pembeli memang tidak punya izin membacanya, dan itu disengaja.
+   */
+  const fetchCloudData = async (silent = false, withOrders = null) => {
     setIsCloudSyncing(true);
     try {
-      const noCacheUrl = `${targetUrl}?t=${new Date().getTime()}`;
-      const res = await fetch(noCacheUrl, { cache: 'no-store' });
-      const json = await res.json();
-      
-      if (json.status === 'success' && json.data) {
-        if (json.data.products !== undefined) {
-           const parsedProducts = json.data.products.map(p => ({
-               ...p,
-               variants: typeof p.variants === 'string' ? (p.variants ? JSON.parse(p.variants) : []) : (p.variants || [])
-           }));
-           setProducts(parsedProducts);
-        }
-        
-        if (json.data.tenants !== undefined) {
-           const mappedTenants = json.data.tenants.map(t => ({
-               id: t.id,
-               name: t.name,
-               description: t.description || t.owner || '',
-               phone: t.phone
-           }));
-           setTenants(mappedTenants);
-        }
-        
-        if (json.data.classes !== undefined) setClassesList(json.data.classes);
-        
-        if (json.data.orders !== undefined) {
-          const productsData = (json.data.products && json.data.products.length > 0) ? json.data.products : products;
-          
-          if (Array.isArray(json.data.orders)) {
-            const parsedOrders = json.data.orders.map(o => {
-              try {
-                if (!o || typeof o !== 'object') return null;
+      const wantOrders = withOrders === null ? isAdminLoggedIn : withOrders;
 
-                const getVal = (possibleKeys) => {
-                  const key = Object.keys(o).find(k => 
-                    possibleKeys.some(pk => String(k).toLowerCase().replace(/[^a-z0-9]/g, '') === String(pk).toLowerCase().replace(/[^a-z0-9]/g, ''))
-                  );
-                  return key ? o[key] : undefined;
-                };
+      const [tRes, cRes, bRes, pRes] = await Promise.all([
+        supabase.from('tenants').select('*').order('name'),
+        supabase.from('classes').select('*').order('name'),
+        supabase.from('batches').select('*').order('start_date', { ascending: false }),
+        supabase.from('products').select('*, product_variants(*)').order('name'),
+      ]);
 
-                let orderId = getVal(['Order ID', 'orderId']);
-                if (!orderId || String(orderId).trim() === '') return null;
+      const firstErr = [tRes, cRes, bRes, pRes].find((r) => r.error);
+      if (firstErr) throw firstErr.error;
 
-                const namaAnak = getVal(['Nama Anak', 'namaAnak', 'customer']) || 'Unknown';
-                const kelas = getVal(['Kelas', 'kelasAnak']) || '-';
-                const namaOrtu = getVal(['Nama Ortu', 'namaOrtu']) || '-';
-                const catatan = getVal(['Catatan', 'catatanPesanan']) || '-';
-                
-                let parsedCust = { namaAnak, kelas, namaOrtu, catatan };
-                let parsedItems = [];
-                
-                let batchId = getVal(['Batch ID', 'batchId']) || '-';
-                let status = getVal(['Status', 'statusOrder']) || 'Unpaid';
-                let totalAmount = Number(getVal(['Total Tagihan', 'totalAmount', 'total'])) || 0;
+      setTenants(tRes.data.map((t) => ({
+        id: t.id, name: t.name, description: t.owner || '', phone: t.phone || '',
+      })));
+      setClassesList(cRes.data.map((c) => ({ id: c.id, name: c.name, phone: c.phone || '' })));
 
-                const rincianText = String(getVal(['Rincian Items', 'items', 'formattedItemsText', 'Rincian']) || '');
-                if (rincianText && rincianText !== 'undefined' && rincianText !== '-') {
-                  const itemStrings = rincianText.split(',');
-                  itemStrings.forEach(itemStr => {
-                    const match = itemStr.trim().match(/^(.*?)\s*\(x(\d+)\)$/i);
-                    if (match) {
-                      let rawName = match[1].trim(); 
-                      const qty = parseInt(match[2], 10);
-                      
-                      let baseName = rawName;
-                      let variantName = '';
-                      const varMatch = rawName.match(/^(.*?) \[([^\]]+)\]$/);
-                      if (varMatch) {
-                          baseName = varMatch[1].trim();
-                          variantName = varMatch[2].trim();
-                      }
+      const mappedBatches = bRes.data.map((b) => ({
+        id: b.id, name: b.name, startDate: b.start_date, endDate: b.end_date,
+        readyDate: b.ready_date || '', isActive: !!b.is_active,
+        description: b.description || '',
+      }));
+      setBatches(mappedBatches);
+      const act = mappedBatches.find((b) => b.isActive) || mappedBatches[0];
+      if (act) setReportSelectedBatchId((prev) => prev || act.id);
 
-                      const product = productsData.find(p => String(p.name || '').toLowerCase() === baseName.toLowerCase());
-                      
-                      if (product) {
-                          let pOwner = Number(product.priceOwner) || 0;
-                          let pOrg = Number(product.priceOrganizer) || 0;
-                          let finalId = product.id;
-                          
-                          let parsedVariants = typeof product.variants === 'string' ? JSON.parse(product.variants || '[]') : (product.variants || []);
-                          
-                          if (variantName && Array.isArray(parsedVariants)) {
-                              const variant = parsedVariants.find(v => String(v.name).toLowerCase() === variantName.toLowerCase());
-                              if (variant) {
-                                  pOwner = Number(variant.priceOwner) || 0;
-                                  pOrg = Number(variant.priceOrganizer) || 0;
-                                  finalId = `${product.id}|${variant.name}`;
-                              }
-                          }
+      setProducts(pRes.data.map(mapProduct));
 
-                          parsedItems.push({
-                              id: finalId, name: rawName, tenantId: product.tenantId,
-                              priceOwner: pOwner, priceOrganizer: pOrg,
-                              qty: qty, subtotal: (pOwner + pOrg) * qty
-                          });
-                      } else {
-                          parsedItems.push({
-                            id: 'p-unknown', name: rawName, tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: qty, subtotal: 0
-                          });
-                      }
-                    } else if (itemStr.trim()) {
-                       parsedItems.push({
-                          id: 'p-unknown', name: itemStr.trim(), tenantId: 't-unknown', priceOwner: 0, priceOrganizer: 0, qty: 1, subtotal: 0
-                        });
-                    }
-                  });
-                }
-
-                return {
-                  ...o, orderId, batchId, status, totalAmount, customer: parsedCust, items: parsedItems
-                };
-              } catch (parseError) {
-                console.warn('Skipping malformed row:', parseError);
-                return null;
-              }
-            }).filter(Boolean);
-            setOrders(parsedOrders);
-          }
-        }
-        
-        if (json.data.batches !== undefined) {
-          const mappedBatches = json.data.batches.map(b => ({
-            ...b,
-            readyDate: b.readyDate || b.readydate || '' 
-          }));
-          setBatches(mappedBatches);
-          const activeBatch = mappedBatches.find(b => b.isActive) || mappedBatches[0];
-          if (activeBatch) setReportSelectedBatchId(activeBatch.id);
-        }
-        
-        if (json.data.settings?.adminAuth) {
-          try {
-            setAdminAuth(typeof json.data.settings.adminAuth === 'string' ? JSON.parse(json.data.settings.adminAuth) : json.data.settings.adminAuth);
-          } catch(e) {}
-        }
-        if (!silent) showToast('Data Tersinkronisasi dari Cloud!');
+      if (wantOrders) {
+        const { data: oData, error: oErr } = await supabase
+          .from('orders').select('*, order_items(*)')
+          .order('created_at', { ascending: false });
+        if (oErr) throw oErr;
+        setOrders(oData.map(mapOrder));
       }
+
+      cloudLoadedRef.current = true;
+      if (!silent) showToast('Data tersinkronisasi!');
     } catch (e) {
-      console.warn('Sync Fetch Error:', e);
+      console.error('Gagal memuat data:', e);
+      // Tidak lagi gagal diam-diam seperti era no-cors.
+      showToast('Gagal memuat data: ' + (e.message || 'periksa koneksi'));
     } finally {
       setIsCloudSyncing(false);
     }
   };
 
+  // Pulihkan sesi admin yang masih hidup, lalu muat data.
   useEffect(() => {
-    fetchCloudData(true);
+    let batal = false;
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (batal) return;
+      const masuk = !!data?.session;
+      setIsAdminLoggedIn(masuk);
+      fetchCloudData(true, masuk);
+    })();
+    return () => { batal = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const syncPushToCloud = (overrideData = {}) => {
-    const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
-    if (!targetUrl) return;
-    
-    const payload = {
-      action: 'syncAll',
-      products: overrideData.products || products,
-      tenants: overrideData.tenants || tenants,
-      batches: overrideData.batches || batches,
-      classes: overrideData.classes || classesList,
-      settings: { adminAuth }
-    };
-
-    fetch(targetUrl, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
-    }).then(() => showToast('Disimpan ke Google Sheets!')).catch(err => console.warn(err));
+  /**
+   * Pesan error database diterjemahkan ke bahasa yang bisa ditindaklanjuti.
+   * Dulu semua kegagalan tulis lewat begitu saja tanpa jejak.
+   */
+  const jelaskanError = (e) => {
+    const m = String(e?.message || e);
+    if (/violates foreign key.*products_tenant_id/i.test(m))
+      return 'Stand ini masih punya produk. Hapus atau pindahkan produknya dulu.';
+    if (/violates foreign key.*orders_batch_id/i.test(m))
+      return 'Batch ini sudah punya pesanan, jadi tidak bisa dihapus.';
+    if (/duplicate key.*product_variants/i.test(m))
+      return 'Ada dua varian dengan nama yang sama. Nama varian harus berbeda.';
+    if (/row-level security|permission denied|JWT/i.test(m))
+      return 'Sesi admin sudah habis. Silakan login ulang.';
+    return m;
   };
+
+  /** Bungkus setiap tulisan: kerjakan, tarik ulang data, lapor hasilnya. */
+  const simpan = async (label, fn) => {
+    if (!cloudLoadedRef.current) {
+      showToast('Data belum termuat. Tunggu sebentar lalu coba lagi.');
+      return false;
+    }
+    try {
+      await fn();
+      await fetchCloudData(true);
+      showToast(label);
+      return true;
+    } catch (e) {
+      console.error(label, e);
+      showToast('Gagal: ' + jelaskanError(e));
+      return false;
+    }
+  };
+
+  const lempar = ({ error }) => { if (error) throw error; };
+
+  // --- Produk --------------------------------------------------------------
+  const saveProduct = (form, existing) => simpan('Produk tersimpan!', async () => {
+    const id = existing?.id || 'p-' + Date.now();
+    lempar(await supabase.from('products').upsert({
+      id,
+      tenant_id: form.tenantId,
+      name: String(form.name).trim(),
+      price_owner: Number(form.priceOwner) || 0,
+      price_organizer: Number(form.priceOrganizer) || 0,
+      description: form.description?.trim() || null,
+      category: form.category || null,
+      image_url: form.imageUrl || null,
+      available: existing ? existing.available !== false : true,
+    }));
+
+    const baru = normalizeVariants(form.variants)
+      .filter((v) => String(v.name || '').trim() !== '');
+
+    const { data: lama, error: eLama } = await supabase
+      .from('product_variants').select('id,name').eq('product_id', id);
+    if (eLama) throw eLama;
+
+    const dipakai = new Set(baru.map((v) => String(v.name).trim()));
+    const dibuang = (lama || []).filter((v) => !dipakai.has(v.name)).map((v) => v.id);
+    if (dibuang.length) lempar(await supabase.from('product_variants').delete().in('id', dibuang));
+
+    if (baru.length) {
+      lempar(await supabase.from('product_variants').upsert(
+        baru.map((v, i) => ({
+          product_id: id, name: String(v.name).trim(),
+          price_owner: Number(v.priceOwner) || 0,
+          price_organizer: Number(v.priceOrganizer) || 0,
+          sort_order: i,
+        })),
+        { onConflict: 'product_id,name' }
+      ));
+    }
+  });
+
+  const deleteProduct = (id) => simpan('Produk dihapus.', async () =>
+    lempar(await supabase.from('products').delete().eq('id', id)));
+
+  // --- Stand / tenant ------------------------------------------------------
+  const saveTenant = (form, existing) => simpan('Stand tersimpan!', async () =>
+    lempar(await supabase.from('tenants').upsert({
+      id: existing?.id || 't-' + Date.now(),
+      name: String(form.name).trim(),
+      owner: form.description?.trim() || null,
+      phone: form.phone ? String(form.phone).trim() : null,
+    })));
+
+  const deleteTenant = (id) => simpan('Stand dihapus.', async () =>
+    lempar(await supabase.from('tenants').delete().eq('id', id)));
+
+  // --- Batch ---------------------------------------------------------------
+  const saveBatch = (form, existing) => simpan('Batch tersimpan!', async () => {
+    const id = existing?.id || 'b-' + Date.now();
+    // Hanya boleh ada satu batch aktif.
+    if (form.isActive) lempar(await supabase.from('batches').update({ is_active: false }).neq('id', id));
+    lempar(await supabase.from('batches').upsert({
+      id, name: String(form.name).trim(),
+      start_date: form.startDate, end_date: form.endDate,
+      ready_date: form.readyDate || null,
+      is_active: !!form.isActive,
+      description: form.description?.trim() || null,
+    }));
+  });
+
+  // --- Kelas ---------------------------------------------------------------
+  const saveClass = (form, existing) => simpan('Kelas tersimpan!', async () =>
+    lempar(await supabase.from('classes').upsert({
+      id: existing?.id || 'c-' + Date.now(),
+      name: String(form.name).trim(),
+      phone: form.phone ? String(form.phone).trim() : null,
+    })));
+
+  const deleteClass = (id) => simpan('Kelas dihapus.', async () =>
+    lempar(await supabase.from('classes').delete().eq('id', id)));
 
   const activeBatch = useMemo(() => {
     const explicitActive = batches.find((b) => b.isActive);
@@ -377,19 +555,55 @@ export default function App() {
     return batches.find((b) => todayStr >= b.startDate && todayStr <= b.endDate) || batches[0];
   }, [batches]);
 
-  const handleAdminLogin = (e) => {
+  // FIX: status periode pemesanan. 'before' = belum dibuka, 'open' = jalan,
+  // 'closed' = tanggal berakhir sudah lewat. Sebelumnya tidak pernah dicek
+  // sehingga pembeli tetap bisa checkout walau batch sudah tutup.
+  const batchWindow = useMemo(() => getBatchWindow(activeBatch), [activeBatch]);
+  const isOrderingOpen = batchWindow === 'open';
+
+  /**
+   * Login lewat Supabase Auth. Password tidak lagi disimpan di database
+   * aplikasi maupun dibandingkan di browser — dulu password admin bisa
+   * dibaca siapa pun yang membuka endpoint spreadsheet.
+   */
+  const handleAdminLogin = async (e) => {
     e.preventDefault();
-    if (loginForm.username.trim() === adminAuth.username && loginForm.password.trim() === adminAuth.password) {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setLoginError('');
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: loginForm.username.trim(),
+        password: loginForm.password,
+      });
+      if (error) {
+        setLoginError(/Invalid login/i.test(error.message)
+          ? 'Email atau password salah.' : error.message);
+        return;
+      }
       setIsAdminLoggedIn(true);
-      setLoginError('');
       setLoginForm({ username: '', password: '' });
-      showToast('Login Admin Berhasil!');
-    } else {
-      setLoginError('Username atau Password salah!');
+      showToast('Login admin berhasil!');
+      fetchCloudData(true, true);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
+  const handleAdminLogout = async () => {
+    await supabase.auth.signOut();
+    setIsAdminLoggedIn(false);
+    setOrders([]);          // jangan tinggalkan data pesanan di browser
+    setActiveTab('shop');
+    showToast('Sudah keluar dari panel admin.');
+  };
+
   const addToCart = (productObj, qty = 1) => {
+    // FIX: blokir penambahan ke keranjang di luar periode batch.
+    if (!isOrderingOpen) {
+      showToast(batchWindow === 'before' ? 'Periode pemesanan belum dibuka.' : 'Periode pemesanan sudah ditutup.');
+      return;
+    }
     setCart((prev) => {
       const existing = prev.find((item) => item.id === productObj.id);
       if (existing) {
@@ -424,93 +638,114 @@ export default function App() {
     );
   }, [cart]);
 
-  const handleCheckoutSubmit = (e) => {
+  /**
+   * Checkout lewat fungsi server create_order().
+   *
+   * Browser hanya mengirim produk, varian, dan jumlahnya. HARGA DIAMBIL DARI
+   * DATABASE, bukan dari sini — sebelumnya nominal dikirim dari browser dan
+   * bisa diubah siapa pun lewat developer tools. Periode batch juga dicek
+   * ulang di server, bukan hanya di tombol.
+   */
+  const handleCheckoutSubmit = async (e) => {
     e.preventDefault();
     if (!activeBatch || !checkoutData.namaAnak.trim() || !checkoutData.namaOrtu.trim() || cart.length === 0) return;
-    if (isSubmitting) return; 
-    
-    setIsSubmitting(true);
+    if (isSubmitting) return;
 
-    const newOrderId = 'BZ-' + Math.floor(100000 + Math.random() * 900000);
-    const dateNow = new Date().toISOString();
-    const formattedItemsText = cart.map(item => `${parseAndCleanItem(item.name)} (x${item.qty})`).join(', ');
-
-    const orderPayload = {
-      orderId: newOrderId,
-      batchId: activeBatch.id,
-      date: dateNow,
-      customer: { ...checkoutData },
-      items: cart.map((item) => ({
-        id: item.id,
-        name: parseAndCleanItem(item.name),
-        tenantId: item.tenantId,
-        priceOwner: Number(item.priceOwner),
-        priceOrganizer: Number(item.priceOrganizer),
-        qty: item.qty,
-        subtotal: (Number(item.priceOwner) + Number(item.priceOrganizer)) * item.qty
-      })),
-      totalAmount: cartSummary.totalSellingPrice,
-      totalOwnerShare: cartSummary.totalOwnerPrice,
-      totalOrganizerShare: cartSummary.totalOrganizerPrice,
-      status: 'Unpaid',
-      formattedItemsText: formattedItemsText
-    };
-
-    const targetClassObj = classesList.find((c) => c.name === checkoutData.kelas);
-    const picPhoneRaw = targetClassObj?.phone || '';
-    
-    let cleanPhone = String(picPhoneRaw).replace(/[^0-9]/g, '');
-    if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
-
-    let waText = `*PEMESANAN BAZAAR DANUS PTA LITTLE DARBI*\n`;
-    waText += `Periode: ${activeBatch.name}\n`;
-    waText += `-----------------------------------\n`;
-    waText += `*No. Pesanan:* ${newOrderId}\n`;
-    waText += `*Nama Anak:* ${checkoutData.namaAnak}\n`;
-    waText += `*Kelas:* ${checkoutData.kelas}\n`;
-    waText += `*Nama Ortu:* ${checkoutData.namaOrtu}\n`;
-    if (checkoutData.catatan) waText += `*Catatan:* ${checkoutData.catatan}\n`;
-    waText += `*Status:* UNPAID (Belum Lunas)\n`;
-    waText += `-----------------------------------\n`;
-    waText += `*Rincian Pesanan:*\n`;
-
-    cart.forEach((item, index) => {
-      const tenant = tenants.find(t => t.id === item.tenantId);
-      const tenantName = tenant ? tenant.name : 'Stand';
-      const itemSubtotal = (Number(item.priceOwner) + Number(item.priceOrganizer)) * item.qty;
-      waText += `${index + 1}. *${parseAndCleanItem(item.name)}* (x${item.qty}) - ${formatRupiah(itemSubtotal)}\n   _[${tenantName}]_\n`;
-    });
-
-    waText += `-----------------------------------\n`;
-    waText += `*TOTAL TAGIHAN: ${formatRupiah(orderPayload.totalAmount)}*\n`;
-    waText += `-----------------------------------\n`;
-    waText += `Halo PIC Kelas ${checkoutData.kelas}, mohon instruksi info rekening pembayaran. Terima kasih!`;
-
-    const updatedOrders = [orderPayload, ...orders];
-    setOrders(updatedOrders);
-    
-    const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
-    if (targetUrl) {
-      fetch(targetUrl, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'checkout', ...orderPayload })
-      }).catch(err => console.warn(err));
+    if (!isOrderingOpen) {
+      showToast(batchWindow === 'before'
+        ? `Periode ${activeBatch.name} belum dibuka.`
+        : `Periode ${activeBatch.name} sudah ditutup (${formatIndoDate(activeBatch.endDate)}).`);
+      setIsCheckoutModalOpen(false);
+      return;
     }
 
-    setCart([]);
-    setIsCheckoutModalOpen(false);
-    setIsCartOpen(false);
-    setCheckoutData({ namaAnak: '', kelas: classesList[0]?.name || 'TK A1', namaOrtu: '', catatan: '' });
-    setIsSubmitting(false);
+    setIsSubmitting(true);
+    try {
+      const itemsPayload = cart.map((item) => {
+        const [productId, variantKey] = String(item.id).split('|');
+        let variantId = null;
+        if (variantKey) {
+          variantId = Number(variantKey);
+          if (!Number.isFinite(variantId)) {
+            // Cadangan: keranjang lama yang masih menyimpan nama varian.
+            const prod = products.find((p) => p.id === productId);
+            const v = (prod?.variants || []).find(
+              (x) => String(x.name).toLowerCase() === String(variantKey).toLowerCase());
+            variantId = v?.id ?? null;
+          }
+          if (variantId === null) {
+            throw new Error(`Varian untuk ${item.name} tidak dikenali. Muat ulang halaman lalu coba lagi.`);
+          }
+        }
+        return { product_id: productId, variant_id: variantId, qty: item.qty };
+      });
 
-    if (cleanPhone && cleanPhone.length > 5) {
-      setTimeout(() => {
-        window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`, '_blank');
-      }, 100);
-    } else {
-      showToast("Nomor WA Kelas Tidak Valid.");
+      const { data, error } = await supabase.rpc('create_order', {
+        p_batch_id: activeBatch.id,
+        p_nama_anak: checkoutData.namaAnak.trim(),
+        p_kelas: checkoutData.kelas,
+        p_nama_ortu: checkoutData.namaOrtu.trim(),
+        p_catatan: checkoutData.catatan?.trim() || null,
+        p_items: itemsPayload,
+      });
+
+      if (error) {
+        // Sekarang kegagalan benar-benar terlihat, tidak lagi lenyap diam-diam.
+        showToast('Pesanan gagal: ' + (error.message || 'coba lagi'));
+        setIsSubmitting(false);
+        return;
+      }
+
+      const hasil = Array.isArray(data) ? data[0] : data;
+      const newOrderId = hasil?.code;
+      const totalTagihan = Number(hasil?.total_tagihan) || cartSummary.totalSellingPrice;
+
+      // Pesan WA disusun dari keranjang, memakai total resmi dari server.
+      let waText = `*PEMESANAN BAZAAR DANUS PTA LITTLE DARBI*\n`;
+      waText += `Periode: ${activeBatch.name}\n`;
+      waText += `-----------------------------------\n`;
+      waText += `*No. Pesanan:* ${newOrderId}\n`;
+      waText += `*Nama Anak:* ${checkoutData.namaAnak}\n`;
+      waText += `*Kelas:* ${checkoutData.kelas}\n`;
+      waText += `*Nama Ortu:* ${checkoutData.namaOrtu}\n`;
+      if (checkoutData.catatan) waText += `*Catatan:* ${checkoutData.catatan}\n`;
+      waText += `*Status:* UNPAID (Belum Lunas)\n`;
+      waText += `-----------------------------------\n`;
+      waText += `*Rincian Pesanan:*\n`;
+      cart.forEach((item, index) => {
+        const tenant = tenants.find((t) => t.id === item.tenantId);
+        const tenantName = tenant ? tenant.name : 'Stand';
+        const itemSubtotal = (Number(item.priceOwner) + Number(item.priceOrganizer)) * item.qty;
+        waText += `${index + 1}. *${parseAndCleanItem(item.name)}* (x${item.qty}) - ${formatRupiah(itemSubtotal)}\n   _[${tenantName}]_\n`;
+      });
+      waText += `-----------------------------------\n`;
+      waText += `*TOTAL TAGIHAN: ${formatRupiah(totalTagihan)}*\n`;
+      waText += `-----------------------------------\n`;
+      waText += `Halo PIC Kelas ${checkoutData.kelas}, mohon instruksi info rekening pembayaran. Terima kasih!`;
+
+      const targetClassObj = classesList.find((c) => c.name === checkoutData.kelas);
+      let cleanPhone = String(targetClassObj?.phone || '').replace(/[^0-9]/g, '');
+      if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.slice(1);
+
+      setCart([]);
+      setIsCheckoutModalOpen(false);
+      setIsCartOpen(false);
+      setCheckoutData({ namaAnak: '', kelas: classesList[0]?.name || 'TK A1', namaOrtu: '', catatan: '' });
+      showToast(`Pesanan ${newOrderId} tersimpan!`);
+      if (isAdminLoggedIn) fetchCloudData(true, true);
+
+      if (cleanPhone.length > 5) {
+        setTimeout(() => {
+          window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(waText)}`, '_blank');
+        }, 100);
+      } else {
+        showToast('Pesanan tersimpan, tapi nomor WA kelas tidak valid.');
+      }
+    } catch (err) {
+      console.error('Checkout gagal:', err);
+      showToast('Pesanan gagal: ' + (err.message || 'periksa koneksi'));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -548,12 +783,15 @@ export default function App() {
         let pOrg = Number(it.priceOrganizer) || 0;
         
         if (pOwner === 0 && pOrg === 0) {
-            const variantName = String(it.id).includes('|') ? String(it.id).split('|')[1] : null;
-            if (variantName && Array.isArray(dbProduct.variants)) {
-                const v = dbProduct.variants.find(x => x.name === variantName);
-                if (v) { pOwner = Number(v.priceOwner); pOrg = Number(v.priceOrganizer); }
+            const variantKey = String(it.id).includes('|') ? String(it.id).split('|')[1] : null;
+            const dbVariants = normalizeVariants(dbProduct.variants);   // FIX: tahan bentuk string
+            if (variantKey) {
+                // Cocokkan lewat id varian, atau namanya untuk data lama.
+                const v = dbVariants.find(x => String(x.id) === String(variantKey))
+                       || dbVariants.find(x => String(x.name).toLowerCase() === String(variantKey).toLowerCase());
+                if (v) { pOwner = Number(v.priceOwner) || 0; pOrg = Number(v.priceOrganizer) || 0; }
             } else {
-                pOwner = Number(dbProduct.priceOwner); pOrg = Number(dbProduct.priceOrganizer);
+                pOwner = Number(dbProduct.priceOwner) || 0; pOrg = Number(dbProduct.priceOrganizer) || 0;
             }
         }
 
@@ -572,6 +810,94 @@ export default function App() {
         subtotal: (Number(it.priceOwner || 0) + Number(it.priceOrganizer || 0)) * (it.qty || 1)
       };
     }).filter(Boolean);
+  };
+
+  // ---- Daftar pesanan sesuai filter tab "Semua Pesanan" -----------------------
+  const filteredOrders = useMemo(() => {
+    const q = orderSearch.trim().toLowerCase();
+    return (Array.isArray(orders) ? orders : []).filter((o) => {
+      if (!o || typeof o !== 'object') return false;
+      if (orderFilterBatchId !== 'ALL' && o.batchId !== orderFilterBatchId) return false;
+      if (orderFilterStatus !== 'ALL' && (o.status || 'Unpaid') !== orderFilterStatus) return false;
+      if (!q) return true;
+      const c = o.customer || {};
+      return [o.orderId, c.namaAnak, c.kelas, c.namaOrtu].some(v => String(v || '').toLowerCase().includes(q));
+    });
+  }, [orders, orderFilterBatchId, orderFilterStatus, orderSearch]);
+
+  // Ringkasan angka untuk header tab + baris total di export.
+  const filteredOrdersSummary = useMemo(() => {
+    return filteredOrders.reduce((acc, o) => {
+      const items = enrichOrderItems(o);
+      const gross = items.reduce((n, it) => n + (Number(it.subtotal) || 0), 0);
+      const owner = items.reduce((n, it) => n + (Number(it.priceOwner) || 0) * (Number(it.qty) || 1), 0);
+      const org = items.reduce((n, it) => n + (Number(it.priceOrganizer) || 0) * (Number(it.qty) || 1), 0);
+      acc.gross += gross; acc.owner += owner; acc.org += org;
+      acc.items += items.reduce((n, it) => n + (Number(it.qty) || 1), 0);
+      if ((o.status || 'Unpaid') === 'Paid') acc.paid += 1; else acc.unpaid += 1;
+      return acc;
+    }, { gross: 0, owner: 0, org: 0, items: 0, paid: 0, unpaid: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredOrders, products]);
+
+  // Label filter aktif, dipakai di nama file dan judul dokumen cetak.
+  const orderFilterLabel = useMemo(() => {
+    const b = orderFilterBatchId === 'ALL' ? 'Semua Batch' : (batches.find(x => x.id === orderFilterBatchId)?.name || orderFilterBatchId);
+    const st = orderFilterStatus === 'ALL' ? 'Semua Status' : orderFilterStatus;
+    return `${b} - ${st}`;
+  }, [orderFilterBatchId, orderFilterStatus, batches]);
+
+  // Satu baris per ITEM, supaya bisa dilihat produk & harganya per pesanan.
+  const buildOrderRows = () => {
+    const header = ['No Order', 'Tanggal', 'Batch', 'Nama Anak', 'Kelas', 'Nama Ortu', 'Status',
+                    'Produk', 'Stand', 'Qty', 'Harga Satuan', 'Hak Vendor', 'Hak Panitia', 'Subtotal', 'Catatan'];
+    const rows = [header];
+    filteredOrders.forEach((o) => {
+      const c = o.customer || {};
+      const batchName = batches.find(b => b.id === o.batchId)?.name || o.batchId || '-';
+      const tgl = o.date ? new Date(o.date) : null;
+      const tglStr = tgl && !isNaN(tgl) ? tgl.toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }) : '-';
+      const items = enrichOrderItems(o);
+      if (items.length === 0) {
+        rows.push([o.orderId || '-', tglStr, batchName, c.namaAnak || '-', c.kelas || '-', c.namaOrtu || '-',
+                   o.status || 'Unpaid', '(tidak ada item)', '-', 0, 0, 0, 0, 0, c.catatan || '-']);
+        return;
+      }
+      items.forEach((it) => {
+        const qty = Number(it.qty) || 1;
+        const po = Number(it.priceOwner) || 0;
+        const pg = Number(it.priceOrganizer) || 0;
+        rows.push([
+          o.orderId || '-', tglStr, batchName, c.namaAnak || '-', c.kelas || '-', c.namaOrtu || '-',
+          o.status || 'Unpaid',
+          parseAndCleanItem(it.name),
+          tenants.find(t => t.id === it.tenantId)?.name || '-',
+          qty, po + pg, po * qty, pg * qty, (po + pg) * qty,
+          c.catatan || '-'
+        ]);
+      });
+    });
+    rows.push([]);
+    rows.push(['TOTAL', '', '', '', '', '', '', `${filteredOrders.length} pesanan`, '',
+               filteredOrdersSummary.items, '', filteredOrdersSummary.owner, filteredOrdersSummary.org, filteredOrdersSummary.gross, '']);
+    return rows;
+  };
+
+  const handleExportOrdersExcel = () => {
+    if (filteredOrders.length === 0) { showToast('Tidak ada pesanan untuk diexport.'); return; }
+    try {
+      const rows = buildOrderRows();
+      const widths = [13, 16, 12, 26, 24, 18, 9, 38, 20, 6, 13, 13, 13, 13, 26];
+      const bytes = buildXlsx('Pesanan', rows, widths);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const safe = orderFilterLabel.replace(/[^a-zA-Z0-9 -]/g, '').trim().replace(/\s+/g, '-');
+      downloadBlob(bytes, `Pesanan-Bazaar-${safe}-${stamp}.xlsx`,
+                   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      showToast(`${filteredOrders.length} pesanan diexport ke Excel.`);
+    } catch (err) {
+      console.error('Export Excel gagal:', err);
+      showToast('Export Excel gagal. Cek console.');
+    }
   };
 
   const batchReportData = useMemo(() => {
@@ -633,17 +959,31 @@ export default function App() {
     });
   }, [orders, reportSelectedBatchId, reportSelectedStatus, tenants, products]);
 
-  const updateOrderStatusDirect = (orderId, newStatus) => {
-    const updated = orders.map(o => o.orderId === orderId ? { ...o, status: newStatus } : o);
-    setOrders(updated);
-    
-    const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
-    fetch(targetUrl, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'updateOrderStatus', orderId: orderId, status: newStatus })
-    }).catch(e => console.warn(e));
+  const updateOrderStatusDirect = async (orderId, newStatus) => {
+    try {
+      const { error } = await supabase.from('orders')
+        .update({ status: newStatus }).eq('code', orderId);
+      if (error) throw error;
+      setOrders((prev) => prev.map((o) => o.orderId === orderId ? { ...o, status: newStatus } : o));
+      showToast('Status tersimpan!');
+    } catch (e) {
+      console.error('Gagal simpan status:', e);
+      showToast('Gagal simpan status: ' + jelaskanError(e));
+      fetchCloudData(true, true);   // kembalikan tampilan ke kondisi sebenarnya
+    }
+  };
+
+  const deleteOrder = async (orderId) => {
+    try {
+      const { error } = await supabase.from('orders').delete().eq('code', orderId);
+      if (error) throw error;
+      setOrders((prev) => prev.filter((o) => o.orderId !== orderId));
+      showToast('Pesanan dihapus.');
+    } catch (e) {
+      console.error('Gagal hapus pesanan:', e);
+      showToast('Gagal hapus: ' + jelaskanError(e));
+      fetchCloudData(true, true);
+    }
   };
 
   return (
@@ -742,8 +1082,24 @@ export default function App() {
           </div>
         ) : activeTab === 'shop' ? (
           <main className="max-w-5xl mx-auto px-4 pt-5">
+            {}
+            {activeBatch && !isOrderingOpen && (
+              <div className="bg-rose-50 border-2 border-rose-200 text-rose-800 rounded-2xl p-4 shadow-sm mb-4 flex items-start gap-3">
+                <Clock className="w-5 h-5 shrink-0 mt-0.5 text-rose-500" />
+                <div>
+                  <p className="font-black text-sm leading-tight">
+                    {batchWindow === 'before' ? 'Periode pemesanan belum dibuka' : 'Periode pemesanan sudah ditutup'}
+                  </p>
+                  <p className="text-[11px] mt-1 leading-relaxed">
+                    {batchWindow === 'before'
+                      ? <>Periode <b>{activeBatch.name}</b> baru dibuka pada <b>{formatIndoDate(activeBatch.startDate)}</b>. Katalog bisa dilihat, tapi pemesanan belum bisa dilakukan.</>
+                      : <>Periode <b>{activeBatch.name}</b> berakhir <b>{formatIndoDate(activeBatch.endDate)}</b>. Katalog masih bisa dilihat, tapi pemesanan sudah ditutup. Nantikan periode berikutnya ya!</>}
+                  </p>
+                </div>
+              </div>
+            )}
             {activeBatch && (
-              <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-sm mb-5 relative overflow-hidden">
+              <div className={`${isOrderingOpen ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-gradient-to-r from-slate-400 to-slate-500'} text-white rounded-2xl p-4 shadow-sm mb-5 relative overflow-hidden`}>
                 <div className="relative z-10">
                   <div className="flex flex-wrap items-center gap-2 mb-1">
                     <span className="bg-white/20 text-[10px] uppercase font-bold px-2 py-0.5 rounded-full">{activeBatch.name}</span>
@@ -808,10 +1164,12 @@ export default function App() {
                           </div>
                         ) : (
                           <button 
+                            disabled={!isOrderingOpen}
+                            title={isOrderingOpen ? '' : 'Periode pemesanan sedang ditutup'}
                             onClick={() => hasVariants ? setVariantModal({ isOpen: true, product: prod }) : addToCart(prod)} 
-                            className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[10px] sm:text-xs font-semibold flex items-center justify-center w-full sm:w-auto shadow-sm transition-colors"
+                            className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:hover:bg-slate-300 text-white rounded-lg text-[10px] sm:text-xs font-semibold flex items-center justify-center w-full sm:w-auto shadow-sm transition-colors"
                           >
-                            {hasVariants ? <><List className="w-3 h-3 mr-1" /> Pilih Varian</> : <><Plus className="w-3 h-3 mr-1" /> Pesan</>}
+                            {!isOrderingOpen ? <><Clock className="w-3 h-3 mr-1" /> Ditutup</> : hasVariants ? <><List className="w-3 h-3 mr-1" /> Pilih Varian</> : <><Plus className="w-3 h-3 mr-1" /> Pesan</>}
                           </button>
                         )}
                       </div>
@@ -858,9 +1216,9 @@ export default function App() {
                 </div>
                 {loginError && <p className="mb-4 text-xs font-semibold text-red-600 text-center bg-red-50 p-2 rounded-lg border border-red-100">{loginError}</p>}
                 <form onSubmit={handleAdminLogin} className="space-y-4 text-sm">
-                  <input type="text" required placeholder="Username" value={loginForm.username} onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })} className="w-full px-4 py-2.5 border rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500" />
-                  <input type="password" required placeholder="Password" value={loginForm.password} onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })} className="w-full px-4 py-2.5 border rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500" />
-                  <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-md hover:bg-indigo-700 transition-colors">Masuk Panel</button>
+                  <input type="email" required autoComplete="username" placeholder="Email admin" value={loginForm.username} onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })} className="w-full px-4 py-2.5 border rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500" />
+                  <input type="password" required autoComplete="current-password" placeholder="Password" value={loginForm.password} onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })} className="w-full px-4 py-2.5 border rounded-xl bg-slate-50 focus:outline-none focus:border-indigo-500" />
+                  <button type="submit" disabled={isSubmitting} className="w-full py-3 bg-indigo-600 disabled:bg-slate-300 text-white font-bold rounded-xl shadow-md hover:bg-indigo-700 transition-colors">{isSubmitting ? 'Memproses...' : 'Masuk Panel'}</button>
                 </form>
               </div>
             ) : (
@@ -872,6 +1230,7 @@ export default function App() {
                   <button onClick={() => setAdminSubTab('batches')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'batches' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Kelola Batch</button>
                   <button onClick={() => setAdminSubTab('tenants')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'tenants' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Kelola Stand</button>
                   <button onClick={() => setAdminSubTab('classes')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'classes' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Routing WA Kelas</button>
+                  <button onClick={handleAdminLogout} className="px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm bg-white border hover:bg-red-50 text-red-600 ml-auto transition-colors">Keluar</button>
                 </div>
 
                 {}
@@ -972,11 +1331,65 @@ export default function App() {
                 {}
                 {adminSubTab === 'orders' && (
                   <div className="space-y-3 animate-in fade-in duration-300">
-                    <div className="bg-white p-3 rounded-xl border shadow-sm mb-2 text-xs text-slate-500 flex justify-between items-center">
-                      <span>Klik "Simpan Status" untuk memperbarui status pesanan ke cloud.</span>
-                      <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded">Total: {Array.isArray(orders) ? orders.length : 0}</span>
+                    {}
+                    <div className="bg-white p-3 sm:p-4 rounded-xl border shadow-sm space-y-3">
+                      <div className="flex flex-col lg:flex-row lg:items-center gap-2">
+                        <div className="flex flex-wrap gap-2 text-xs flex-1">
+                          <select value={orderFilterBatchId} onChange={(e) => setOrderFilterBatchId(e.target.value)} className="p-2 border rounded-lg bg-slate-50 font-semibold focus:outline-none focus:border-indigo-500">
+                            <option value="ALL">Semua Batch</option>
+                            {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                          </select>
+                          <select value={orderFilterStatus} onChange={(e) => setOrderFilterStatus(e.target.value)} className="p-2 border rounded-lg bg-slate-50 font-semibold focus:outline-none focus:border-indigo-500">
+                            <option value="ALL">Semua Status</option>
+                            <option value="Paid">Paid</option>
+                            <option value="Unpaid">Unpaid</option>
+                          </select>
+                          <div className="relative flex-1 min-w-[150px]">
+                            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                              type="text" value={orderSearch} onChange={(e) => setOrderSearch(e.target.value)}
+                              placeholder="Cari no order / nama anak / kelas / ortu"
+                              className="w-full pl-8 pr-2 py-2 border rounded-lg bg-slate-50 font-semibold focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleExportOrdersExcel}
+                            disabled={filteredOrders.length === 0}
+                            className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg flex items-center shadow-sm transition-colors"
+                          >
+                            <Download className="w-4 h-4 mr-1.5" /> Export Excel
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (filteredOrders.length === 0) { showToast('Tidak ada pesanan untuk dicetak.'); return; }
+                              setPrintOrders({ list: filteredOrders, label: orderFilterLabel, summary: filteredOrdersSummary });
+                            }}
+                            disabled={filteredOrders.length === 0}
+                            className="px-3 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg flex items-center shadow-sm transition-colors"
+                          >
+                            <FileText className="w-4 h-4 mr-1.5" /> Print PDF
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-[10px] font-bold pt-1 border-t">
+                        <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded">{filteredOrders.length} pesanan</span>
+                        <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded">{filteredOrdersSummary.paid} Paid</span>
+                        <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded">{filteredOrdersSummary.unpaid} Unpaid</span>
+                        <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded">{filteredOrdersSummary.items} item</span>
+                        <span className="bg-slate-900 text-white px-2 py-1 rounded">Total {formatRupiah(filteredOrdersSummary.gross)}</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400">Klik "Simpan Status" untuk memperbarui status pesanan ke cloud. Export mengikuti filter di atas.</p>
                     </div>
-                    {Array.isArray(orders) && orders.map((ord, idx) => {
+
+                    {filteredOrders.length === 0 && (
+                      <div className="bg-white p-8 rounded-xl border text-center text-xs text-slate-400">
+                        Tidak ada pesanan yang cocok dengan filter.
+                      </div>
+                    )}
+
+                    {filteredOrders.map((ord, idx) => {
                       if (!ord || typeof ord !== 'object') return null;
                       const enrichedItems = enrichOrderItems(ord) || [];
                       const cust = ord.customer && typeof ord.customer === 'object' ? ord.customer : {};
@@ -1003,28 +1416,15 @@ export default function App() {
                                 <option value="Batal">Batal</option>
                               </select>
                               <button 
-                                onClick={() => {
-                                  updateOrderStatusDirect(ord.orderId, ord.status);
-                                  showToast('Status Tersimpan!');
-                                }}
+                                onClick={() => updateOrderStatusDirect(ord.orderId, ord.status)}
                                 className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg flex items-center shadow-sm transition-colors"
                               >
                                 <Save className="w-3.5 h-3.5 mr-1" /> Simpan
                               </button>
                               <button 
                                 onClick={() => {
-                                  showConfirm(`Yakin HAPUS pesanan ${ord.orderId}? Data akan terhapus dari sistem.`, () => {
-                                    const updated = orders.filter(o => o.orderId !== ord.orderId);
-                                    setOrders(updated);
-                                    const targetUrl = sheetWebhookUrl || DEFAULT_WEBHOOK_URL;
-                                    fetch(targetUrl, {
-                                      method: 'POST',
-                                      mode: 'no-cors',
-                                      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                                      body: JSON.stringify({ action: 'deleteOrder', orderId: ord.orderId })
-                                    }).catch(e => console.warn(e));
-                                    showToast('Pesanan dihapus dari Cloud.');
-                                  });
+                                  showConfirm(`Yakin HAPUS pesanan ${ord.orderId}? Data akan terhapus permanen.`,
+                                    () => deleteOrder(ord.orderId));
                                 }}
                                 className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"
                                 title="Hapus Pesanan"
@@ -1094,10 +1494,7 @@ export default function App() {
                             <div className="flex flex-col gap-1.5">
                               <button onClick={() => setProductModal({ isOpen: true, item: p })} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors"><Edit3 className="w-4 h-4" /></button>
                               <button onClick={() => {
-                                showConfirm(`Hapus produk ${p.name}?`, () => {
-                                  const up = products.filter(x => x.id !== p.id);
-                                  setProducts(up); syncPushToCloud({ products: up });
-                                });
+                                showConfirm(`Hapus produk ${p.name}?`, () => deleteProduct(p.id));
                               }} className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
                             </div>
                           </div>
@@ -1128,8 +1525,7 @@ export default function App() {
                             <button onClick={() => setBatchModal({ isOpen: true, item: b })} className="text-blue-600 font-bold bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors">Edit</button>
                             {!b.isActive && (
                               <button onClick={() => {
-                                const up = batches.map(x => ({ ...x, isActive: x.id === b.id }));
-                                setBatches(up); syncPushToCloud({ batches: up });
+                                saveBatch({ ...b, isActive: true }, b);
                               }} className="text-white font-bold bg-slate-800 hover:bg-slate-900 px-3 py-1.5 rounded-lg transition-colors">Set Aktif</button>
                             )}
                           </div>
@@ -1157,10 +1553,7 @@ export default function App() {
                           <div className="flex gap-1.5">
                             <button onClick={() => setClassModal({ isOpen: true, item: c })} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors"><Edit3 className="w-4 h-4" /></button>
                             <button onClick={() => {
-                                showConfirm(`Hapus kelas ${c.name}?`, () => {
-                                  const up = classesList.filter(x => x.id !== c.id);
-                                  setClassesList(up); syncPushToCloud({ classes: up });
-                                });
+                                showConfirm(`Hapus kelas ${c.name}?`, () => deleteClass(c.id));
                               }} className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
                           </div>
                         </div>
@@ -1188,10 +1581,7 @@ export default function App() {
                           <div className="flex gap-1.5 shrink-0">
                             <button onClick={() => setTenantModal({ isOpen: true, item: t })} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors"><Edit3 className="w-4 h-4" /></button>
                             <button onClick={() => {
-                                showConfirm(`Hapus stand ${t.name}?`, () => {
-                                  const up = tenants.filter(x => x.id !== t.id);
-                                  setTenants(up); syncPushToCloud({ tenants: up });
-                                });
+                                showConfirm(`Hapus stand ${t.name}?`, () => deleteTenant(t.id));
                               }} className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
                           </div>
                         </div>
@@ -1232,8 +1622,8 @@ export default function App() {
                   <span>Total:</span>
                   <span className="text-amber-600">{formatRupiah(cartSummary.totalSellingPrice)}</span>
                 </div>
-                <button onClick={() => { setIsCartOpen(false); setIsCheckoutModalOpen(true); }} className="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-md text-sm flex items-center justify-center transition-colors">
-                  Lanjut Checkout <Send className="w-4 h-4 ml-2" />
+                <button disabled={!isOrderingOpen} onClick={() => { setIsCartOpen(false); setIsCheckoutModalOpen(true); }} className="w-full py-3 bg-amber-600 hover:bg-amber-700 disabled:bg-slate-300 disabled:cursor-not-allowed disabled:hover:bg-slate-300 text-white font-bold rounded-xl shadow-md text-sm flex items-center justify-center transition-colors">
+                  {isOrderingOpen ? <>Lanjut Checkout <Send className="w-4 h-4 ml-2" /></> : <><Clock className="w-4 h-4 mr-2" /> Periode Ditutup</>}
                 </button>
               </div>
             </div>
@@ -1360,10 +1750,8 @@ export default function App() {
             tenants={tenants}
             onClose={() => setProductModal({ isOpen: false, item: null })}
             onSave={(formData) => {
-              let updated;
-              if (productModal.item) updated = products.map((p) => (p.id === productModal.item.id ? { ...p, ...formData } : p));
-              else updated = [...products, { ...formData, id: 'p-' + Date.now(), available: true }];
-              setProducts(updated); syncPushToCloud({ products: updated }); setProductModal({ isOpen: false, item: null });
+              saveProduct(formData, productModal.item);
+              setProductModal({ isOpen: false, item: null });
             }}
           />
         )}
@@ -1373,10 +1761,8 @@ export default function App() {
             item={tenantModal.item}
             onClose={() => setTenantModal({ isOpen: false, item: null })}
             onSave={(formData) => {
-              let updated;
-              if (tenantModal.item) updated = tenants.map((t) => (t.id === tenantModal.item.id ? { ...t, ...formData } : t));
-              else updated = [...tenants, { ...formData, id: 't-' + Date.now() }];
-              setTenants(updated); syncPushToCloud({ tenants: updated }); setTenantModal({ isOpen: false, item: null });
+              saveTenant(formData, tenantModal.item);
+              setTenantModal({ isOpen: false, item: null });
             }}
           />
         )}
@@ -1386,10 +1772,8 @@ export default function App() {
             item={batchModal.item}
             onClose={() => setBatchModal({ isOpen: false, item: null })}
             onSave={(formData) => {
-              let updated;
-              if (batchModal.item) updated = batches.map((b) => (b.id === batchModal.item.id ? { ...b, ...formData } : b));
-              else updated = [...batches, { ...formData, id: 'b-' + Date.now(), isActive: false }];
-              setBatches(updated); syncPushToCloud({ batches: updated }); setBatchModal({ isOpen: false, item: null });
+              saveBatch(formData, batchModal.item);
+              setBatchModal({ isOpen: false, item: null });
             }}
           />
         )}
@@ -1399,16 +1783,146 @@ export default function App() {
             item={classModal.item}
             onClose={() => setClassModal({ isOpen: false, item: null })}
             onSave={(formData) => {
-              let updated;
-              if (classModal.item) updated = classesList.map((c) => (c.id === classModal.item.id ? { ...c, ...formData } : c));
-              else updated = [...classesList, { ...formData, id: 'c-' + Date.now() }];
-              setClassesList(updated); syncPushToCloud({ classes: updated }); setClassModal({ isOpen: false, item: null });
+              saveClass(formData, classModal.item);
+              setClassModal({ isOpen: false, item: null });
             }}
           />
         )}
       </div>
 
       {}
+      {}
+      {printOrders && (
+        <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:bg-white print:overflow-visible print:h-auto">
+          <style>{`
+            @media print {
+              @page { size: A4 landscape; margin: 10mm 8mm; }
+              body { margin: 0; background-color: white; }
+              html, body { height: max-content !important; overflow: visible !important; }
+              .no-print { display: none !important; }
+              * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              /* Kunci: tiap pesanan satu <tbody>, dan tbody tidak boleh dipotong.
+                 Ini yang bikin baris Total tidak lagi nyangkut ke halaman berikutnya. */
+              tbody.order-block { break-inside: avoid; page-break-inside: avoid; }
+              tr { break-inside: avoid; page-break-inside: avoid; }
+              thead { display: table-header-group; }
+              tfoot { display: table-row-group; }   /* jangan diulang tiap halaman */
+              .doc-summary { break-inside: avoid; page-break-inside: avoid; }
+              .doc-header { break-after: avoid; page-break-after: avoid; }
+            }
+          `}</style>
+
+          <div className="no-print sticky top-0 bg-slate-900 text-white p-4 shadow-md flex justify-between items-center z-50">
+            <h2 className="font-bold text-sm">Cetak Daftar Pesanan — {printOrders.label}</h2>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => window.print()} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-bold transition-colors">
+                Simpan sbg PDF
+              </button>
+              <button onClick={() => setPrintOrders(null)} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-800 rounded-lg text-xs font-bold transition-colors">
+                Tutup
+              </button>
+            </div>
+          </div>
+
+          <div className="p-6 max-w-6xl mx-auto bg-white text-black text-[9.5px] print:p-0 print:m-0 print:w-full print:max-w-none shadow-xl print:shadow-none my-8 print:my-0">
+            <div className="doc-header border-b-2 border-slate-800 pb-2 mb-3">
+              <h2 className="text-sm font-bold text-slate-900">Daftar Pesanan Bazaar DANUS — PTA Little Darbi</h2>
+              <p className="text-[9.5px] text-slate-600 mt-0.5">
+                Filter: {printOrders.label} &nbsp;|&nbsp; {printOrders.list.length} pesanan
+                ({printOrders.summary.paid} Paid, {printOrders.summary.unpaid} Unpaid)
+                &nbsp;|&nbsp; Dicetak: {new Date().toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short' })}
+              </p>
+            </div>
+
+            <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '8%' }} /><col style={{ width: '7%' }} /><col style={{ width: '15%' }} />
+                <col style={{ width: '13%' }} /><col style={{ width: '10%' }} /><col style={{ width: '27%' }} />
+                <col style={{ width: '4%' }} /><col style={{ width: '10%' }} /><col style={{ width: '6%' }} />
+              </colgroup>
+              <thead>
+                <tr className="bg-slate-800 text-white">
+                  <th className="border border-slate-400 p-1 text-left">No Order</th>
+                  <th className="border border-slate-400 p-1 text-left">Tanggal</th>
+                  <th className="border border-slate-400 p-1 text-left">Nama Anak</th>
+                  <th className="border border-slate-400 p-1 text-left">Kelas</th>
+                  <th className="border border-slate-400 p-1 text-left">Ortu</th>
+                  <th className="border border-slate-400 p-1 text-left">Produk</th>
+                  <th className="border border-slate-400 p-1 text-center">Qty</th>
+                  <th className="border border-slate-400 p-1 text-right">Subtotal</th>
+                  <th className="border border-slate-400 p-1 text-center">Status</th>
+                </tr>
+              </thead>
+
+              {printOrders.list.map((ord, oi) => {
+                const c = ord.customer || {};
+                const items = enrichOrderItems(ord);
+                const rowCount = Math.max(items.length, 1);
+                const orderTotal = items.reduce((n, it) => n + (Number(it.subtotal) || 0), 0);
+                const tgl = ord.date ? new Date(ord.date) : null;
+                const tglStr = tgl && !isNaN(tgl)
+                  ? tgl.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: '2-digit' })
+                  : '-';
+                const isPaid = (ord.status || 'Unpaid') === 'Paid';
+                const zebra = oi % 2 ? 'bg-slate-50' : '';
+                const hasCatatan = c.catatan && String(c.catatan).trim() !== '' && String(c.catatan).trim() !== '-';
+                return (
+                  <tbody key={ord.orderId || oi} className="order-block">
+                    {(items.length ? items : [null]).map((it, ii) => (
+                      <tr key={ii} className={zebra}>
+                        {ii === 0 && <td rowSpan={rowCount} className="border border-slate-400 p-1 font-bold align-top break-words">{ord.orderId || '-'}</td>}
+                        {ii === 0 && <td rowSpan={rowCount} className="border border-slate-400 p-1 align-top">{tglStr}</td>}
+                        {ii === 0 && <td rowSpan={rowCount} className="border border-slate-400 p-1 align-top break-words">{c.namaAnak || '-'}</td>}
+                        {ii === 0 && <td rowSpan={rowCount} className="border border-slate-400 p-1 align-top break-words">{c.kelas || '-'}</td>}
+                        {ii === 0 && <td rowSpan={rowCount} className="border border-slate-400 p-1 align-top break-words">{c.namaOrtu || '-'}</td>}
+                        <td className="border border-slate-400 p-1 break-words">{it ? parseAndCleanItem(it.name) : '(tidak ada item)'}</td>
+                        <td className="border border-slate-400 p-1 text-center">{it ? (it.qty || 1) : '-'}</td>
+                        <td className="border border-slate-400 p-1 text-right whitespace-nowrap">{it ? formatRupiah(it.subtotal) : '-'}</td>
+                        {ii === 0 && (
+                          <td rowSpan={rowCount} className={`border border-slate-400 p-1 text-center font-bold align-top ${isPaid ? 'text-emerald-700' : 'text-red-600'}`}>
+                            {ord.status || 'Unpaid'}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                    <tr className="bg-slate-200">
+                      <td colSpan={6} className="border border-slate-400 p-1 text-right font-bold">
+                        Total {ord.orderId || '-'}
+                        {hasCatatan && <span className="font-normal italic text-slate-600"> — Catatan: {c.catatan}</span>}
+                      </td>
+                      <td colSpan={3} className="border border-slate-400 p-1 text-right font-bold whitespace-nowrap">{formatRupiah(orderTotal)}</td>
+                    </tr>
+                  </tbody>
+                );
+              })}
+            </table>
+
+            {}
+            <div className="doc-summary mt-4 border-t-2 border-slate-800 pt-3">
+              <div className="flex justify-between items-center bg-slate-800 text-white px-3 py-2 rounded-t">
+                <span className="font-bold">TOTAL KESELURUHAN — {printOrders.list.length} pesanan, {printOrders.summary.items} item</span>
+                <span className="font-bold text-xs">{formatRupiah(printOrders.summary.gross)}</span>
+              </div>
+              <div className="grid grid-cols-3 border border-t-0 border-slate-400">
+                <div className="p-2 border-r border-slate-400">
+                  <div className="text-slate-500">Hak Vendor</div>
+                  <div className="font-bold text-emerald-700 text-xs">{formatRupiah(printOrders.summary.owner)}</div>
+                </div>
+                <div className="p-2 border-r border-slate-400">
+                  <div className="text-slate-500">Hak Panitia</div>
+                  <div className="font-bold text-orange-700 text-xs">{formatRupiah(printOrders.summary.org)}</div>
+                </div>
+                <div className="p-2">
+                  <div className="text-slate-500">Status</div>
+                  <div className="font-bold text-slate-900 text-xs">{printOrders.summary.paid} Paid / {printOrders.summary.unpaid} Unpaid</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+
       {printData && (
         <div className="fixed inset-0 z-[9999] bg-slate-100 overflow-y-auto print:absolute print:inset-0 print:block print:w-full print:bg-white print:overflow-visible print:h-auto">
           <style>{`
@@ -1613,7 +2127,9 @@ function VariantSelectionModal({ product, onClose, onAddToCart, setGlobalZoom })
            <button 
              onClick={() => {
                 const compositeProduct = {
-                    id: `${product.id}|${selectedVariant.name}`,
+                    // Pakai ID varian, bukan namanya: ID inilah yang dikirim
+                    // ke create_order dan disimpan di order_items.
+                    id: `${product.id}|${selectedVariant.id ?? selectedVariant.name}`,
                     name: `${parseAndCleanItem(product.name)} [${selectedVariant.name}]`,
                     tenantId: product.tenantId,
                     priceOwner: Number(selectedVariant.priceOwner),
@@ -1721,9 +2237,7 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
   const [isUploading, setIsUploading] = useState(false);
 
   const [variants, setVariants] = useState(() => {
-     if (!item?.variants) return [];
-     if (typeof item.variants === 'string') return JSON.parse(item.variants);
-     return item.variants;
+     return normalizeVariants(item?.variants);   // FIX: tidak crash kalau JSON rusak
   });
 
   const handleImageUpload = (e) => {
@@ -1759,9 +2273,26 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
         
-        const base64Data = canvas.toDataURL('image/jpeg', 0.6);
-        setForm({...form, imageUrl: base64Data});
-        setIsUploading(false);
+        // Gambar diunggah ke Supabase Storage, bukan lagi ditempel sebagai
+        // base64 di dalam baris produk. Itu yang dulu membuat payload sync
+        // membengkak sampai ~1,5 MB dan membuka celah race condition.
+        canvas.toBlob(async (blob) => {
+          if (!blob) { setIsUploading(false); return; }
+          try {
+            const path = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+            const { error } = await supabase.storage
+              .from(IMAGE_BUCKET)
+              .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+            if (error) throw error;
+            const { data } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path);
+            setForm((f) => ({ ...f, imageUrl: data.publicUrl }));
+          } catch (err) {
+            console.error('Gagal unggah gambar:', err);
+            alert('Gagal mengunggah gambar: ' + (err.message || 'coba lagi'));
+          } finally {
+            setIsUploading(false);
+          }
+        }, 'image/jpeg', 0.75);
       }
       img.onerror = () => setIsUploading(false);
     };

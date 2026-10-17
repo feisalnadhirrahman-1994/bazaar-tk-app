@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+ 
+ 
+# Data bazaar - berisi nama anak, orang tua, dan nomor telepon 
+*.xlsx 
+*.pdf 
