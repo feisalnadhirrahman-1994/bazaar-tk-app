@@ -320,6 +320,7 @@ export default function App() {
   // Filter khusus tab "Semua Pesanan". Export Excel & Print PDF mengikuti filter ini.
   const [orderFilterBatchId, setOrderFilterBatchId] = useState('ALL');
   const [orderFilterStatus, setOrderFilterStatus] = useState('ALL');
+  const [orderFilterChannel, setOrderFilterChannel] = useState('ALL');
   const [orderSearch, setOrderSearch] = useState('');
   const [printOrders, setPrintOrders] = useState(null);
 
@@ -330,6 +331,14 @@ export default function App() {
   const [batchExclusions, setBatchExclusions] = useState({});
   const [pesertaBatchId, setPesertaBatchId] = useState('');
   const [standTertutup, setStandTertutup] = useState({});
+
+  // --- Kasir bazaar offline -------------------------------------------------
+  const [posCart, setPosCart] = useState([]);           // [{key, productId, variantId, name, tenantId, price, qty}]
+  const [posSearch, setPosSearch] = useState('');
+  const [posBayar, setPosBayar] = useState('Tunai');
+  const [posPembeli, setPosPembeli] = useState('');
+  const [posSubmitting, setPosSubmitting] = useState(false);
+  const [posStruk, setPosStruk] = useState(null);       // hasil transaksi terakhir
 
   // Bersihkan sisa cache era spreadsheet sekali saat app dibuka.
   useEffect(() => { purgeLegacyCache(); }, []);
@@ -343,6 +352,7 @@ export default function App() {
     priceOrganizer: Number(p.price_organizer) || 0,
     description: p.description || '', category: p.category || '',
     imageUrl: p.image_url || '', available: p.available !== false,
+    channel: p.channel === 'offline' ? 'offline' : 'online',
     variants: (p.product_variants || [])
       .slice()
       .sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
@@ -356,6 +366,8 @@ export default function App() {
   const mapOrder = (o) => ({
     id: o.id, orderId: o.code, batchId: o.batch_id, date: o.created_at,
     status: o.status,
+    channel: o.channel === 'offline' ? 'offline' : 'online',
+    paymentMethod: o.payment_method || '',
     customer: {
       namaAnak: o.nama_anak, kelas: o.kelas,
       namaOrtu: o.nama_ortu, catatan: o.catatan || '-',
@@ -537,6 +549,7 @@ export default function App() {
       category: form.category || null,
       image_url: form.imageUrl || null,
       available: existing ? existing.available !== false : true,
+      channel: form.channel === 'offline' ? 'offline' : 'online',
     }));
 
     const baru = normalizeVariants(form.variants)
@@ -825,7 +838,7 @@ export default function App() {
 
   const availableCategories = useMemo(() => {
     const cats = products
-      .filter((p) => produkIkutBatch(p, activeBatch?.id))
+      .filter((p) => p.channel === 'online' && produkIkutBatch(p, activeBatch?.id))
       .map((p) => p.category).filter((c) => c && c.trim() !== '');
     return [...new Set(cats)].sort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -844,16 +857,21 @@ export default function App() {
    * Produk dikelompokkan per stand untuk tab "Produk & Harga".
    * Sebelumnya daftarnya datar, jadi produk baru tenggelam di antara 87 kartu.
    */
-  const productsByTenant = useMemo(() => {
-    return tenantsUrut
-      .map((tenant) => ({
-        tenant,
-        items: products
-          .filter((p) => p.tenantId === tenant.id)
-          .sort((a, b) => String(a.name).localeCompare(String(b.name))),
-      }))
-      .filter((g) => g.items.length > 0);
-  }, [products, tenantsUrut]);
+  const kelompokkanProduk = (kanal) => tenantsUrut
+    .map((tenant) => ({
+      tenant,
+      items: products
+        .filter((p) => p.tenantId === tenant.id && (!kanal || p.channel === kanal))
+        .sort((a, b) => String(a.name).localeCompare(String(b.name))),
+    }))
+    .filter((g) => g.items.length > 0);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const productsByTenant = useMemo(() => kelompokkanProduk('online'), [products, tenantsUrut]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const offlineByTenant  = useMemo(() => kelompokkanProduk('offline'), [products, tenantsUrut]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const semuaByTenant    = useMemo(() => kelompokkanProduk(null), [products, tenantsUrut]);
 
   /** Etalase hanya masuk akal saat katalog ditampilkan utuh. */
   // Memilih urutan A-Z juga mematikan etalase: kalau tidak, tombol itu jadi
@@ -869,7 +887,8 @@ export default function App() {
       .map((tenant) => ({
         tenant,
         items: products
-          .filter((p) => p.tenantId === tenant.id && p.available && produkIkutBatch(p, activeBatch?.id))
+          .filter((p) => p.tenantId === tenant.id && p.available && p.channel === 'online'
+                      && produkIkutBatch(p, activeBatch?.id))
           .sort((a, b) => String(a.name).localeCompare(String(b.name))),
       }))
       .filter((g) => g.items.length > 0);
@@ -883,7 +902,9 @@ export default function App() {
       const matchSearch = String(p.name || '').toLowerCase().includes(searchQuery.toLowerCase());
       // Hanya produk dari stand yang ikut batch aktif, dan tidak dikecualikan.
       const ikutBatch = produkIkutBatch(p, activeBatch?.id);
-      return matchTenant && matchCategory && matchSearch && p.available && ikutBatch;
+      // Produk offline tidak pernah muncul di halaman pembeli.
+      return matchTenant && matchCategory && matchSearch && p.available
+             && p.channel === 'online' && ikutBatch;
     });
 
     if (sortOrder === 'az') {
@@ -945,11 +966,12 @@ export default function App() {
       if (!o || typeof o !== 'object') return false;
       if (orderFilterBatchId !== 'ALL' && o.batchId !== orderFilterBatchId) return false;
       if (orderFilterStatus !== 'ALL' && (o.status || 'Unpaid') !== orderFilterStatus) return false;
+      if (orderFilterChannel !== 'ALL' && (o.channel || 'online') !== orderFilterChannel) return false;
       if (!q) return true;
       const c = o.customer || {};
       return [o.orderId, c.namaAnak, c.kelas, c.namaOrtu].some(v => String(v || '').toLowerCase().includes(q));
     });
-  }, [orders, orderFilterBatchId, orderFilterStatus, orderSearch]);
+  }, [orders, orderFilterBatchId, orderFilterStatus, orderFilterChannel, orderSearch]);
 
   // Ringkasan angka untuk header tab + baris total di export.
   const filteredOrdersSummary = useMemo(() => {
@@ -961,8 +983,11 @@ export default function App() {
       acc.gross += gross; acc.owner += owner; acc.org += org;
       acc.items += items.reduce((n, it) => n + (Number(it.qty) || 1), 0);
       if ((o.status || 'Unpaid') === 'Paid') acc.paid += 1; else acc.unpaid += 1;
+      if ((o.channel || 'online') === 'offline') { acc.offline += 1; acc.grossOffline += gross; }
+      else { acc.online += 1; acc.grossOnline += gross; }
       return acc;
-    }, { gross: 0, owner: 0, org: 0, items: 0, paid: 0, unpaid: 0 });
+    }, { gross: 0, owner: 0, org: 0, items: 0, paid: 0, unpaid: 0,
+         online: 0, offline: 0, grossOnline: 0, grossOffline: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredOrders, products]);
 
@@ -970,12 +995,15 @@ export default function App() {
   const orderFilterLabel = useMemo(() => {
     const b = orderFilterBatchId === 'ALL' ? 'Semua Batch' : (batches.find(x => x.id === orderFilterBatchId)?.name || orderFilterBatchId);
     const st = orderFilterStatus === 'ALL' ? 'Semua Status' : orderFilterStatus;
-    return `${b} - ${st}`;
-  }, [orderFilterBatchId, orderFilterStatus, batches]);
+    const ch = orderFilterChannel === 'ALL' ? 'Online+Offline'
+             : orderFilterChannel === 'offline' ? 'Offline' : 'Online';
+    return `${b} - ${st} - ${ch}`;
+  }, [orderFilterBatchId, orderFilterStatus, orderFilterChannel, batches]);
 
   // Satu baris per ITEM, supaya bisa dilihat produk & harganya per pesanan.
   const buildOrderRows = () => {
-    const header = ['No Order', 'Tanggal', 'Batch', 'Nama Anak', 'Kelas', 'Nama Ortu', 'Status',
+    const header = ['No Order', 'Tanggal', 'Batch', 'Kanal', 'Metode Bayar',
+                    'Nama Anak', 'Kelas', 'Nama Ortu', 'Status',
                     'Produk', 'Stand', 'Qty', 'Harga Satuan', 'Hak Vendor', 'Hak Panitia', 'Subtotal', 'Catatan'];
     const rows = [header];
     filteredOrders.forEach((o) => {
@@ -984,8 +1012,11 @@ export default function App() {
       const tgl = o.date ? new Date(o.date) : null;
       const tglStr = tgl && !isNaN(tgl) ? tgl.toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }) : '-';
       const items = enrichOrderItems(o);
+      const kanal = (o.channel || 'online') === 'offline' ? 'Offline' : 'Online';
+      const bayar = o.paymentMethod || '-';
       if (items.length === 0) {
-        rows.push([o.orderId || '-', tglStr, batchName, c.namaAnak || '-', c.kelas || '-', c.namaOrtu || '-',
+        rows.push([o.orderId || '-', tglStr, batchName, kanal, bayar,
+                   c.namaAnak || '-', c.kelas || '-', c.namaOrtu || '-',
                    o.status || 'Unpaid', '(tidak ada item)', '-', 0, 0, 0, 0, 0, c.catatan || '-']);
         return;
       }
@@ -994,7 +1025,8 @@ export default function App() {
         const po = Number(it.priceOwner) || 0;
         const pg = Number(it.priceOrganizer) || 0;
         rows.push([
-          o.orderId || '-', tglStr, batchName, c.namaAnak || '-', c.kelas || '-', c.namaOrtu || '-',
+          o.orderId || '-', tglStr, batchName, kanal, bayar,
+          c.namaAnak || '-', c.kelas || '-', c.namaOrtu || '-',
           o.status || 'Unpaid',
           parseAndCleanItem(it.name),
           tenants.find(t => t.id === it.tenantId)?.name || '-',
@@ -1004,7 +1036,7 @@ export default function App() {
       });
     });
     rows.push([]);
-    rows.push(['TOTAL', '', '', '', '', '', '', `${filteredOrders.length} pesanan`, '',
+    rows.push(['TOTAL', '', '', '', '', '', '', '', '', `${filteredOrders.length} pesanan`, '',
                filteredOrdersSummary.items, '', filteredOrdersSummary.owner, filteredOrdersSummary.org, filteredOrdersSummary.gross, '']);
     return rows;
   };
@@ -1013,7 +1045,7 @@ export default function App() {
     if (filteredOrders.length === 0) { showToast('Tidak ada pesanan untuk diexport.'); return; }
     try {
       const rows = buildOrderRows();
-      const widths = [13, 16, 12, 26, 24, 18, 9, 38, 20, 6, 13, 13, 13, 13, 26];
+      const widths = [13, 16, 12, 9, 13, 26, 24, 18, 9, 38, 20, 6, 13, 13, 13, 13, 26];
       const bytes = buildXlsx('Pesanan', rows, widths);
       const stamp = new Date().toISOString().slice(0, 10);
       const safe = orderFilterLabel.replace(/[^a-zA-Z0-9 -]/g, '').trim().replace(/\s+/g, '-');
@@ -1036,6 +1068,7 @@ export default function App() {
       const customerOrdersDetail = [];
       const itemTotalsMap = {};
       let tenantTotalGross = 0;
+      let grossOnline = 0, grossOffline = 0;
       let tenantTotalOwnerShare = 0;
       let tenantTotalMargin = 0;
 
@@ -1047,6 +1080,8 @@ export default function App() {
         if (tenantItemsInOrder.length > 0) {
           customerOrdersDetail.push({
             orderId: ord.orderId,
+            channel: ord.channel || 'online',
+            paymentMethod: ord.paymentMethod || '',
             namaAnak: ord.customer?.namaAnak || 'Unknown',
             kelas: ord.customer?.kelas || '-',
             namaOrtu: ord.customer?.namaOrtu || '-',
@@ -1067,6 +1102,8 @@ export default function App() {
             tenantTotalOwnerShare += (Number(it.priceOwner) || 0) * (Number(it.qty) || 1);
             tenantTotalMargin += (Number(it.priceOrganizer) || 0) * (Number(it.qty) || 1);
             tenantTotalGross += (Number(it.subtotal) || 0);
+            if ((ord.channel || 'online') === 'offline') grossOffline += (Number(it.subtotal) || 0);
+            else grossOnline += (Number(it.subtotal) || 0);
           });
         }
       });
@@ -1082,6 +1119,8 @@ export default function App() {
         customerOrdersDetail,
         itemTotalsMap,
         tenantTotalGross,
+        grossOnline,
+        grossOffline,
         tenantTotalOwnerShare,
         tenantTotalMargin
       };
@@ -1112,6 +1151,91 @@ export default function App() {
       console.error('Gagal hapus pesanan:', e);
       showToast('Gagal hapus: ' + jelaskanError(e));
       fetchCloudData(true, true);
+    }
+  };
+
+  /**
+   * Daftar tombol untuk layar Kasir. Produk bervarian dipecah jadi satu tombol
+   * per varian — di depan antrean, memilih langsung lebih cepat daripada
+   * membuka modal dulu.
+   */
+  const posItems = useMemo(() => {
+    const q = posSearch.trim().toLowerCase();
+    const out = [];
+    offlineByTenant.forEach(({ tenant, items }) => {
+      items.forEach((p) => {
+        if (!p.available) return;
+        if (!produkIkutBatch(p, activeBatch?.id)) return;
+        const vars = Array.isArray(p.variants) && p.variants.length
+          ? p.variants
+          : [null];
+        vars.forEach((v) => {
+          const nama = v ? `${parseAndCleanItem(p.name)} [${v.name}]` : parseAndCleanItem(p.name);
+          if (q && !(nama.toLowerCase().includes(q) || tenant.name.toLowerCase().includes(q))) return;
+          out.push({
+            key: v ? `${p.id}|${v.id}` : p.id,
+            productId: p.id,
+            variantId: v ? v.id : null,
+            name: nama,
+            tenantName: tenant.name,
+            tenantId: tenant.id,
+            price: v
+              ? Number(v.priceOwner) + Number(v.priceOrganizer)
+              : Number(p.priceOwner) + Number(p.priceOrganizer),
+          });
+        });
+      });
+    });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offlineByTenant, posSearch, activeBatch, batchTenants, batchExclusions]);
+
+  const posTotal = useMemo(
+    () => posCart.reduce((n, i) => n + i.price * i.qty, 0), [posCart]);
+
+  const posTambah = (item) => setPosCart((prev) => {
+    const ada = prev.find((x) => x.key === item.key);
+    if (ada) return prev.map((x) => x.key === item.key ? { ...x, qty: x.qty + 1 } : x);
+    return [...prev, { ...item, qty: 1 }];
+  });
+
+  const posUbahQty = (key, delta) => setPosCart((prev) => prev
+    .map((x) => x.key === key ? { ...x, qty: x.qty + delta } : x)
+    .filter((x) => x.qty > 0));
+
+  const posReset = () => { setPosCart([]); setPosPembeli(''); setPosBayar('Tunai'); };
+
+  /** Tutup transaksi kasir. Harga diambil ulang dari database di sisi server. */
+  const posSelesaikan = async () => {
+    if (posSubmitting || posCart.length === 0) return;
+    if (!activeBatch) { showToast('Belum ada batch aktif.'); return; }
+    setPosSubmitting(true);
+    try {
+      const { data, error } = await supabase.rpc('create_pos_order', {
+        p_batch_id: activeBatch.id,
+        p_nama_pembeli: posPembeli.trim() || null,
+        p_catatan: null,
+        p_payment_method: posBayar,
+        p_items: posCart.map((i) => ({
+          product_id: i.productId, variant_id: i.variantId, qty: i.qty,
+        })),
+      });
+      if (error) { showToast('Transaksi gagal: ' + (error.message || 'coba lagi')); return; }
+      const hasil = Array.isArray(data) ? data[0] : data;
+      setPosStruk({
+        code: hasil?.code,
+        total: Number(hasil?.total_tagihan) || posTotal,
+        items: posCart,
+        bayar: posBayar,
+        pembeli: posPembeli.trim() || 'admin offline',
+      });
+      posReset();
+      fetchCloudData(true, true);
+    } catch (e) {
+      console.error('Kasir gagal:', e);
+      showToast('Transaksi gagal: ' + (e.message || 'periksa koneksi'));
+    } finally {
+      setPosSubmitting(false);
     }
   };
 
@@ -1404,7 +1528,9 @@ export default function App() {
                 <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-none border-b border-slate-200">
                   <button onClick={() => setAdminSubTab('batch_reports')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'batch_reports' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Rekap Per Tenant</button>
                   <button onClick={() => setAdminSubTab('orders')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'orders' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Semua Pesanan</button>
-                  <button onClick={() => setAdminSubTab('products')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'products' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Produk & Harga</button>
+                  <button onClick={() => setAdminSubTab('kasir')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'kasir' ? 'bg-emerald-600 text-white' : 'bg-white border hover:bg-emerald-50 text-emerald-700'}`}>Kasir Offline</button>
+                  <button onClick={() => setAdminSubTab('products')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'products' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Produk Online</button>
+                  <button onClick={() => setAdminSubTab('products_offline')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'products_offline' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Produk Offline</button>
                   <button onClick={() => setAdminSubTab('batches')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'batches' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Kelola Batch</button>
                   <button onClick={() => setAdminSubTab('tenants')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'tenants' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Kelola Stand</button>
                   <button onClick={() => setAdminSubTab('classes')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'classes' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Routing WA Kelas</button>
@@ -1506,6 +1632,16 @@ export default function App() {
                                   </div>
                                 ))}
                               </div>
+                              <div className="flex gap-2 mb-2">
+                                <div className="flex-1 bg-amber-50 border border-amber-100 rounded-lg p-2">
+                                  <p className="text-[9px] font-bold text-amber-700 uppercase tracking-wide">Online</p>
+                                  <p className="font-black text-amber-700 text-xs mt-0.5">{formatRupiah(tenantRep.grossOnline)}</p>
+                                </div>
+                                <div className="flex-1 bg-emerald-50 border border-emerald-100 rounded-lg p-2">
+                                  <p className="text-[9px] font-bold text-emerald-700 uppercase tracking-wide">Offline (Kasir)</p>
+                                  <p className="font-black text-emerald-700 text-xs mt-0.5">{formatRupiah(tenantRep.grossOffline)}</p>
+                                </div>
+                              </div>
                               <div className="flex justify-between font-bold text-emerald-800 bg-emerald-50 p-2.5 rounded-lg border border-emerald-100">
                                 <span>Total Hak Vendor:</span>
                                 <span className="text-sm">{formatRupiah(tenantRep.tenantTotalOwnerShare)}</span>
@@ -1533,6 +1669,11 @@ export default function App() {
                             <option value="ALL">Semua Status</option>
                             <option value="Paid">Paid</option>
                             <option value="Unpaid">Unpaid</option>
+                          </select>
+                          <select value={orderFilterChannel} onChange={(e) => setOrderFilterChannel(e.target.value)} className="p-2 border rounded-lg bg-slate-50 font-semibold focus:outline-none focus:border-indigo-500">
+                            <option value="ALL">Online + Offline</option>
+                            <option value="online">Online saja</option>
+                            <option value="offline">Offline saja</option>
                           </select>
                           <div className="relative flex-1 min-w-[150px]">
                             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1568,6 +1709,8 @@ export default function App() {
                         <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded">{filteredOrdersSummary.paid} Paid</span>
                         <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded">{filteredOrdersSummary.unpaid} Unpaid</span>
                         <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded">{filteredOrdersSummary.items} item</span>
+                        <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded">{filteredOrdersSummary.online} online &middot; {formatRupiah(filteredOrdersSummary.grossOnline)}</span>
+                        <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded">{filteredOrdersSummary.offline} offline &middot; {formatRupiah(filteredOrdersSummary.grossOffline)}</span>
                         <span className="bg-slate-900 text-white px-2 py-1 rounded">Total {formatRupiah(filteredOrdersSummary.gross)}</span>
                       </div>
                       <p className="text-[10px] text-slate-400">Klik "Simpan Status" untuk memperbarui status pesanan ke cloud. Export mengikuti filter di atas.</p>
@@ -1588,6 +1731,13 @@ export default function App() {
                           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 border-b pb-3">
                             <div>
                               <span className="font-black text-indigo-700 text-sm">{ord.orderId || '-'}</span>
+                              {(ord.channel || 'online') === 'offline' ? (
+                                <span className="ml-2 text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded align-middle">
+                                  OFFLINE{ord.paymentMethod ? ` \u00b7 ${ord.paymentMethod}` : ''}
+                                </span>
+                              ) : (
+                                <span className="ml-2 text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded align-middle">ONLINE</span>
+                              )}
                               <span className="font-bold block mt-0.5 text-slate-800">{cust?.namaAnak || 'Unknown'} ({cust?.kelas || '-'})</span>
                               <span className="text-[10px] text-slate-500 block">Ortu: {cust?.namaOrtu || '-'}</span>
                             </div>
@@ -1652,68 +1802,221 @@ export default function App() {
                 )}
 
                 {}
-                {adminSubTab === 'products' && (
-                  <div className="space-y-4 animate-in fade-in duration-300">
-                    <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border">
-                      <h3 className="font-bold text-sm">Produk & Harga</h3>
-                      <button onClick={() => setProductModal({ isOpen: true, item: null })} className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold rounded-lg flex items-center shadow-sm transition-colors">
-                        <Plus className="w-3.5 h-3.5 mr-1" /> Tambah Produk
-                      </button>
+                {}
+                {adminSubTab === 'kasir' && (
+                  <div className="space-y-3 animate-in fade-in duration-300">
+                    <div className="bg-emerald-600 text-white p-3 sm:p-4 rounded-xl shadow-sm">
+                      <h3 className="font-bold text-sm">Kasir Bazaar Offline</h3>
+                      <p className="text-[11px] text-emerald-50 mt-1 leading-relaxed">
+                        Periode <b>{activeBatch?.name || '-'}</b>. Transaksi langsung berstatus Paid karena
+                        bayar di tempat, dan ikut masuk ke Rekap Per Stand serta Semua Pesanan.
+                      </p>
                     </div>
-                    {productsByTenant.length === 0 && (
-                      <div className="bg-white p-8 rounded-xl border text-center text-xs text-slate-400">Belum ada produk.</div>
+
+                    {posStruk && (
+                      <div className="bg-white border-2 border-emerald-500 rounded-xl p-4 shadow-sm">
+                        <div className="flex justify-between items-start gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wide">Transaksi tersimpan</p>
+                            <p className="font-black text-lg text-slate-900 mt-0.5">{posStruk.code}</p>
+                            <p className="text-[11px] text-slate-500">{posStruk.pembeli} &middot; {posStruk.bayar}</p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="font-black text-lg text-emerald-700">{formatRupiah(posStruk.total)}</p>
+                            <button onClick={() => setPosStruk(null)} className="text-[11px] font-bold text-slate-400 hover:text-slate-600 mt-1">Tutup</button>
+                          </div>
+                        </div>
+                        <div className="mt-2.5 pt-2.5 border-t text-[11px] text-slate-600 space-y-0.5">
+                          {posStruk.items.map((i) => (
+                            <div key={i.key} className="flex justify-between gap-3">
+                              <span className="truncate">{i.qty} &times; {i.name}</span>
+                              <span className="font-bold whitespace-nowrap">{formatRupiah(i.price * i.qty)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
 
-                    {productsByTenant.map(({ tenant, items }) => (
-                      <div key={tenant.id} className="bg-white rounded-xl border shadow-sm overflow-hidden">
+                    <div className="relative">
+                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text" value={posSearch} onChange={(e) => setPosSearch(e.target.value)}
+                        placeholder="Cari produk atau stand..."
+                        className="w-full pl-9 pr-3 py-2.5 border rounded-xl bg-white text-xs font-semibold focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    {posItems.length === 0 ? (
+                      <div className="bg-white p-8 rounded-xl border text-center text-xs text-slate-400">
+                        {offlineByTenant.length === 0
+                          ? 'Belum ada produk offline. Tambahkan dulu di tab Produk Offline.'
+                          : 'Tidak ada produk yang cocok, atau standnya belum ikut periode ini.'}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {posItems.map((it) => {
+                          const diKeranjang = posCart.find((x) => x.key === it.key);
+                          return (
+                            <button
+                              key={it.key}
+                              onClick={() => posTambah(it)}
+                              className={`text-left p-2.5 rounded-xl border-2 bg-white transition-colors ${diKeranjang ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 hover:border-emerald-300'}`}
+                            >
+                              <p className="font-bold text-[11px] text-slate-900 leading-tight line-clamp-2">{it.name}</p>
+                              <p className="text-[9px] text-slate-400 mt-0.5 truncate">{it.tenantName}</p>
+                              <p className="font-black text-emerald-700 text-xs mt-1">{formatRupiah(it.price)}</p>
+                              {diKeranjang && (
+                                <p className="text-[9px] font-black text-white bg-emerald-600 rounded px-1.5 py-0.5 w-fit mt-1">
+                                  {diKeranjang.qty} di keranjang
+                                </p>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {}
+                    {posCart.length > 0 && (
+                      <div className="bg-white rounded-xl border-2 border-emerald-500 shadow-lg sticky bottom-3">
+                        <div className="p-3 space-y-1.5 max-h-48 overflow-y-auto">
+                          {posCart.map((i) => (
+                            <div key={i.key} className="flex items-center gap-2 text-xs">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-bold text-slate-900 truncate">{i.name}</p>
+                                <p className="text-[10px] text-slate-400">{formatRupiah(i.price)} &times; {i.qty}</p>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button onClick={() => posUbahQty(i.key, -1)} className="w-7 h-7 bg-slate-100 hover:bg-slate-200 rounded-lg font-bold text-slate-700">-</button>
+                                <span className="w-6 text-center font-black tabular-nums">{i.qty}</span>
+                                <button onClick={() => posUbahQty(i.key, 1)} className="w-7 h-7 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold">+</button>
+                              </div>
+                              <span className="w-20 text-right font-black text-slate-900 tabular-nums shrink-0">{formatRupiah(i.price * i.qty)}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="border-t p-3 space-y-2.5">
+                          <div className="flex gap-2">
+                            <input
+                              type="text" value={posPembeli} onChange={(e) => setPosPembeli(e.target.value)}
+                              placeholder="Nama pembeli (boleh kosong)"
+                              className="flex-1 min-w-0 px-3 py-2 border rounded-lg text-xs font-semibold focus:outline-none focus:border-emerald-500"
+                            />
+                          </div>
+                          <div className="flex gap-1.5">
+                            {['Tunai', 'QRIS', 'Transfer'].map((m) => (
+                              <button
+                                key={m} onClick={() => setPosBayar(m)}
+                                className={`flex-1 py-2 rounded-lg text-[11px] font-bold border transition-colors ${posBayar === m ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+                              >{m}</button>
+                            ))}
+                          </div>
+                          <div className="flex justify-between items-center text-sm font-black">
+                            <span className="text-slate-500">Total</span>
+                            <span className="text-emerald-700 text-lg tabular-nums">{formatRupiah(posTotal)}</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => showConfirm('Kosongkan keranjang kasir?', posReset)}
+                              className="px-3 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-xs"
+                            >Batal</button>
+                            <button
+                              onClick={posSelesaikan} disabled={posSubmitting}
+                              className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-black rounded-xl text-sm shadow-sm transition-colors"
+                            >{posSubmitting ? 'Menyimpan...' : `Selesaikan \u2014 ${formatRupiah(posTotal)}`}</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {(adminSubTab === 'products' || adminSubTab === 'products_offline') && (() => {
+                  const offline = adminSubTab === 'products_offline';
+                  const groups = offline ? offlineByTenant : productsByTenant;
+                  return (
+                  <div className="space-y-4 animate-in fade-in duration-300">
+                    <div className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border gap-3">
+                      <div className="min-w-0">
+                        <h3 className="font-bold text-sm">{offline ? 'Produk Offline' : 'Produk Online'}</h3>
+                        <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+                          {offline
+                            ? 'Hanya muncul di layar Kasir, tidak pernah tampil di halaman pembeli.'
+                            : 'Tampil di halaman pembeli sesuai peserta batch.'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setProductModal({ isOpen: true, item: null, channel: offline ? 'offline' : 'online' })}
+                        className={`px-3 py-2 ${offline ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-indigo-600 hover:bg-indigo-700'} text-white text-[11px] font-bold rounded-lg flex items-center shadow-sm transition-colors shrink-0`}
+                      >
+                        <Plus className="w-3.5 h-3.5 mr-1" /> Tambah
+                      </button>
+                    </div>
+
+                    {groups.length === 0 && (
+                      <div className="bg-white p-8 rounded-xl border text-center text-xs text-slate-400">
+                        {offline ? 'Belum ada produk offline. Tambahkan dulu sebelum membuka Kasir.' : 'Belum ada produk.'}
+                      </div>
+                    )}
+
+                    {groups.map(({ tenant, items }) => {
+                      const kunci = (offline ? 'off-' : 'on-') + tenant.id;
+                      return (
+                      <div key={kunci} className="bg-white rounded-xl border shadow-sm overflow-hidden">
                         <button
-                          onClick={() => setStandTertutup((prev) => ({ ...prev, [tenant.id]: !prev[tenant.id] }))}
+                          onClick={() => setStandTertutup((prev) => ({ ...prev, [kunci]: !prev[kunci] }))}
                           className="w-full flex justify-between items-center gap-2 px-4 py-3 bg-slate-100 hover:bg-slate-200 transition-colors text-left"
                         >
                           <span className="font-bold text-sm text-slate-900">{tenant.name}</span>
                           <span className="flex items-center gap-2">
                             <span className="text-[10px] font-bold bg-white border text-slate-600 px-2 py-0.5 rounded-full">{items.length} produk</span>
-                            <span className="text-slate-400 text-xs">{standTertutup[tenant.id] ? '▸' : '▾'}</span>
+                            <span className="text-slate-400 text-xs">{standTertutup[kunci] ? '\u25b8' : '\u25be'}</span>
                           </span>
                         </button>
 
-                        {!standTertutup[tenant.id] && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3">
-                      {items.map(p => {
-                        const t = tenant;
-                        const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
-                        const sPrice = hasVariants 
-                            ? Math.min(...p.variants.map(v => Number(v.priceOwner) + Number(v.priceOrganizer))) 
-                            : Number(p.priceOwner) + Number(p.priceOrganizer);
-
-                        return (
-                          <div key={p.id} className="bg-white p-3 rounded-xl border flex gap-3 items-center shadow-sm">
-                            {p.imageUrl ? (
-                              <img src={p.imageUrl} alt="img" className="w-14 h-14 rounded-lg object-cover border cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setZoomedImage(p.imageUrl)} />
-                            ) : (
-                              <div className="w-14 h-14 bg-slate-100 rounded-lg flex items-center justify-center border"><ImageIcon className="w-5 h-5 text-slate-400" /></div>
-                            )}
-                            <div className="flex-1 text-xs">
-                              <h4 className="font-bold text-sm text-slate-900">{parseAndCleanItem(p.name)}</h4>
-                              <p className="text-[10px] text-slate-500">{t?.name} {p.category && `• ${p.category}`}</p>
-                              <p className="font-black text-amber-600 mt-1">{hasVariants ? 'Mulai ' : ''}{formatRupiah(sPrice)}</p>
-                              {hasVariants && <p className="text-[9px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded w-fit mt-1 font-bold">{p.variants.length} Varian</p>}
-                            </div>
-                            <div className="flex flex-col gap-1.5">
-                              <button onClick={() => setProductModal({ isOpen: true, item: p })} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors"><Edit3 className="w-4 h-4" /></button>
-                              <button onClick={() => {
-                                showConfirm(`Hapus produk ${p.name}?`, () => deleteProduct(p.id));
-                              }} className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
-                            </div>
+                        {!standTertutup[kunci] && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3">
+                            {items.map((p) => {
+                              const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
+                              const sPrice = hasVariants
+                                ? Math.min(...p.variants.map((v) => Number(v.priceOwner) + Number(v.priceOrganizer)))
+                                : Number(p.priceOwner) + Number(p.priceOrganizer);
+                              return (
+                                <div key={p.id} className="bg-white p-3 rounded-xl border flex gap-3 items-center shadow-sm">
+                                  {p.imageUrl ? (
+                                    <img src={p.imageUrl} alt="img" className="w-14 h-14 rounded-lg object-cover border cursor-pointer hover:opacity-80 transition-opacity" onClick={() => setZoomedImage(p.imageUrl)} />
+                                  ) : (
+                                    <div className="w-14 h-14 bg-slate-100 rounded-lg flex items-center justify-center border"><ImageIcon className="w-5 h-5 text-slate-400" /></div>
+                                  )}
+                                  <div className="flex-1 text-xs min-w-0">
+                                    <h4 className="font-bold text-sm text-slate-900">{parseAndCleanItem(p.name)}</h4>
+                                    <p className="text-[10px] text-slate-500">{tenant?.name} {p.category && `\u2022 ${p.category}`}</p>
+                                    <p className={`font-black mt-1 ${offline ? 'text-emerald-600' : 'text-amber-600'}`}>{hasVariants ? 'Mulai ' : ''}{formatRupiah(sPrice)}</p>
+                                    {!hasVariants && (
+                                      <p className="text-[9px] text-slate-400 mt-0.5">
+                                        Nett {formatRupiah(p.priceOwner)} + margin {formatRupiah(p.priceOrganizer)}
+                                      </p>
+                                    )}
+                                    {hasVariants && <p className="text-[9px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded w-fit mt-1 font-bold">{p.variants.length} Varian</p>}
+                                  </div>
+                                  <div className="flex flex-col gap-1.5 shrink-0">
+                                    <button onClick={() => setProductModal({ isOpen: true, item: p, channel: p.channel })} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors"><Edit3 className="w-4 h-4" /></button>
+                                    <button onClick={() => {
+                                      showConfirm(`Hapus produk ${p.name}?`, () => deleteProduct(p.id));
+                                    }} className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                        )
-                      })}
-                        </div>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
-                )}
+                  );
+                })()}
 
                 {}
                 {adminSubTab === 'batches' && (
@@ -1755,7 +2058,7 @@ export default function App() {
                         <p className="p-6 text-center text-xs text-slate-400">Pilih batch dulu.</p>
                       ) : (
                         <div className="divide-y max-h-[32rem] overflow-y-auto">
-                          {productsByTenant.map(({ tenant, items }) => {
+                          {semuaByTenant.map(({ tenant, items }) => {
                             const standIkut = !!batchTenants[pesertaBatchId]?.has(tenant.id);
                             return (
                               <div key={tenant.id} className={standIkut ? '' : 'bg-slate-50'}>
@@ -2069,6 +2372,7 @@ export default function App() {
             item={productModal.item}
             tenants={tenants}
             onClose={() => setProductModal({ isOpen: false, item: null })}
+            channel={productModal.channel || productModal.item?.channel || 'online'}
             onSave={(formData) => {
               saveProduct(formData, productModal.item);
               setProductModal({ isOpen: false, item: null });
@@ -2157,8 +2461,9 @@ export default function App() {
             <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
               <colgroup>
                 <col style={{ width: '8%' }} /><col style={{ width: '7%' }} /><col style={{ width: '15%' }} />
-                <col style={{ width: '13%' }} /><col style={{ width: '10%' }} /><col style={{ width: '27%' }} />
-                <col style={{ width: '4%' }} /><col style={{ width: '10%' }} /><col style={{ width: '6%' }} />
+                <col style={{ width: '12%' }} /><col style={{ width: '9%' }} /><col style={{ width: '25%' }} />
+                <col style={{ width: '4%' }} /><col style={{ width: '9%' }} />
+                <col style={{ width: '7%' }} /><col style={{ width: '6%' }} />
               </colgroup>
               <thead>
                 <tr className="bg-slate-800 text-white">
@@ -2170,6 +2475,7 @@ export default function App() {
                   <th className="border border-slate-400 p-1 text-left">Produk</th>
                   <th className="border border-slate-400 p-1 text-center">Qty</th>
                   <th className="border border-slate-400 p-1 text-right">Subtotal</th>
+                  <th className="border border-slate-400 p-1 text-center">Kanal</th>
                   <th className="border border-slate-400 p-1 text-center">Status</th>
                 </tr>
               </thead>
@@ -2198,6 +2504,12 @@ export default function App() {
                         <td className="border border-slate-400 p-1 break-words">{it ? parseAndCleanItem(it.name) : '(tidak ada item)'}</td>
                         <td className="border border-slate-400 p-1 text-center">{it ? (it.qty || 1) : '-'}</td>
                         <td className="border border-slate-400 p-1 text-right whitespace-nowrap">{it ? formatRupiah(it.subtotal) : '-'}</td>
+                        {ii === 0 && (
+                          <td rowSpan={rowCount} className="border border-slate-400 p-1 text-center align-top text-[9px]">
+                            {(ord.channel || 'online') === 'offline' ? 'Offline' : 'Online'}
+                            {ord.paymentMethod ? <><br />{ord.paymentMethod}</> : null}
+                          </td>
+                        )}
                         {ii === 0 && (
                           <td rowSpan={rowCount} className={`border border-slate-400 p-1 text-center font-bold align-top ${isPaid ? 'text-emerald-700' : 'text-red-600'}`}>
                             {ord.status || 'Unpaid'}
@@ -2290,6 +2602,9 @@ export default function App() {
             <h2 className="text-sm font-bold text-slate-900">Rekapitulasi Dapur Stand: {printData.tenantRep?.tenantName || '-'}</h2>
             <p className="text-[10px] text-slate-500 mb-5 border-b border-slate-300 pb-2">
               Periode: {printData.currentBatch?.name || '-'} | Ready: {printData.currentBatch?.readyDate ? formatIndoDate(printData.currentBatch.readyDate) : '-'} | Deskripsi: {printData.tenantRep?.tenantDesc || '-'} ({printData.tenantRep?.tenantPhone || '-'})
+            </p>
+            <p className="text-[11px] mt-1 font-bold text-slate-900">
+              Online {formatRupiah(printData.tenantRep?.grossOnline || 0)} &middot; Offline/Kasir {formatRupiah(printData.tenantRep?.grossOffline || 0)}
             </p>
             <p className="text-[11px] mt-1 font-bold text-slate-900">
               {printData.tenantRep?.tenantBankAccount
@@ -2566,7 +2881,7 @@ function ModalBatchForm({ item, onClose, onSave }) {
   );
 }
 
-function ModalProductForm({ item, tenants, onClose, onSave }) {
+function ModalProductForm({ item, tenants, onClose, onSave, channel = 'online' }) {
   const [form, setForm] = useState({
     name: item?.name || '', tenantId: item?.tenantId || tenants[0]?.id || '',
     category: item?.category || PREDEFINED_CATEGORIES[0],
@@ -2645,13 +2960,17 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
       <div className="bg-white rounded-2xl w-full max-w-sm p-6 relative overflow-y-auto max-h-[90vh] shadow-xl scrollbar-none">
         <button onClick={onClose} disabled={isUploading} className="absolute top-4 right-4 p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg disabled:opacity-50 transition-colors"><X className="w-4 h-4 text-slate-500" /></button>
-        <h3 className="font-bold text-base mb-4">{item ? 'Edit Produk' : 'Tambah Produk'}</h3>
+        <h3 className="font-bold text-base mb-1">{item ? 'Edit Produk' : 'Tambah Produk'}</h3>
+        <p className={`text-[10px] font-bold mb-4 px-2 py-1 rounded w-fit ${channel === 'offline' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+          {channel === 'offline' ? 'Produk Offline \u2014 hanya untuk Kasir' : 'Produk Online \u2014 tampil di halaman pembeli'}
+        </p>
         <form 
           onSubmit={(e) => { 
             e.preventDefault(); 
             const finalVariants = variants.map(v => ({...v, priceOwner: Number(v.priceOwner), priceOrganizer: Number(v.priceOrganizer)}));
             onSave({
                ...form, 
+               channel,
                priceOwner: hasVariants ? 0 : Number(form.priceOwner),
                priceOrganizer: hasVariants ? 0 : Number(form.priceOrganizer),
                variants: finalVariants
@@ -2672,8 +2991,8 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
           
           {!hasVariants && (
             <div className="flex gap-3">
-              <div className="flex-1"><label className="block mb-1 text-emerald-700">Hrg Owner</label><input type="number" required={!hasVariants} value={form.priceOwner} onChange={e => setForm({...form, priceOwner: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500" /></div>
-              <div className="flex-1"><label className="block mb-1 text-indigo-700">Mrgn Panitia</label><input type="number" required={!hasVariants} value={form.priceOrganizer} onChange={e => setForm({...form, priceOrganizer: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
+              <div className="flex-1"><label className="block mb-1 text-emerald-700">Harga Nett</label><input type="number" required={!hasVariants} value={form.priceOwner} onChange={e => setForm({...form, priceOwner: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500" /></div>
+              <div className="flex-1"><label className="block mb-1 text-indigo-700">Margin Panitia</label><input type="number" required={!hasVariants} value={form.priceOrganizer} onChange={e => setForm({...form, priceOrganizer: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
             </div>
           )}
 
@@ -2690,8 +3009,8 @@ function ModalProductForm({ item, tenants, onClose, onSave }) {
                            <div className="flex-1 space-y-2">
                                <input type="text" placeholder="Nama Varian (Misal: 250gr)" value={v.name} required onChange={e => { const newV = [...variants]; newV[i].name = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white focus:outline-none focus:border-amber-400" />
                                <div className="flex gap-2">
-                                   <input type="number" placeholder="Hrg Owner" value={v.priceOwner} required onChange={e => { const newV = [...variants]; newV[i].priceOwner = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white text-emerald-700 font-bold focus:outline-none focus:border-emerald-500" />
-                                   <input type="number" placeholder="Mrgn Panitia" value={v.priceOrganizer} required onChange={e => { const newV = [...variants]; newV[i].priceOrganizer = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white text-indigo-700 font-bold focus:outline-none focus:border-indigo-500" />
+                                   <input type="number" placeholder="Harga Nett" value={v.priceOwner} required onChange={e => { const newV = [...variants]; newV[i].priceOwner = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white text-emerald-700 font-bold focus:outline-none focus:border-emerald-500" />
+                                   <input type="number" placeholder="Margin" value={v.priceOrganizer} required onChange={e => { const newV = [...variants]; newV[i].priceOrganizer = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white text-indigo-700 font-bold focus:outline-none focus:border-indigo-500" />
                                </div>
                            </div>
                            <button type="button" onClick={() => setVariants(variants.filter((_, idx) => idx !== i))} className="p-1.5 bg-red-50 hover:bg-red-100 text-red-500 rounded transition-colors"><Trash2 className="w-4 h-4"/></button>
