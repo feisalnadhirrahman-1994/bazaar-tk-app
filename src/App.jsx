@@ -256,6 +256,31 @@ function BarisStok({ nama, stok, onGeser }) {
 /** Nilai khusus di pilihan stand: "buat stand baru sesuai usulan penjual". */
 const STAND_BARU = '__stand_baru__';
 
+const KELIPATAN_BULAT = 500;
+
+/**
+ * Margin panitia menurut aturan: harga jual = nett + 10%, lalu TOTALNYA
+ * dibulatkan ke atas ke kelipatan Rp 500. Selisihnya masuk margin.
+ *
+ *   nett 19.000 -> 20.900 -> 21.000  => margin 2.000
+ *   nett 21.000 -> 23.100 -> 23.500  => margin 2.500
+ *   nett  9.900 -> 10.890 -> 11.000  => margin 1.100
+ *   nett 35.000 -> 38.500            => margin 3.500 (sudah kelipatan 500)
+ *
+ * Karena pembulatannya ke atas, marginnya bisa sedikit melebihi 10%.
+ */
+const saranMargin = (nett) => {
+  const n = Math.max(0, Math.floor(Number(nett) || 0));
+  if (n === 0) return 0;
+  const total = Math.ceil((n * 1.1) / KELIPATAN_BULAT) * KELIPATAN_BULAT;
+  return total - n;
+};
+
+const LABEL_KANAL = {
+  online: 'Etalase Online',
+  offline: 'Bazaar Offline (Kasir)',
+};
+
 const INITIAL_TENANTS = [{ id: 't1', name: 'Stand Snack', description: 'Menjual aneka cemilan ringan', phone: '628123456789' }];
 const INITIAL_PRODUCTS = [{ id: 'p1', tenantId: 't1', name: 'Produk A', priceOwner: 5000, priceOrganizer: 1000, category: 'Makanan Siap Saji', imageUrl: '', available: true, description: '', variants: [] }];
 const INITIAL_BATCHES = [{ id: 'b1', name: 'Batch 1', startDate: '2026-08-01', endDate: '2026-08-31', readyDate: '2026-09-01', isActive: true, description: '' }];
@@ -428,6 +453,7 @@ export default function App() {
 
   const mapSubmission = (s) => ({
     id: s.id, code: s.code, batchId: s.batch_id, status: s.status,
+    channel: s.channel === 'offline' ? 'offline' : 'online',
     sellerName: s.seller_name || '', sellerPhone: s.seller_phone || '',
     tenantId: s.tenant_id || '', tenantBaru: s.tenant_baru || '',
     name: s.name || '', category: s.category || '', description: s.description || '',
@@ -712,6 +738,7 @@ export default function App() {
     const standBaru = form.tenantId === STAND_BARU;
     lempar(await supabase.rpc('approve_submission', {
       p_submission_id: sub.id,
+      p_channel: form.channel === 'offline' ? 'offline' : 'online',
       p_tenant_id: standBaru ? null : form.tenantId,
       p_tenant_baru: standBaru ? (sub.tenantBaru || '') : null,
       p_name: String(form.name || '').trim(),
@@ -863,6 +890,9 @@ export default function App() {
       showToast(batchWindow === 'before' ? 'Periode pemesanan belum dibuka.' : 'Periode pemesanan sudah ditutup.');
       return;
     }
+    // TIDAK ada batas stok di sini. Pesanan online berjalan sebagai PO:
+    // penjual menyiapkan barang setelah periode pesan ditutup, jadi semua
+    // pesanan harus bisa masuk. Stok hanya berlaku di kasir offline.
     setCart((prev) => {
       const existing = prev.find((item) => item.id === productObj.id);
       if (existing) {
@@ -874,12 +904,12 @@ export default function App() {
   };
 
   const updateCartQty = (productId, delta) => {
-    setCart((prev) => prev.map((item) => {
-      if (item.id === productId) {
-        const newQty = item.qty + delta;
-        return newQty > 0 ? { ...item, qty: newQty } : null;
+    setCart((prev) => prev.map((it) => {
+      if (it.id === productId) {
+        const newQty = it.qty + delta;
+        return newQty > 0 ? { ...it, qty: newQty } : null;
       }
-      return item;
+      return it;
     }).filter(Boolean));
   };
 
@@ -1448,15 +1478,17 @@ export default function App() {
       ? null
       : (pos ? posCart.find((i) => i.key === prod.id) : cart.find((i) => i.id === prod.id));
 
-    // Stok hanya relevan di layar kasir. Untuk produk bervarian, kartunya
-    // menampilkan jumlah seluruh varian; rinciannya ada di modal varian.
-    // Satu varian saja yang tidak dibatasi membuat totalnya tidak dibatasi.
+    // Stok hanya relevan di layar kasir. Halaman pembeli sengaja TIDAK
+    // menampilkan maupun membatasi stok: pesanan online adalah PO.
+    // Untuk produk bervarian, kartunya menampilkan jumlah seluruh varian;
+    // rinciannya ada di modal varian. Satu varian saja yang tidak dibatasi
+    // membuat totalnya tidak dibatasi — menjumlahkannya akan menyesatkan.
     const stokKartu = !pos ? null
       : hasVariants
         ? (prod.variants.some((v) => v.stock === null || v.stock === undefined)
             ? null
             : prod.variants.reduce((n, v) => n + Number(v.stock), 0))
-        : prod.stock;
+        : (prod.stock ?? null);
     const habis = pos && stokKartu === 0;
     const bolehPesan = pos ? !habis : isOrderingOpen;
     const sudahMaksimal = Boolean(inCart) && stokKartu !== null && stokKartu !== undefined
@@ -2278,6 +2310,9 @@ export default function App() {
                                   </span>
                                 </div>
                                 <p className="text-[10px] text-slate-600 mt-0.5">
+                                  <span className={`font-black mr-1 px-1 py-0.5 rounded text-[8px] ${s.channel === 'offline' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                    {s.channel === 'offline' ? 'OFFLINE' : 'ONLINE'}
+                                  </span>
                                   {s.code} &middot; {namaStand(s)}{s.category ? ` · ${s.category}` : ''}
                                 </p>
                                 <p className="text-[10px] text-slate-500">
@@ -2851,7 +2886,9 @@ export default function App() {
           const s = reviewModal.item;
           return (
             <ModalProductForm
-              channel="offline"
+              channel={s.channel}
+              channelBisaDiubah
+              isiMarginOtomatis
               judul={`Review Pendaftaran ${s.code}`}
               labelSimpan="Setujui & Masukkan ke Produk Offline"
               standBaru={s.tenantId ? '' : s.tenantBaru}
@@ -2880,8 +2917,12 @@ export default function App() {
                       : `Mengajukan stand baru: ${s.tenantBaru}`}
                     {' · '}{formatIndoDate(String(s.createdAt).slice(0, 10))}
                   </p>
+                  <p className="text-amber-800 mt-0.5">
+                    Diminta untuk: <b>{LABEL_KANAL[s.channel] || s.channel}</b>
+                  </p>
                   <p className="mt-1.5 text-amber-900 font-bold">
-                    Margin panitia masih kosong &mdash; wajib Anda isi sebelum menyetujui.
+                    Margin sudah diisi otomatis: 10% dengan harga jual dibulatkan ke atas ke
+                    Rp 500. Periksa dan ubah kalau perlu.
                   </p>
                 </div>
               )}
@@ -3257,9 +3298,9 @@ export default function App() {
 }
 
 function VariantSelectionModal({ product, onClose, onAddToCart, setGlobalZoom, pos = false }) {
-  // Di kasir, varian yang habis tidak boleh jadi pilihan awal — kalau tidak,
-  // modal terbuka dengan tombol mati dan kasir bingung kenapa.
   const [selectedVarIndex, setSelectedVarIndex] = useState(() => {
+    // Hanya di kasir: varian yang habis tidak boleh jadi pilihan awal, kalau
+    // tidak modal terbuka dengan tombol mati dan kasir bingung kenapa.
     if (!pos || !Array.isArray(product?.variants)) return 0;
     const i = product.variants.findIndex((v) => v.stock === null || v.stock === undefined || Number(v.stock) > 0);
     return i >= 0 ? i : 0;
@@ -3492,6 +3533,7 @@ const kompresGambar = (file, maxDim = 400, kualitas = 0.75) => new Promise((reso
 function FormPendaftaran({ tenants, batchName, onKembali }) {
   const [penjual, setPenjual] = useState({ kode: '', nama: '', telp: '', tenantId: '', tenantBaru: '' });
   const kosongProduk = { name: '', category: PREDEFINED_CATEGORIES[0], description: '', priceOwner: '', stock: '', imageUrl: '' };
+  const [kanal, setKanal] = useState('online');
   const [produk, setProduk] = useState(kosongProduk);
   const [varian, setVarian] = useState([]);
   const [unggahJalan, setUnggahJalan] = useState(false);
@@ -3544,6 +3586,7 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
     try {
       const { data, error } = await supabase.rpc('submit_product', {
         p_code: penjual.kode,
+        p_channel: kanal,
         p_seller_name: penjual.nama,
         p_seller_phone: penjual.telp,
         p_tenant_id: standBaru ? null : penjual.tenantId,
@@ -3553,16 +3596,21 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
         p_description: produk.description || null,
         p_image_url: produk.imageUrl || null,
         p_price_owner: adaVarian ? 0 : (Number(produk.priceOwner) || 0),
-        p_stock: adaVarian ? null : stokKeDb(produk.stock),
+        p_stock: (adaVarian || kanal !== 'offline') ? null : stokKeDb(produk.stock),
         p_variants: varian.map((v) => ({
           name: v.name.trim(),
           price_owner: Number(v.priceOwner) || 0,
-          stock: v.stock === '' ? null : String(stokKeDb(v.stock)),
+          stock: (kanal !== 'offline' || v.stock === '') ? null : String(stokKeDb(v.stock)),
         })),
       });
       if (error) throw error;
       const hasil = Array.isArray(data) ? data[0] : data;
-      setSukses({ code: hasil?.code || '', batch: hasil?.batch_name || batchName });
+      // Simpan isiannya: kalau penjual mau produk yang sama juga dijual di
+      // kanal sebelahnya, dia tidak perlu mengisi ulang semuanya.
+      setSukses({
+        code: hasil?.code || '', batch: hasil?.batch_name || batchName,
+        kanal, produk, varian,
+      });
       setProduk(kosongProduk);
       setVarian([]);
     } catch (err) {
@@ -3573,13 +3621,14 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
   };
 
   if (sukses) {
+    const lain = sukses.kanal === 'online' ? 'offline' : 'online';
     return (
       <div className="max-w-sm mx-auto bg-white rounded-2xl border shadow-lg p-6 mt-8 text-center">
         <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
         <h2 className="font-black text-lg text-slate-900">Pendaftaran terkirim</h2>
         <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-          Produk Anda masuk antrean review panitia. Panitia yang akan menentukan harga
-          jualnya, lalu produknya muncul di kasir bazaar.
+          Produk Anda masuk antrean review panitia untuk <b>{LABEL_KANAL[sukses.kanal]}</b>.
+          Panitia yang akan menentukan harga jualnya.
         </p>
         <div className="my-4 py-3 bg-slate-50 rounded-xl border border-dashed">
           <p className="text-[10px] text-slate-500 font-bold">NOMOR PENDAFTARAN</p>
@@ -3590,8 +3639,19 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
           Simpan nomor ini. Sebutkan nomornya kalau Anda menghubungi panitia soal produk ini.
         </p>
         <button
-          onClick={() => setSukses(null)}
+          onClick={() => {
+            // Produk yang sama, kanal sebelahnya. Harga nett sengaja TETAP
+            // bisa diubah: harga offline sering memang dibedakan.
+            setKanal(lain);
+            setProduk(sukses.produk);
+            setVarian(sukses.varian.map((v) => ({ ...v })));
+            setSukses(null);
+          }}
           className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm shadow-md transition-colors"
+        >Daftarkan juga untuk {lain === 'online' ? 'Etalase Online' : 'Bazaar Offline'}</button>
+        <button
+          onClick={() => { setKanal(sukses.kanal); setSukses(null); }}
+          className="w-full py-2.5 mt-2 bg-white border border-emerald-200 hover:bg-emerald-50 text-emerald-700 font-bold rounded-xl text-xs transition-colors"
         >Daftarkan Produk Lain</button>
         <button
           onClick={onKembali}
@@ -3607,10 +3667,30 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
     <form onSubmit={kirim} className="max-w-sm mx-auto space-y-4 mt-4 mb-10 text-xs font-medium">
       <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
         <h2 className="font-black text-base text-emerald-900">Daftarkan Produk Bazaar</h2>
-        <p className="text-[10px] text-emerald-800 mt-1 leading-relaxed">
-          Untuk bazaar offline periode <b>{batchName}</b>. Isi harga <b>nett</b> yang Anda
-          terima; margin panitia ditentukan panitia saat review. Produk baru dijual setelah
-          disetujui.
+
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          {['online', 'offline'].map((k) => (
+            <button
+              key={k} type="button" onClick={() => setKanal(k)}
+              className={`px-2 py-2.5 rounded-xl border-2 text-left transition-colors ${
+                kanal === k ? 'border-emerald-600 bg-white shadow-sm' : 'border-emerald-200 bg-emerald-50/50 hover:bg-white'
+              }`}
+            >
+              <span className={`block text-[11px] font-black leading-tight ${kanal === k ? 'text-emerald-800' : 'text-emerald-700'}`}>
+                {k === 'online' ? 'Etalase Online' : 'Bazaar Offline'}
+              </span>
+              <span className="block text-[9px] text-emerald-700/80 mt-0.5 leading-snug">
+                {k === 'online' ? 'Dipesan lewat web, diambil saat hari-H' : 'Dijual langsung di meja kasir'}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <p className="text-[10px] text-emerald-800 mt-3 leading-relaxed">
+          Untuk {kanal === 'online' ? 'etalase online' : 'bazaar offline'} periode <b>{batchName}</b>.
+          Isi harga <b>nett</b> yang Anda terima; margin 10% dengan pembulatan harga jual ke
+          atas ke Rp 500. Produk akan masuk ke{' '}
+          {kanal === 'online' ? 'etalase online' : 'daftar jualan kasir'} setelah direview admin.
         </p>
       </div>
 
@@ -3681,11 +3761,15 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
               <input type="number" min="0" required={!adaVarian} value={produk.priceOwner}
                 onChange={(e) => setProduk({ ...produk, priceOwner: e.target.value })} className={inp} />
             </div>
-            <div className="flex-1">
-              <label className="block mb-1">Jumlah (stok)</label>
-              <input type="number" min="0" value={produk.stock} placeholder="Opsional"
-                onChange={(e) => setProduk({ ...produk, stock: e.target.value })} className={inp} />
-            </div>
+            {/* Jumlah hanya ditanyakan untuk bazaar offline. Pesanan online
+                berjalan sebagai PO, jadi tidak ada batas yang perlu diisi. */}
+            {kanal === 'offline' && (
+              <div className="flex-1">
+                <label className="block mb-1">Jumlah yang dibawa</label>
+                <input type="number" min="0" value={produk.stock} placeholder="Opsional"
+                  onChange={(e) => setProduk({ ...produk, stock: e.target.value })} className={inp} />
+              </div>
+            )}
           </div>
         )}
 
@@ -3700,7 +3784,7 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
           </div>
           <p className="text-[9px] text-slate-500 mb-2 leading-snug">
             Pakai ini kalau satu produk punya beberapa ukuran atau rasa dengan harga berbeda.
-            Kalau ada varian, harga &amp; stok di atas tidak dipakai.
+            Kalau ada varian, harga &amp; jumlah di atas tidak dipakai.
           </p>
           {varian.map((v, i) => (
             <div key={i} className="flex gap-2 items-start bg-slate-50 p-2.5 rounded-lg border mb-2">
@@ -3712,9 +3796,11 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
                   <input type="number" min="0" required placeholder="Harga nett" value={v.priceOwner}
                     onChange={(e) => { const n = [...varian]; n[i].priceOwner = e.target.value; setVarian(n); }}
                     className="w-full px-2 py-1.5 border border-slate-200 rounded bg-white text-emerald-700 font-bold focus:outline-none focus:border-emerald-500" />
-                  <input type="number" min="0" placeholder="Stok" value={v.stock}
-                    onChange={(e) => { const n = [...varian]; n[i].stock = e.target.value; setVarian(n); }}
-                    className="w-full px-2 py-1.5 border border-slate-200 rounded bg-white focus:outline-none focus:border-emerald-500" />
+                  {kanal === 'offline' && (
+                    <input type="number" min="0" placeholder="Jumlah" value={v.stock}
+                      onChange={(e) => { const n = [...varian]; n[i].stock = e.target.value; setVarian(n); }}
+                      className="w-full px-2 py-1.5 border border-slate-200 rounded bg-white focus:outline-none focus:border-emerald-500" />
+                  )}
                 </div>
               </div>
               <button type="button" onClick={() => setVarian(varian.filter((_, x) => x !== i))}
@@ -3839,11 +3925,23 @@ function ModalProductForm({
   item, tenants, onClose, onSave, channel = 'online',
   sumberOnline = [], kunciOffline,
   judul, labelSimpan, standBaru = '', catatanAtas = null,
+  channelBisaDiubah = false, isiMarginOtomatis = false,
 }) {
+  // Saat review pendaftaran, kanalnya boleh dipindah: penjual bisa salah pilih,
+  // dan memperbaikinya di sini jauh lebih murah daripada menolak lalu meminta
+  // dia mendaftar ulang.
+  const [kanal, setKanal] = useState(channel);
+
+  const marginAwal = (nett, sudahAda) => {
+    if (sudahAda !== '' && sudahAda !== null && sudahAda !== undefined) return String(sudahAda);
+    return isiMarginOtomatis && Number(nett) > 0 ? String(saranMargin(nett)) : '';
+  };
+
   const [form, setForm] = useState({
     name: item?.name || '', tenantId: item?.tenantId || tenants[0]?.id || '',
     category: item?.category || PREDEFINED_CATEGORIES[0],
-    priceOwner: item?.priceOwner || '', priceOrganizer: item?.priceOrganizer || '',
+    priceOwner: item?.priceOwner || '',
+    priceOrganizer: marginAwal(item?.priceOwner, item?.priceOrganizer),
     imageUrl: item?.imageUrl || '', description: item?.description || '',
     stock: item?.stock === null || item?.stock === undefined ? '' : String(item.stock)
   });
@@ -3855,6 +3953,7 @@ function ModalProductForm({
      // kolom yang dikosongkan tetap berarti "tidak dibatasi", bukan nol.
      normalizeVariants(item?.variants).map((v) => ({
        ...v,
+       priceOrganizer: marginAwal(v.priceOwner, v.priceOrganizer),
        stock: v.stock === null || v.stock === undefined ? '' : String(v.stock),
      })));
 
@@ -3925,7 +4024,13 @@ function ModalProductForm({
   //  tersimpan sampai tombol "Simpan Produk" ditekan sendiri.
   // --------------------------------------------------------------------------
   const [disalinDari, setDisalinDari] = useState(null);
-  const bolehSalin = channel === 'offline' && !item && sumberOnline.length > 0;
+  const bolehSalin = kanal === 'offline' && !item && sumberOnline.length > 0;
+
+  /** Isi ulang semua margin dari harga nett yang sekarang ada di form. */
+  const hitungMargin = () => {
+    setForm((f) => ({ ...f, priceOrganizer: String(saranMargin(f.priceOwner)) }));
+    setVariants((vs) => vs.map((v) => ({ ...v, priceOrganizer: String(saranMargin(v.priceOwner)) })));
+  };
 
   const angkaKeInput = (n) => (n === 0 || n === null || n === undefined ? '' : String(n));
 
@@ -3966,9 +4071,24 @@ function ModalProductForm({
       <div className="bg-white rounded-2xl w-full max-w-sm p-6 relative overflow-y-auto max-h-[90vh] shadow-xl scrollbar-none">
         <button onClick={onClose} disabled={isUploading} className="absolute top-4 right-4 p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg disabled:opacity-50 transition-colors"><X className="w-4 h-4 text-slate-500" /></button>
         <h3 className="font-bold text-base mb-1">{judul || (item ? 'Edit Produk' : 'Tambah Produk')}</h3>
-        <p className={`text-[10px] font-bold mb-4 px-2 py-1 rounded w-fit ${channel === 'offline' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-          {channel === 'offline' ? 'Produk Offline \u2014 hanya untuk Kasir' : 'Produk Online \u2014 tampil di halaman pembeli'}
-        </p>
+        {channelBisaDiubah ? (
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            {['online', 'offline'].map((k) => (
+              <button
+                key={k} type="button" onClick={() => setKanal(k)}
+                className={`px-2 py-1.5 rounded-lg border-2 text-[10px] font-bold transition-colors ${
+                  kanal === k
+                    ? (k === 'offline' ? 'border-emerald-600 bg-emerald-50 text-emerald-800' : 'border-amber-500 bg-amber-50 text-amber-800')
+                    : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                }`}
+              >{k === 'offline' ? 'Produk Offline (Kasir)' : 'Produk Online (Etalase)'}</button>
+            ))}
+          </div>
+        ) : (
+          <p className={`text-[10px] font-bold mb-4 px-2 py-1 rounded w-fit ${kanal === 'offline' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+            {kanal === 'offline' ? 'Produk Offline \u2014 hanya untuk Kasir' : 'Produk Online \u2014 tampil di halaman pembeli'}
+          </p>
+        )}
 
         {catatanAtas}
 
@@ -4026,10 +4146,18 @@ function ModalProductForm({
         <form
           onSubmit={(e) => { 
             e.preventDefault(); 
-            const finalVariants = variants.map(v => ({...v, priceOwner: Number(v.priceOwner), priceOrganizer: Number(v.priceOrganizer)}));
+            // Stok varian ikut dibuang untuk kanal online: pesanan online PO,
+            // jadi angka sisa dari pendaftaran tidak boleh menempel diam-diam.
+            const finalVariants = variants.map(v => ({
+              ...v,
+              priceOwner: Number(v.priceOwner),
+              priceOrganizer: Number(v.priceOrganizer),
+              stock: kanal === 'offline' ? v.stock : '',
+            }));
             onSave({
                ...form, 
-               channel,
+               channel: kanal,
+               stock: kanal === 'offline' ? form.stock : '',
                priceOwner: hasVariants ? 0 : Number(form.priceOwner),
                priceOrganizer: hasVariants ? 0 : Number(form.priceOrganizer),
                variants: finalVariants
@@ -4067,7 +4195,7 @@ function ModalProductForm({
             </div>
           )}
 
-          {channel === 'offline' && !hasVariants && (
+          {kanal === 'offline' && !hasVariants && (
             <div>
               <label className="block mb-1">Stok</label>
               <input
@@ -4078,10 +4206,17 @@ function ModalProductForm({
               />
               <p className="text-[9px] text-slate-500 mt-1 leading-snug">
                 Kasir menolak penjualan kalau stok habis. <b>Dikosongkan</b> berarti tidak
-                dibatasi &mdash; kasir bebas menjual berapa pun.
+                dibatasi. Tidak berlaku untuk produk online &mdash; pesanan online adalah PO.
               </p>
             </div>
           )}
+
+          <button
+            type="button" onClick={hitungMargin}
+            className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg text-[10px] leading-snug transition-colors"
+          >
+            Hitung margin otomatis &mdash; 10% dengan harga jual dibulatkan ke atas ke Rp 500
+          </button>
 
           <div className="border-t border-slate-200 pt-4 mt-2">
              <div className="flex justify-between items-center mb-2">
@@ -4099,7 +4234,7 @@ function ModalProductForm({
                                    <input type="number" placeholder="Harga Nett" value={v.priceOwner} required onChange={e => { const newV = [...variants]; newV[i].priceOwner = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white text-emerald-700 font-bold focus:outline-none focus:border-emerald-500" />
                                    <input type="number" placeholder="Margin" value={v.priceOrganizer} required onChange={e => { const newV = [...variants]; newV[i].priceOrganizer = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white text-indigo-700 font-bold focus:outline-none focus:border-indigo-500" />
                                </div>
-                               {channel === 'offline' && (
+                               {kanal === 'offline' && (
                                  <input type="number" min="0" step="1" placeholder="Stok (kosong = tidak dibatasi)" value={v.stock ?? ''} onChange={e => { const newV = [...variants]; newV[i].stock = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white focus:outline-none focus:border-emerald-500" />
                                )}
                            </div>
