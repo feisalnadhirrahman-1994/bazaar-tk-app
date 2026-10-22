@@ -253,6 +253,57 @@ function BarisStok({ nama, stok, onGeser }) {
   );
 }
 
+/**
+ * Menu panel admin, dikelompokkan per kategori.
+ *
+ * Dulu kesepuluh menu ini berjajar sebagai tab horizontal, dan sejak menu
+ * Kasir + Pendaftaran masuk, barisnya tidak muat lagi: muncul scrollbar
+ * mendatar dan menu paling kiri terpotong. Daftar bergrup jauh lebih tahan
+ * ditambah menu baru daripada satu baris yang memanjang terus.
+ */
+const MENU_ADMIN = [
+  {
+    label: 'Laporan',
+    items: [
+      { id: 'batch_reports', nama: 'Rekap Per Tenant' },
+      { id: 'orders', nama: 'Semua Pesanan' },
+    ],
+  },
+  {
+    label: 'Produk',
+    items: [
+      { id: 'products', nama: 'Produk Online' },
+      { id: 'products_offline', nama: 'Produk Offline' },
+      { id: 'submissions', nama: 'Pendaftaran', badge: 'pendaftaran' },
+    ],
+  },
+  {
+    label: 'Pengaturan',
+    items: [
+      { id: 'batches', nama: 'Kelola Batch' },
+      { id: 'tenants', nama: 'Kelola Stand' },
+      { id: 'classes', nama: 'Routing WA Kelas' },
+    ],
+  },
+];
+
+const IKON_MENU = {
+  batch_reports: FileSpreadsheet,
+  orders: List,
+  kasir: ShoppingCart,
+  products: ShoppingBag,
+  products_offline: Layers,
+  submissions: FileText,
+  batches: Clock,
+  tenants: Store,
+  classes: School,
+};
+
+const semuaMenuAdmin = () => [
+  { id: 'kasir', nama: 'Kasir Offline' },
+  ...MENU_ADMIN.flatMap((g) => g.items),
+];
+
 /** Nilai khusus di pilihan stand: "buat stand baru sesuai usulan penjual". */
 const STAND_BARU = '__stand_baru__';
 
@@ -1842,7 +1893,7 @@ export default function App() {
             )}
           </main>
         ) : (
-          <main className="max-w-5xl mx-auto px-4 pt-4">
+          <main className="max-w-6xl mx-auto px-4 pt-4">
             {!isAdminLoggedIn ? (
               <div className="max-w-xs mx-auto bg-white rounded-2xl border p-6 shadow-xl mt-10">
                 <div className="text-center mb-5">
@@ -1857,26 +1908,15 @@ export default function App() {
                 </form>
               </div>
             ) : (
-              <div className="space-y-4">
-                <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-none border-b border-slate-200">
-                  <button onClick={() => setAdminSubTab('batch_reports')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'batch_reports' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Rekap Per Tenant</button>
-                  <button onClick={() => setAdminSubTab('orders')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'orders' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Semua Pesanan</button>
-                  <button onClick={() => setAdminSubTab('kasir')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'kasir' ? 'bg-emerald-600 text-white' : 'bg-white border hover:bg-emerald-50 text-emerald-700'}`}>Kasir Offline</button>
-                  <button onClick={() => setAdminSubTab('products')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'products' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Produk Online</button>
-                  <button onClick={() => setAdminSubTab('products_offline')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'products_offline' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Produk Offline</button>
-                  <button onClick={() => setAdminSubTab('submissions')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors relative ${adminSubTab === 'submissions' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>
-                    Pendaftaran
-                    {jumlahMenunggu > 0 && (
-                      <span className="ml-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-[9px] font-black rounded-full bg-rose-500 text-white align-middle">
-                        {jumlahMenunggu}
-                      </span>
-                    )}
-                  </button>
-                  <button onClick={() => setAdminSubTab('batches')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'batches' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Kelola Batch</button>
-                  <button onClick={() => setAdminSubTab('tenants')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'tenants' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Kelola Stand</button>
-                  <button onClick={() => setAdminSubTab('classes')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'classes' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Routing WA Kelas</button>
-                  <button onClick={handleAdminLogout} className="px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm bg-white border hover:bg-red-50 text-red-600 ml-auto transition-colors">Keluar</button>
-                </div>
+              <div className="flex flex-col sm:flex-row sm:gap-4 items-stretch sm:items-start">
+                <NavAdmin
+                  aktif={adminSubTab}
+                  pilih={setAdminSubTab}
+                  menunggu={jumlahMenunggu}
+                  onKeluar={handleAdminLogout}
+                />
+
+                <div className="flex-1 min-w-0 space-y-4">
 
                 {}
                 {adminSubTab === 'batch_reports' && (
@@ -2696,6 +2736,7 @@ export default function App() {
                     </div>
                   </div>
                 )}
+                </div>
               </div>
             )}
           </main>
@@ -3490,6 +3531,112 @@ function ModalBatchForm({ item, onClose, onSave }) {
         </form>
       </div>
     </div>
+  );
+}
+
+/**
+ * Navigasi panel admin.
+ *
+ * Komponen ini sengaja di level modul, bukan di dalam App: kalau didefinisikan
+ * ulang tiap render, state buka/tutup menu HP ikut hilang setiap kali ada
+ * perubahan data, dan menunya menutup sendiri saat disentuh.
+ */
+function NavAdmin({ aktif, pilih, menunggu, onKeluar }) {
+  const [buka, setBuka] = useState(false);
+  const sekarang = semuaMenuAdmin().find((m) => m.id === aktif);
+  const IkonAktif = IKON_MENU[aktif] || List;
+
+  const Baris = ({ item, kompak = false }) => {
+    const Ikon = IKON_MENU[item.id] || List;
+    const dipilih = aktif === item.id;
+    const n = item.badge === 'pendaftaran' ? menunggu : 0;
+    return (
+      <button
+        onClick={() => { pilih(item.id); setBuka(false); }}
+        className={`w-full flex items-center gap-2 px-3 ${kompak ? 'py-2.5' : 'py-2'} rounded-lg text-left text-xs font-bold transition-colors ${
+          dipilih ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+        }`}
+      >
+        <Ikon className={`w-3.5 h-3.5 shrink-0 ${dipilih ? 'text-white' : 'text-slate-400'}`} />
+        <span className="flex-1 truncate">{item.nama}</span>
+        {n > 0 && (
+          <span className={`min-w-[16px] h-4 px-1 text-[9px] font-black rounded-full flex items-center justify-center shrink-0 ${
+            dipilih ? 'bg-white text-indigo-700' : 'bg-rose-500 text-white'}`}>{n}</span>
+        )}
+      </button>
+    );
+  };
+
+  // Kasir dipisah dari grup lain: di hari bazaar ini satu-satunya layar yang
+  // dipakai berjam-jam sambil berdiri, jadi tidak boleh ikut tenggelam.
+  const TombolKasir = ({ kompak = false }) => (
+    <button
+      onClick={() => { pilih('kasir'); setBuka(false); }}
+      className={`w-full flex items-center gap-2 px-3 ${kompak ? 'py-2.5' : 'py-2.5'} rounded-xl text-left text-xs font-black shadow-sm transition-colors ${
+        aktif === 'kasir'
+          ? 'bg-emerald-600 text-white'
+          : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+      }`}
+    >
+      <ShoppingCart className="w-4 h-4 shrink-0" />
+      <span className="flex-1">Kasir Offline</span>
+    </button>
+  );
+
+  const Grup = ({ kompak = false }) => (
+    <>
+      <TombolKasir kompak={kompak} />
+      {MENU_ADMIN.map((g) => (
+        <div key={g.label} className="pt-1">
+          <p className="px-3 pt-2 pb-1 text-[9px] font-black uppercase tracking-wider text-slate-400">{g.label}</p>
+          <div className="space-y-0.5">
+            {g.items.map((item) => <Baris key={item.id} item={item} kompak={kompak} />)}
+          </div>
+        </div>
+      ))}
+      <div className="pt-2 mt-2 border-t border-slate-200">
+        <button
+          onClick={() => { setBuka(false); onKeluar(); }}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors"
+        >
+          <Lock className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+          <span className="flex-1">Keluar</span>
+        </button>
+      </div>
+    </>
+  );
+
+  return (
+    <>
+      {}
+      <nav className="hidden sm:block w-52 shrink-0 sticky top-20 self-start bg-white rounded-2xl border shadow-sm p-2">
+        <Grup />
+      </nav>
+
+      {}
+      <div className="sm:hidden relative mb-3">
+        <button
+          onClick={() => setBuka((b) => !b)}
+          className="w-full flex items-center gap-2 px-3 py-3 bg-white border rounded-xl shadow-sm text-left"
+        >
+          <IkonAktif className="w-4 h-4 text-indigo-600 shrink-0" />
+          <span className="flex-1 text-sm font-black text-slate-800 truncate">{sekarang?.nama || 'Panel Admin'}</span>
+          {menunggu > 0 && aktif !== 'submissions' && (
+            <span className="min-w-[18px] h-[18px] px-1 text-[9px] font-black rounded-full bg-rose-500 text-white flex items-center justify-center">{menunggu}</span>
+          )}
+          <span className={`text-slate-400 text-xs transition-transform ${buka ? 'rotate-180' : ''}`}>&#9662;</span>
+        </button>
+
+        {buka && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setBuka(false)} />
+            <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white border rounded-xl shadow-xl p-2 max-h-[70vh] overflow-y-auto">
+              <Grup kompak />
+            </div>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 
