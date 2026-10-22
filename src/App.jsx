@@ -205,6 +205,57 @@ const normalizeVariants = (raw) => {
 
 
 
+/**
+ * Isian stok dari form ke nilai database.
+ * Kosong -> null, artinya TIDAK DIBATASI. Angka 0 tetap 0, artinya habis.
+ * Keduanya tidak boleh tertukar: null membuat kasir bebas menjual, 0 memblokir.
+ */
+const stokKeDb = (v) => {
+  if (v === '' || v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+};
+
+/** Teks sisa stok yang dipakai di kasir dan daftar produk offline. */
+const labelStok = (s) => {
+  if (s === null || s === undefined) return 'Tidak dibatasi';
+  return s === 0 ? 'Habis' : `${s} sisa`;
+};
+
+const warnaStok = (s) => {
+  if (s === null || s === undefined) return 'bg-slate-100 text-slate-500';
+  if (s === 0) return 'bg-red-100 text-red-700';
+  return s <= 3 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-700';
+};
+
+/**
+ * Satu baris stok di daftar Produk Offline, lengkap dengan tombol cepat.
+ * Tombolnya sengaja besar-besar relatif ke barisnya: dipakai sambil berdiri
+ * di meja kasir, bukan sambil duduk di depan laptop.
+ */
+function BarisStok({ nama, stok, onGeser }) {
+  const tbl = 'px-1.5 py-0.5 rounded font-bold border transition-colors disabled:opacity-40';
+  return (
+    <div className="flex items-center gap-1.5 text-[9px]">
+      <span className="text-slate-500 truncate max-w-[72px]" title={nama}>{nama}</span>
+      <span className={`px-1.5 py-0.5 rounded font-bold shrink-0 ${warnaStok(stok)}`}>{labelStok(stok)}</span>
+      {stok !== null && (
+        <span className="flex gap-1 ml-auto shrink-0">
+          <button type="button" onClick={() => onGeser(-1)} disabled={stok === 0}
+            className={`${tbl} bg-white border-slate-200 text-slate-600 hover:bg-slate-100`}>&minus;1</button>
+          <button type="button" onClick={() => onGeser(5)}
+            className={`${tbl} bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100`}>+5</button>
+          <button type="button" onClick={() => onGeser(10)}
+            className={`${tbl} bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100`}>+10</button>
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Nilai khusus di pilihan stand: "buat stand baru sesuai usulan penjual". */
+const STAND_BARU = '__stand_baru__';
+
 const INITIAL_TENANTS = [{ id: 't1', name: 'Stand Snack', description: 'Menjual aneka cemilan ringan', phone: '628123456789' }];
 const INITIAL_PRODUCTS = [{ id: 'p1', tenantId: 't1', name: 'Produk A', priceOwner: 5000, priceOrganizer: 1000, category: 'Makanan Siap Saji', imageUrl: '', available: true, description: '', variants: [] }];
 const INITIAL_BATCHES = [{ id: 'b1', name: 'Batch 1', startDate: '2026-08-01', endDate: '2026-08-31', readyDate: '2026-09-01', isActive: true, description: '' }];
@@ -292,6 +343,15 @@ export default function App() {
   const [batches, setBatches] = useState(INITIAL_BATCHES);
   const [orders, setOrders] = useState([]);
 
+  // --- Pendaftaran produk oleh penjual ------------------------------------
+  // Halaman depan hanya boleh tahu pendaftaran buka atau tutup. Kodenya ada
+  // di tabel yang tidak bisa dibaca anon dan dicocokkan di server.
+  const [pendaftaran, setPendaftaran] = useState({ isOpen: false, batchName: '' });
+  const [submissions, setSubmissions] = useState([]);
+  const [regSettings, setRegSettings] = useState([]);
+  const [reviewModal, setReviewModal] = useState({ isOpen: false, item: null });
+  const [tolakModal, setTolakModal] = useState({ isOpen: false, item: null, note: '' });
+
   const [cart, setCart] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -352,6 +412,9 @@ export default function App() {
     description: p.description || '', category: p.category || '',
     imageUrl: p.image_url || '', available: p.available !== false,
     channel: p.channel === 'offline' ? 'offline' : 'online',
+    // null sengaja dipertahankan, TIDAK diubah jadi 0: null berarti stoknya
+    // tidak dibatasi, 0 berarti habis. Dua hal yang sangat berbeda di kasir.
+    stock: p.stock === null || p.stock === undefined ? null : Number(p.stock),
     variants: (p.product_variants || [])
       .slice()
       .sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
@@ -359,7 +422,25 @@ export default function App() {
         id: v.id, name: v.name,
         priceOwner: Number(v.price_owner) || 0,
         priceOrganizer: Number(v.price_organizer) || 0,
+        stock: v.stock === null || v.stock === undefined ? null : Number(v.stock),
       })),
+  });
+
+  const mapSubmission = (s) => ({
+    id: s.id, code: s.code, batchId: s.batch_id, status: s.status,
+    sellerName: s.seller_name || '', sellerPhone: s.seller_phone || '',
+    tenantId: s.tenant_id || '', tenantBaru: s.tenant_baru || '',
+    name: s.name || '', category: s.category || '', description: s.description || '',
+    imageUrl: s.image_url || '',
+    priceOwner: Number(s.price_owner) || 0,
+    stock: s.stock === null || s.stock === undefined ? null : Number(s.stock),
+    variants: normalizeVariants(s.variants).map((v) => ({
+      name: v.name,
+      priceOwner: Number(v.price_owner ?? v.priceOwner) || 0,
+      stock: v.stock === null || v.stock === undefined ? null : Number(v.stock),
+    })),
+    productId: s.product_id || '', reviewNote: s.review_note || '',
+    createdAt: s.created_at, reviewedAt: s.reviewed_at,
   });
 
   const mapOrder = (o) => ({
@@ -439,7 +520,29 @@ export default function App() {
           .order('created_at', { ascending: false });
         if (oErr) throw oErr;
         setOrders(oData.map(mapOrder));
+
+        // Pendaftaran & kodenya hanya bisa dibaca admin yang login. Dua
+        // permintaan ini sengaja TIDAK ikut Promise.all di atas: untuk anon
+        // keduanya pasti ditolak, dan itu akan menggagalkan seluruh muatan.
+        const [sRes, rRes] = await Promise.all([
+          supabase.from('product_submissions').select('*').order('created_at', { ascending: false }),
+          supabase.from('registration_settings').select('*'),
+        ]);
+        // Sengaja TIDAK dilempar sebagai kegagalan: kalau supabase-06 belum
+        // dijalankan, tabelnya memang belum ada. Panel admin yang lain tidak
+        // boleh ikut mati hanya karena satu fitur baru belum dipasang.
+        if (sRes.error) console.warn('Pendaftaran belum tersedia:', sRes.error.message);
+        if (rRes.error) console.warn('Pengaturan pendaftaran belum tersedia:', rRes.error.message);
+        setSubmissions((sRes.data || []).map(mapSubmission));
+        setRegSettings((rRes.data || []).map((r) => ({
+          batchId: r.batch_id, isOpen: !!r.is_open, code: r.code || '',
+        })));
       }
+
+      // Buka/tutup pendaftaran: boleh diketahui siapa pun, kodenya tidak.
+      const { data: regData } = await supabase.rpc('registration_status');
+      const reg = Array.isArray(regData) ? regData[0] : regData;
+      setPendaftaran({ isOpen: !!reg?.is_open, batchName: reg?.batch_name || '' });
 
       cloudLoadedRef.current = true;
       if (!silent) showToast('Data tersinkronisasi!');
@@ -549,6 +652,7 @@ export default function App() {
       image_url: form.imageUrl || null,
       available: existing ? existing.available !== false : true,
       channel: form.channel === 'offline' ? 'offline' : 'online',
+      stock: stokKeDb(form.stock),
     }));
 
     const baru = normalizeVariants(form.variants)
@@ -568,6 +672,7 @@ export default function App() {
           product_id: id, name: String(v.name).trim(),
           price_owner: Number(v.priceOwner) || 0,
           price_organizer: Number(v.priceOrganizer) || 0,
+          stock: stokKeDb(v.stock),
           sort_order: i,
         })),
         { onConflict: 'product_id,name' }
@@ -577,6 +682,74 @@ export default function App() {
 
   const deleteProduct = (id) => simpan('Produk dihapus.', async () =>
     lempar(await supabase.from('products').delete().eq('id', id)));
+
+  /**
+   * Tambah / kurangi stok langsung dari daftar, tanpa membuka form produk.
+   * Dipakai di hari bazaar ketika penjual menambah barang dan tidak ada waktu
+   * untuk mengisi form penuh.
+   *
+   * Nilai baru dihitung dari angka yang baru dibaca dari database, bukan dari
+   * state di layar: layar bisa sudah tertinggal beberapa transaksi kasir.
+   */
+  const geserStok = (jenis, id, delta) => simpan('Stok diperbarui.', async () => {
+    const tabel = jenis === 'variant' ? 'product_variants' : 'products';
+    const { data, error } = await supabase.from(tabel).select('stock,name').eq('id', id).single();
+    if (error) throw error;
+    if (data.stock === null) {
+      throw new Error(`Stok "${data.name}" belum dibatasi. Isi jumlah stok dulu lewat Edit produk.`);
+    }
+    const baru = Math.max(0, Number(data.stock) + delta);
+    lempar(await supabase.from(tabel).update({ stock: baru }).eq('id', id));
+  });
+
+  // --- Pendaftaran produk --------------------------------------------------
+  /**
+   * Setujui pendaftaran. Satu panggilan RPC, bukan tiga perintah terpisah:
+   * membuat produk dan menandai pendaftaran harus terjadi bersama-sama, kalau
+   * tidak satu pendaftaran bisa disetujui dua kali dan produknya dobel.
+   */
+  const approveSubmission = (sub, form) => simpan('Produk disetujui & masuk daftar offline!', async () => {
+    const standBaru = form.tenantId === STAND_BARU;
+    lempar(await supabase.rpc('approve_submission', {
+      p_submission_id: sub.id,
+      p_tenant_id: standBaru ? null : form.tenantId,
+      p_tenant_baru: standBaru ? (sub.tenantBaru || '') : null,
+      p_name: String(form.name || '').trim(),
+      p_category: form.category || null,
+      p_description: form.description || null,
+      p_image_url: form.imageUrl || null,
+      p_price_owner: Number(form.priceOwner) || 0,
+      p_price_organizer: Number(form.priceOrganizer) || 0,
+      p_stock: stokKeDb(form.stock),
+      p_variants: (form.variants || [])
+        .filter((v) => String(v.name || '').trim() !== '')
+        .map((v) => ({
+          name: String(v.name).trim(),
+          price_owner: Number(v.priceOwner) || 0,
+          price_organizer: Number(v.priceOrganizer) || 0,
+          stock: stokKeDb(v.stock) === null ? null : String(stokKeDb(v.stock)),
+        })),
+    }));
+  });
+
+  const rejectSubmission = (sub, note) => simpan('Pendaftaran ditolak.', async () =>
+    lempar(await supabase.rpc('reject_submission', {
+      p_submission_id: sub.id, p_note: note || null,
+    })));
+
+  const hapusSubmission = (sub) => simpan('Pendaftaran dihapus.', async () =>
+    lempar(await supabase.from('product_submissions').delete().eq('id', sub.id)));
+
+  /** Buka / tutup pendaftaran beserta kodenya, per batch. */
+  const simpanPendaftaran = (batchId, isOpen, code) => simpan('Pengaturan pendaftaran tersimpan.', async () => {
+    const kode = String(code || '').trim().toUpperCase();
+    if (isOpen && kode.length < 4) {
+      throw new Error('Kode pendaftaran minimal 4 karakter.');
+    }
+    lempar(await supabase.from('registration_settings').upsert({
+      batch_id: batchId, is_open: !!isOpen, code: kode, updated_at: new Date().toISOString(),
+    }, { onConflict: 'batch_id' }));
+  });
 
   // --- Stand / tenant ------------------------------------------------------
   const saveTenant = (form, existing) => simpan('Stand tersimpan!', async () =>
@@ -893,6 +1066,12 @@ export default function App() {
    * produk online yang kembarannya sudah dibuat di kasir, supaya tidak disalin
    * dua kali tanpa sadar.
    */
+  /** Jumlah pendaftaran yang belum di-review, untuk angka merah di tab. */
+  const jumlahMenunggu = useMemo(
+    () => submissions.filter((s) => s.status === 'pending').length,
+    [submissions]
+  );
+
   const kunciOffline = useMemo(() => new Set(
     products
       .filter((p) => p.channel === 'offline')
@@ -1183,15 +1362,40 @@ export default function App() {
   const posTotal = useMemo(
     () => posCart.reduce((n, i) => n + i.price * i.qty, 0), [posCart]);
 
-  const posTambah = (item, jumlah = 1) => setPosCart((prev) => {
-    const ada = prev.find((x) => x.key === item.key);
-    if (ada) return prev.map((x) => x.key === item.key ? { ...x, qty: x.qty + jumlah } : x);
-    return [...prev, { ...item, qty: jumlah }];
-  });
+  /**
+   * Tambah ke keranjang kasir, dibatasi sisa stok.
+   * Pemeriksaannya dilakukan di luar updater state supaya toast tidak muncul
+   * dua kali: React boleh menjalankan updater lebih dari sekali.
+   * Ini hanya pagar di layar — penjaga yang sesungguhnya ada di create_pos_order.
+   */
+  const posTambah = (item, jumlah = 1) => {
+    const ada = posCart.find((x) => x.key === item.key);
+    const batas = item.stok ?? ada?.stok ?? null;
+    const target = (ada?.qty || 0) + jumlah;
+    if (batas !== null && target > batas) {
+      showToast(batas === 0 ? `${item.name} sudah habis.` : `Stok ${item.name} tinggal ${batas}.`);
+      return;
+    }
+    setPosCart((prev) => {
+      const sudah = prev.find((x) => x.key === item.key);
+      if (sudah) return prev.map((x) => x.key === item.key ? { ...x, qty: x.qty + jumlah } : x);
+      return [...prev, { ...item, qty: jumlah }];
+    });
+  };
 
-  const posUbahQty = (key, delta) => setPosCart((prev) => prev
-    .map((x) => x.key === key ? { ...x, qty: x.qty + delta } : x)
-    .filter((x) => x.qty > 0));
+  const posUbahQty = (key, delta) => {
+    const item = posCart.find((x) => x.key === key);
+    if (!item) return;
+    const target = item.qty + delta;
+    const batas = item.stok ?? null;
+    if (batas !== null && target > batas) {
+      showToast(`Stok ${item.name} tinggal ${batas}.`);
+      return;
+    }
+    setPosCart((prev) => prev
+      .map((x) => x.key === key ? { ...x, qty: target } : x)
+      .filter((x) => x.qty > 0));
+  };
 
   const posReset = () => { setPosCart([]); setPosPembeli(''); setPosBayar('Tunai'); };
 
@@ -1243,7 +1447,20 @@ export default function App() {
     const inCart = hasVariants
       ? null
       : (pos ? posCart.find((i) => i.key === prod.id) : cart.find((i) => i.id === prod.id));
-    const bolehPesan = pos ? true : isOrderingOpen;
+
+    // Stok hanya relevan di layar kasir. Untuk produk bervarian, kartunya
+    // menampilkan jumlah seluruh varian; rinciannya ada di modal varian.
+    // Satu varian saja yang tidak dibatasi membuat totalnya tidak dibatasi.
+    const stokKartu = !pos ? null
+      : hasVariants
+        ? (prod.variants.some((v) => v.stock === null || v.stock === undefined)
+            ? null
+            : prod.variants.reduce((n, v) => n + Number(v.stock), 0))
+        : prod.stock;
+    const habis = pos && stokKartu === 0;
+    const bolehPesan = pos ? !habis : isOrderingOpen;
+    const sudahMaksimal = Boolean(inCart) && stokKartu !== null && stokKartu !== undefined
+      && inCart.qty >= stokKartu;
 
     return (
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden h-full transition-all hover:shadow-md">
@@ -1279,6 +1496,11 @@ export default function App() {
 
           <div className="pt-2 border-t border-slate-100 flex flex-col gap-1.5">
             <span className="text-xs sm:text-sm font-black text-amber-600">{displayPriceText}</span>
+            {pos && stokKartu !== null && stokKartu !== undefined && (
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded w-fit ${warnaStok(stokKartu)}`}>
+                {labelStok(stokKartu)}
+              </span>
+            )}
             {inCart ? (
               <div className={`flex items-center space-x-1.5 ${pos ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'} border p-0.5 rounded-lg w-fit`}>
                 <button
@@ -1288,13 +1510,15 @@ export default function App() {
                 <span className="text-[11px] font-bold px-1.5">{inCart.qty}</span>
                 <button
                   onClick={() => pos ? posUbahQty(prod.id, 1) : updateCartQty(prod.id, 1)}
-                  className={`w-6 h-6 ${pos ? 'bg-emerald-600' : 'bg-amber-600'} text-white rounded font-bold shadow-sm text-xs flex items-center justify-center`}
+                  disabled={sudahMaksimal}
+                  title={sudahMaksimal ? 'Sudah mencapai sisa stok' : ''}
+                  className={`w-6 h-6 ${pos ? 'bg-emerald-600' : 'bg-amber-600'} text-white rounded font-bold shadow-sm text-xs flex items-center justify-center disabled:bg-slate-300 disabled:cursor-not-allowed`}
                 >+</button>
               </div>
             ) : (
               <button
                 disabled={!bolehPesan}
-                title={bolehPesan ? '' : 'Periode pemesanan sedang ditutup'}
+                title={habis ? 'Stok habis' : bolehPesan ? '' : 'Periode pemesanan sedang ditutup'}
                 onClick={() => {
                   if (hasVariants) { setVariantModal({ isOpen: true, product: prod, pos }); return; }
                   if (pos) {
@@ -1302,6 +1526,7 @@ export default function App() {
                       key: prod.id, productId: prod.id, variantId: null,
                       name: parseAndCleanItem(prod.name), tenantName: tenant?.name || '',
                       tenantId: prod.tenantId,
+                      stok: prod.stock ?? null,
                       price: Number(prod.priceOwner || 0) + Number(prod.priceOrganizer || 0),
                     });
                   } else {
@@ -1310,7 +1535,7 @@ export default function App() {
                 }}
                 className={`px-2.5 py-1.5 ${pos ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-slate-900 hover:bg-slate-800'} disabled:bg-slate-300 disabled:cursor-not-allowed disabled:hover:bg-slate-300 text-white rounded-lg text-[10px] sm:text-xs font-semibold flex items-center justify-center w-full shadow-sm transition-colors`}
               >
-                {!bolehPesan ? <><Clock className="w-3 h-3 mr-1" /> Ditutup</> : hasVariants ? <><List className="w-3 h-3 mr-1" /> Pilih Varian</> : <><Plus className="w-3 h-3 mr-1" /> {pos ? 'Tambah' : 'Pesan'}</>}
+                {habis ? <>Habis</> : !bolehPesan ? <><Clock className="w-3 h-3 mr-1" /> Ditutup</> : hasVariants ? <><List className="w-3 h-3 mr-1" /> Pilih Varian</> : <><Plus className="w-3 h-3 mr-1" /> {pos ? 'Tambah' : 'Pesan'}</>}
               </button>
             )}
           </div>
@@ -1430,6 +1655,16 @@ export default function App() {
                   >
                     <ShoppingBag className="w-4 h-4" /><span>Menu Pembeli</span>
                   </button>
+                  {pendaftaran.isOpen && (
+                    <button
+                      onClick={() => { setActiveTab('daftar'); setIsMobileMenuOpen(false); }}
+                      className={`w-full px-3 py-2 sm:py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-2 ${
+                        activeTab === 'daftar' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      <Store className="w-4 h-4" /><span>Daftar Produk</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => { setActiveTab('admin'); setIsMobileMenuOpen(false); }}
                     className={`w-full px-3 py-2 sm:py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-2 ${
@@ -1475,8 +1710,49 @@ export default function App() {
             <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
             <p className="text-xs font-bold text-slate-500 animate-pulse">Menghubungkan ke Database...</p>
           </div>
+        ) : activeTab === 'daftar' ? (
+          <main className="max-w-5xl mx-auto px-4 pt-4">
+            {pendaftaran.isOpen ? (
+              <FormPendaftaran
+                tenants={tenantsUrut}
+                batchName={pendaftaran.batchName}
+                onKembali={() => setActiveTab('shop')}
+              />
+            ) : (
+              <div className="max-w-xs mx-auto bg-white rounded-2xl border p-6 shadow-sm mt-10 text-center">
+                <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                <p className="font-bold text-sm text-slate-700">Pendaftaran produk sedang ditutup</p>
+                <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
+                  Panitia akan membuka pendaftaran lagi menjelang bazaar berikutnya.
+                </p>
+                <button
+                  onClick={() => setActiveTab('shop')}
+                  className="w-full py-2.5 mt-4 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-xs transition-colors"
+                >Kembali ke Menu Pembeli</button>
+              </div>
+            )}
+          </main>
         ) : activeTab === 'shop' ? (
           <main className="max-w-5xl mx-auto px-4 pt-5">
+            {}
+            {pendaftaran.isOpen && (
+              <button
+                onClick={() => setActiveTab('daftar')}
+                className="w-full mb-4 bg-emerald-50 hover:bg-emerald-100 border-2 border-emerald-200 rounded-2xl p-3.5 flex items-center gap-3 text-left transition-colors"
+              >
+                <span className="w-9 h-9 rounded-xl bg-emerald-600 flex items-center justify-center shrink-0">
+                  <Store className="w-4.5 h-4.5 text-white" />
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block font-black text-sm text-emerald-900 leading-tight">Punya produk untuk dijual?</span>
+                  <span className="block text-[10px] text-emerald-800 mt-0.5 leading-snug">
+                    Pendaftaran produk bazaar <b>{pendaftaran.batchName}</b> sedang dibuka. Ketuk untuk mendaftar.
+                  </span>
+                </span>
+                <span className="text-emerald-700 font-black text-lg shrink-0">&rsaquo;</span>
+              </button>
+            )}
+
             {}
             {activeBatch && !isOrderingOpen && (
               <div className="bg-rose-50 border-2 border-rose-200 text-rose-800 rounded-2xl p-4 shadow-sm mb-4 flex items-start gap-3">
@@ -1556,6 +1832,14 @@ export default function App() {
                   <button onClick={() => setAdminSubTab('kasir')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'kasir' ? 'bg-emerald-600 text-white' : 'bg-white border hover:bg-emerald-50 text-emerald-700'}`}>Kasir Offline</button>
                   <button onClick={() => setAdminSubTab('products')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'products' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Produk Online</button>
                   <button onClick={() => setAdminSubTab('products_offline')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'products_offline' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Produk Offline</button>
+                  <button onClick={() => setAdminSubTab('submissions')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors relative ${adminSubTab === 'submissions' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>
+                    Pendaftaran
+                    {jumlahMenunggu > 0 && (
+                      <span className="ml-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-[9px] font-black rounded-full bg-rose-500 text-white align-middle">
+                        {jumlahMenunggu}
+                      </span>
+                    )}
+                  </button>
                   <button onClick={() => setAdminSubTab('batches')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'batches' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Kelola Batch</button>
                   <button onClick={() => setAdminSubTab('tenants')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'tenants' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Kelola Stand</button>
                   <button onClick={() => setAdminSubTab('classes')} className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${adminSubTab === 'classes' ? 'bg-indigo-600 text-white' : 'bg-white border hover:bg-slate-50 text-slate-600'}`}>Routing WA Kelas</button>
@@ -1949,6 +2233,117 @@ export default function App() {
                   </div>
                 )}
 
+                {adminSubTab === 'submissions' && (() => {
+                  const urutan = { pending: 0, rejected: 1, approved: 2 };
+                  const daftar = [...submissions].sort((a, b) =>
+                    (urutan[a.status] - urutan[b.status]) || String(b.createdAt).localeCompare(String(a.createdAt)));
+                  const namaStand = (s) => s.tenantId
+                    ? (tenants.find((t) => t.id === s.tenantId)?.name || s.tenantId)
+                    : `${s.tenantBaru} (stand baru)`;
+                  return (
+                    <div className="space-y-4 animate-in fade-in duration-300">
+                      <div className="bg-white p-3 rounded-xl shadow-sm border">
+                        <h3 className="font-bold text-sm">Pendaftaran Produk</h3>
+                        <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+                          Dikirim penjual lewat halaman depan. Produk <b>belum dijual</b> sampai
+                          Anda setujui dan mengisi margin panitia.
+                        </p>
+                      </div>
+
+                      {daftar.length === 0 && (
+                        <div className="bg-white p-8 rounded-xl border text-center text-xs text-slate-400">
+                          Belum ada pendaftaran masuk.
+                        </div>
+                      )}
+
+                      {daftar.map((s) => {
+                        const warna = s.status === 'pending' ? 'border-amber-300 bg-amber-50/40'
+                          : s.status === 'approved' ? 'border-emerald-200 bg-emerald-50/30'
+                          : 'border-slate-200 bg-slate-50';
+                        return (
+                          <div key={s.id} className={`rounded-xl border-2 shadow-sm p-3 ${warna}`}>
+                            <div className="flex gap-3">
+                              {s.imageUrl ? (
+                                <img src={s.imageUrl} alt="foto" className="w-16 h-16 rounded-lg object-cover border cursor-pointer hover:opacity-80 shrink-0" onClick={() => setZoomedImage(s.imageUrl)} />
+                              ) : (
+                                <div className="w-16 h-16 bg-white rounded-lg flex items-center justify-center border shrink-0"><ImageIcon className="w-5 h-5 text-slate-300" /></div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between gap-2">
+                                  <h4 className="font-bold text-sm text-slate-900 leading-tight">{s.name}</h4>
+                                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded shrink-0 ${
+                                    s.status === 'pending' ? 'bg-amber-500 text-white'
+                                    : s.status === 'approved' ? 'bg-emerald-600 text-white' : 'bg-slate-400 text-white'}`}>
+                                    {s.status === 'pending' ? 'MENUNGGU' : s.status === 'approved' ? 'DISETUJUI' : 'DITOLAK'}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-slate-600 mt-0.5">
+                                  {s.code} &middot; {namaStand(s)}{s.category ? ` · ${s.category}` : ''}
+                                </p>
+                                <p className="text-[10px] text-slate-500">
+                                  {s.sellerName} &middot; {s.sellerPhone}
+                                </p>
+                                {s.description && <p className="text-[10px] text-slate-500 italic mt-0.5">{s.description}</p>}
+
+                                <div className="mt-1.5 flex flex-wrap gap-1.5 items-center">
+                                  {s.variants.length === 0 ? (
+                                    <>
+                                      <span className="text-[10px] font-bold text-emerald-700 bg-white border border-emerald-200 px-1.5 py-0.5 rounded">
+                                        Nett {formatRupiah(s.priceOwner)}
+                                      </span>
+                                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${warnaStok(s.stock)}`}>{labelStok(s.stock)}</span>
+                                    </>
+                                  ) : s.variants.map((v, i) => (
+                                    <span key={i} className="text-[9px] bg-white border border-slate-200 px-1.5 py-0.5 rounded">
+                                      <b>{v.name}</b> &middot; nett {formatRupiah(v.priceOwner)} &middot; {labelStok(v.stock)}
+                                    </span>
+                                  ))}
+                                </div>
+
+                                {s.status === 'pending' && (
+                                  <p className="text-[9px] text-amber-700 font-bold mt-1.5">
+                                    Margin panitia belum diisi.
+                                  </p>
+                                )}
+                                {s.status === 'rejected' && s.reviewNote && (
+                                  <p className="text-[9px] text-rose-700 mt-1.5">Alasan ditolak: {s.reviewNote}</p>
+                                )}
+                                {s.status === 'approved' && (
+                                  <p className="text-[9px] text-emerald-700 mt-1.5">
+                                    Sudah jadi produk offline{products.find((p) => p.id === s.productId) ? ` — ${products.find((p) => p.id === s.productId).name}` : ''}.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex gap-2 mt-3">
+                              {s.status === 'pending' && (
+                                <>
+                                  <button
+                                    onClick={() => setReviewModal({ isOpen: true, item: s })}
+                                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg shadow-sm transition-colors"
+                                  >Review &amp; Setujui</button>
+                                  <button
+                                    onClick={() => setTolakModal({ isOpen: true, item: s, note: '' })}
+                                    className="px-3 py-2 bg-white border border-rose-200 hover:bg-rose-50 text-rose-600 text-[11px] font-bold rounded-lg transition-colors"
+                                  >Tolak</button>
+                                </>
+                              )}
+                              <button
+                                onClick={() => showConfirm(
+                                  `Hapus pendaftaran ${s.code} dari ${s.sellerName}? Jejaknya hilang permanen.`,
+                                  () => hapusSubmission(s))}
+                                className="px-3 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-500 rounded-lg transition-colors"
+                                title="Hapus (untuk spam)"
+                              ><Trash2 className="w-3.5 h-3.5" /></button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+
                 {(adminSubTab === 'products' || adminSubTab === 'products_offline') && (() => {
                   const offline = adminSubTab === 'products_offline';
                   const groups = offline ? offlineByTenant : productsByTenant;
@@ -2016,6 +2411,18 @@ export default function App() {
                                       </p>
                                     )}
                                     {hasVariants && <p className="text-[9px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded w-fit mt-1 font-bold">{p.variants.length} Varian</p>}
+
+                                    {offline && (
+                                      <div className="mt-1.5 pt-1.5 border-t border-slate-100 space-y-1">
+                                        {!hasVariants ? (
+                                          <BarisStok nama="Stok" stok={p.stock}
+                                            onGeser={(d) => geserStok('product', p.id, d)} />
+                                        ) : p.variants.map((v) => (
+                                          <BarisStok key={v.id} nama={v.name} stok={v.stock}
+                                            onGeser={(d) => geserStok('variant', v.id, d)} />
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                   <div className="flex flex-col gap-1.5 shrink-0">
                                     <button onClick={() => setProductModal({ isOpen: true, item: p, channel: p.channel })} className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg transition-colors"><Edit3 className="w-4 h-4" /></button>
@@ -2038,6 +2445,13 @@ export default function App() {
                 {}
                 {adminSubTab === 'batches' && (
                   <div className="space-y-4 animate-in fade-in duration-300">
+
+                    {}
+                    <PengaturanPendaftaran
+                      batches={batches}
+                      regSettings={regSettings}
+                      onSimpan={simpanPendaftaran}
+                    />
 
                     {}
                     <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
@@ -2406,6 +2820,7 @@ export default function App() {
                    name: chosenProduct.name,
                    tenantName: tenants.find((t) => t.id === chosenProduct.tenantId)?.name || '',
                    tenantId: chosenProduct.tenantId,
+                   stok: chosenProduct.stok ?? null,
                    price: Number(chosenProduct.priceOwner) + Number(chosenProduct.priceOrganizer),
                  }, qty);
                } else {
@@ -2430,6 +2845,85 @@ export default function App() {
               setProductModal({ isOpen: false, item: null });
             }}
           />
+        )}
+
+        {reviewModal.isOpen && reviewModal.item && (() => {
+          const s = reviewModal.item;
+          return (
+            <ModalProductForm
+              channel="offline"
+              judul={`Review Pendaftaran ${s.code}`}
+              labelSimpan="Setujui & Masukkan ke Produk Offline"
+              standBaru={s.tenantId ? '' : s.tenantBaru}
+              item={{
+                name: s.name,
+                tenantId: s.tenantId || (s.tenantBaru ? STAND_BARU : ''),
+                category: s.category || PREDEFINED_CATEGORIES[0],
+                priceOwner: s.priceOwner || '',
+                priceOrganizer: '',          // sengaja kosong: ini bagian admin
+                imageUrl: s.imageUrl,
+                description: s.description,
+                stock: s.stock,
+                variants: s.variants.map((v) => ({
+                  name: v.name, priceOwner: v.priceOwner,
+                  priceOrganizer: '', stock: v.stock,
+                })),
+              }}
+              tenants={tenants}
+              catatanAtas={(
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-[10px] leading-relaxed">
+                  <p className="font-bold text-amber-900 text-xs mb-1">Dikirim oleh penjual</p>
+                  <p className="text-amber-900">{s.sellerName} &middot; {s.sellerPhone}</p>
+                  <p className="text-amber-800 mt-0.5">
+                    {s.tenantId
+                      ? `Stand: ${tenants.find((t) => t.id === s.tenantId)?.name || s.tenantId}`
+                      : `Mengajukan stand baru: ${s.tenantBaru}`}
+                    {' · '}{formatIndoDate(String(s.createdAt).slice(0, 10))}
+                  </p>
+                  <p className="mt-1.5 text-amber-900 font-bold">
+                    Margin panitia masih kosong &mdash; wajib Anda isi sebelum menyetujui.
+                  </p>
+                </div>
+              )}
+              onClose={() => setReviewModal({ isOpen: false, item: null })}
+              onSave={(formData) => {
+                approveSubmission(s, formData);
+                setReviewModal({ isOpen: false, item: null });
+              }}
+            />
+          );
+        })()}
+
+        {tolakModal.isOpen && tolakModal.item && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
+            <div className="bg-white rounded-2xl w-full max-w-xs p-5 shadow-xl">
+              <h3 className="font-bold text-sm mb-1">Tolak pendaftaran {tolakModal.item.code}?</h3>
+              <p className="text-[10px] text-slate-500 mb-3 leading-relaxed">
+                Pendaftaran tidak dihapus, hanya ditandai ditolak beserta alasannya &mdash;
+                supaya ada jejaknya kalau penjual bertanya.
+              </p>
+              <textarea
+                rows={3} autoFocus
+                placeholder="Alasan, misal: foto kurang jelas / harga belum masuk akal"
+                value={tolakModal.note}
+                onChange={(e) => setTolakModal((p) => ({ ...p, note: e.target.value }))}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-rose-400"
+              />
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => setTolakModal({ isOpen: false, item: null, note: '' })}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors"
+                >Batal</button>
+                <button
+                  onClick={() => {
+                    rejectSubmission(tolakModal.item, tolakModal.note);
+                    setTolakModal({ isOpen: false, item: null, note: '' });
+                  }}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition-colors"
+                >Tolak</button>
+              </div>
+            </div>
+          </div>
         )}
 
         {tenantModal.isOpen && (
@@ -2763,12 +3257,22 @@ export default function App() {
 }
 
 function VariantSelectionModal({ product, onClose, onAddToCart, setGlobalZoom, pos = false }) {
-  const [selectedVarIndex, setSelectedVarIndex] = useState(0);
+  // Di kasir, varian yang habis tidak boleh jadi pilihan awal — kalau tidak,
+  // modal terbuka dengan tombol mati dan kasir bingung kenapa.
+  const [selectedVarIndex, setSelectedVarIndex] = useState(() => {
+    if (!pos || !Array.isArray(product?.variants)) return 0;
+    const i = product.variants.findIndex((v) => v.stock === null || v.stock === undefined || Number(v.stock) > 0);
+    return i >= 0 ? i : 0;
+  });
   const [qty, setQty] = useState(1);
 
   if (!product || !Array.isArray(product.variants) || product.variants.length === 0) return null;
 
   const selectedVariant = product.variants[selectedVarIndex];
+  const stokVar = !pos ? null
+    : (selectedVariant.stock === null || selectedVariant.stock === undefined
+        ? null : Number(selectedVariant.stock));
+  const varHabis = stokVar === 0;
   const unitPrice = Number(selectedVariant.priceOwner) + Number(selectedVariant.priceOrganizer);
   const total = unitPrice * qty;
 
@@ -2793,14 +3297,22 @@ function VariantSelectionModal({ product, onClose, onAddToCart, setGlobalZoom, p
             {product.variants.map((v, idx) => {
               const vPrice = Number(v.priceOwner) + Number(v.priceOrganizer);
               const isSelected = selectedVarIndex === idx;
+              const vStok = !pos ? null
+                : (v.stock === null || v.stock === undefined ? null : Number(v.stock));
+              const vHabis = vStok === 0;
               return (
-                <div 
-                  key={idx} 
-                  onClick={() => setSelectedVarIndex(idx)}
-                  className={`flex justify-between items-center p-3 rounded-xl border-2 cursor-pointer transition-all ${isSelected ? 'border-amber-500 bg-amber-50' : 'border-slate-100 hover:border-amber-200'}`}
+                <div
+                  key={idx}
+                  onClick={() => { if (!vHabis) { setSelectedVarIndex(idx); setQty(1); } }}
+                  className={`flex justify-between items-center gap-2 p-3 rounded-xl border-2 transition-all ${vHabis ? 'border-slate-100 bg-slate-50 opacity-60 cursor-not-allowed' : isSelected ? 'border-amber-500 bg-amber-50 cursor-pointer' : 'border-slate-100 hover:border-amber-200 cursor-pointer'}`}
                 >
-                   <span className={`font-bold text-sm ${isSelected ? 'text-amber-700' : 'text-slate-700'}`}>{v.name}</span>
-                   <span className={`font-black text-sm ${isSelected ? 'text-amber-700' : 'text-slate-600'}`}>{formatRupiah(vPrice)}</span>
+                   <span className={`font-bold text-sm ${isSelected && !vHabis ? 'text-amber-700' : 'text-slate-700'}`}>{v.name}</span>
+                   <span className="flex items-center gap-2 shrink-0">
+                     {pos && vStok !== null && (
+                       <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${warnaStok(vStok)}`}>{labelStok(vStok)}</span>
+                     )}
+                     <span className={`font-black text-sm ${isSelected && !vHabis ? 'text-amber-700' : 'text-slate-600'}`}>{formatRupiah(vPrice)}</span>
+                   </span>
                 </div>
               );
             })}
@@ -2811,7 +3323,12 @@ function VariantSelectionModal({ product, onClose, onAddToCart, setGlobalZoom, p
              <div className="flex items-center space-x-3 bg-slate-50 p-1 rounded-xl border border-slate-200">
                <button onClick={() => setQty(Math.max(1, qty - 1))} className="w-8 h-8 rounded-lg bg-white shadow-sm font-bold text-slate-600 flex items-center justify-center hover:bg-slate-100">-</button>
                <span className="font-bold w-6 text-center">{qty}</span>
-               <button onClick={() => setQty(qty + 1)} className="w-8 h-8 rounded-lg bg-amber-500 text-white shadow-sm font-bold flex items-center justify-center hover:bg-amber-600 transition-colors">+</button>
+               <button
+                 onClick={() => setQty(stokVar !== null ? Math.min(stokVar, qty + 1) : qty + 1)}
+                 disabled={stokVar !== null && qty >= stokVar}
+                 title={stokVar !== null && qty >= stokVar ? 'Sudah mencapai sisa stok' : ''}
+                 className="w-8 h-8 rounded-lg bg-amber-500 text-white shadow-sm font-bold flex items-center justify-center hover:bg-amber-600 transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed"
+               >+</button>
              </div>
           </div>
         </div>
@@ -2826,14 +3343,16 @@ function VariantSelectionModal({ product, onClose, onAddToCart, setGlobalZoom, p
                     name: `${parseAndCleanItem(product.name)} [${selectedVariant.name}]`,
                     tenantId: product.tenantId,
                     priceOwner: Number(selectedVariant.priceOwner),
-                    priceOrganizer: Number(selectedVariant.priceOrganizer)
+                    priceOrganizer: Number(selectedVariant.priceOrganizer),
+                    stok: stokVar
                 };
                 onAddToCart(compositeProduct, qty);
              }}
-             className={`w-full py-3.5 ${pos ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'} text-white rounded-xl font-bold flex justify-between items-center px-4 shadow-md transition-colors`}
+             disabled={varHabis}
+             className={`w-full py-3.5 ${pos ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'} text-white rounded-xl font-bold flex justify-between items-center px-4 shadow-md transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed`}
            >
-             <span>{pos ? 'Tambah ke Kasir' : 'Tambah Pesanan'}</span>
-             <span>{formatRupiah(total)}</span>
+             <span>{varHabis ? 'Varian Ini Habis' : pos ? 'Tambah ke Kasir' : 'Tambah Pesanan'}</span>
+             <span>{varHabis ? '' : formatRupiah(total)}</span>
            </button>
         </div>
       </div>
@@ -2933,22 +3452,411 @@ function ModalBatchForm({ item, onClose, onSave }) {
   );
 }
 
+/**
+ * Kompres gambar di browser sebelum diunggah: maksimal 400px, JPEG 0,75.
+ * Satu foto jadi sekitar 30 KB. Yang disimpan di database hanya URL-nya —
+ * base64 di dalam baris produk pernah membengkakkan payload sampai ~1,5 MB
+ * dan itulah asal bug varian yang hilang.
+ */
+const kompresGambar = (file, maxDim = 400, kualitas = 0.75) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onerror = () => reject(new Error('Gagal membaca berkas.'));
+  reader.onload = (ev) => {
+    const img = new Image();
+    img.onerror = () => reject(new Error('Berkas itu sepertinya bukan gambar.'));
+    img.onload = () => {
+      let width = img.width, height = img.height;
+      if (width > height) {
+        if (width > maxDim) { height *= maxDim / width; width = maxDim; }
+      } else if (height > maxDim) { width *= maxDim / height; height = maxDim; }
+      const c = document.createElement('canvas');
+      c.width = width; c.height = height;
+      c.getContext('2d').drawImage(img, 0, 0, width, height);
+      c.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error('Gagal mengompres gambar.'))),
+        'image/jpeg', kualitas
+      );
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+/**
+ * Form pendaftaran produk untuk PENJUAL. Dibuka dari halaman depan, tanpa login.
+ *
+ * Tidak ada kolom margin panitia di sini, dan itu bukan sekadar disembunyikan:
+ * fungsi submit_product di server memang tidak menerimanya, dan varian yang
+ * dikirim disusun ulang di server supaya kolom asing dibuang.
+ */
+function FormPendaftaran({ tenants, batchName, onKembali }) {
+  const [penjual, setPenjual] = useState({ kode: '', nama: '', telp: '', tenantId: '', tenantBaru: '' });
+  const kosongProduk = { name: '', category: PREDEFINED_CATEGORIES[0], description: '', priceOwner: '', stock: '', imageUrl: '' };
+  const [produk, setProduk] = useState(kosongProduk);
+  const [varian, setVarian] = useState([]);
+  const [unggahJalan, setUnggahJalan] = useState(false);
+  const [kirimJalan, setKirimJalan] = useState(false);
+  const [pesan, setPesan] = useState('');
+  const [sukses, setSukses] = useState(null);
+
+  const adaVarian = varian.length > 0;
+  const standBaru = penjual.tenantId === STAND_BARU;
+
+  const unggahFoto = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPesan(''); setUnggahJalan(true);
+    try {
+      const blob = await kompresGambar(file);
+      // Folder submissions/ adalah satu-satunya tempat yang boleh ditulis tanpa
+      // login, dan hanya menambah berkas — tidak menimpa. Karena itu namanya
+      // dibuat acak dan upsert dimatikan.
+      const path = `submissions/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.jpg`;
+      const { error } = await supabase.storage
+        .from(IMAGE_BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+      if (error) throw error;
+      const { data } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path);
+      setProduk((p) => ({ ...p, imageUrl: data.publicUrl }));
+    } catch (err) {
+      setPesan('Gagal mengunggah foto: ' + (err.message || 'coba lagi'));
+    } finally {
+      setUnggahJalan(false);
+      e.target.value = '';
+    }
+  };
+
+  const kirim = async (ev) => {
+    ev.preventDefault();
+    if (kirimJalan || unggahJalan) return;
+    setPesan('');
+
+    if (standBaru && penjual.tenantBaru.trim() === '') {
+      setPesan('Isi dulu nama stand barunya.'); return;
+    }
+    if (!penjual.tenantId) {
+      setPesan('Pilih stand Anda dulu.'); return;
+    }
+    if (adaVarian && varian.some((v) => v.name.trim() === '' || v.priceOwner === '')) {
+      setPesan('Setiap varian harus punya nama dan harga nett.'); return;
+    }
+
+    setKirimJalan(true);
+    try {
+      const { data, error } = await supabase.rpc('submit_product', {
+        p_code: penjual.kode,
+        p_seller_name: penjual.nama,
+        p_seller_phone: penjual.telp,
+        p_tenant_id: standBaru ? null : penjual.tenantId,
+        p_tenant_baru: standBaru ? penjual.tenantBaru : null,
+        p_name: produk.name,
+        p_category: produk.category || null,
+        p_description: produk.description || null,
+        p_image_url: produk.imageUrl || null,
+        p_price_owner: adaVarian ? 0 : (Number(produk.priceOwner) || 0),
+        p_stock: adaVarian ? null : stokKeDb(produk.stock),
+        p_variants: varian.map((v) => ({
+          name: v.name.trim(),
+          price_owner: Number(v.priceOwner) || 0,
+          stock: v.stock === '' ? null : String(stokKeDb(v.stock)),
+        })),
+      });
+      if (error) throw error;
+      const hasil = Array.isArray(data) ? data[0] : data;
+      setSukses({ code: hasil?.code || '', batch: hasil?.batch_name || batchName });
+      setProduk(kosongProduk);
+      setVarian([]);
+    } catch (err) {
+      setPesan(err.message || 'Gagal mengirim. Periksa koneksi lalu coba lagi.');
+    } finally {
+      setKirimJalan(false);
+    }
+  };
+
+  if (sukses) {
+    return (
+      <div className="max-w-sm mx-auto bg-white rounded-2xl border shadow-lg p-6 mt-8 text-center">
+        <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
+        <h2 className="font-black text-lg text-slate-900">Pendaftaran terkirim</h2>
+        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+          Produk Anda masuk antrean review panitia. Panitia yang akan menentukan harga
+          jualnya, lalu produknya muncul di kasir bazaar.
+        </p>
+        <div className="my-4 py-3 bg-slate-50 rounded-xl border border-dashed">
+          <p className="text-[10px] text-slate-500 font-bold">NOMOR PENDAFTARAN</p>
+          <p className="font-mono font-black text-xl text-slate-900 tracking-wider">{sukses.code}</p>
+          <p className="text-[10px] text-slate-500 mt-1">Periode {sukses.batch}</p>
+        </div>
+        <p className="text-[10px] text-slate-500 mb-4 leading-relaxed">
+          Simpan nomor ini. Sebutkan nomornya kalau Anda menghubungi panitia soal produk ini.
+        </p>
+        <button
+          onClick={() => setSukses(null)}
+          className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm shadow-md transition-colors"
+        >Daftarkan Produk Lain</button>
+        <button
+          onClick={onKembali}
+          className="w-full py-2.5 mt-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-xs transition-colors"
+        >Selesai</button>
+      </div>
+    );
+  }
+
+  const inp = 'w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500';
+
+  return (
+    <form onSubmit={kirim} className="max-w-sm mx-auto space-y-4 mt-4 mb-10 text-xs font-medium">
+      <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
+        <h2 className="font-black text-base text-emerald-900">Daftarkan Produk Bazaar</h2>
+        <p className="text-[10px] text-emerald-800 mt-1 leading-relaxed">
+          Untuk bazaar offline periode <b>{batchName}</b>. Isi harga <b>nett</b> yang Anda
+          terima; margin panitia ditentukan panitia saat review. Produk baru dijual setelah
+          disetujui.
+        </p>
+      </div>
+
+      <div className="bg-white rounded-2xl border shadow-sm p-4 space-y-3">
+        <h3 className="font-bold text-sm text-slate-900">1. Data Penjual</h3>
+        <div>
+          <label className="block mb-1">Kode pendaftaran <span className="text-rose-500">*</span></label>
+          <input
+            type="text" required value={penjual.kode}
+            onChange={(e) => setPenjual({ ...penjual, kode: e.target.value.toUpperCase() })}
+            placeholder="Dari panitia"
+            className={`${inp} font-mono font-bold tracking-wider`}
+          />
+        </div>
+        <div>
+          <label className="block mb-1">Nama Anda <span className="text-rose-500">*</span></label>
+          <input type="text" required value={penjual.nama}
+            onChange={(e) => setPenjual({ ...penjual, nama: e.target.value })} className={inp} />
+        </div>
+        <div>
+          <label className="block mb-1">Nomor WhatsApp <span className="text-rose-500">*</span></label>
+          <input type="tel" required value={penjual.telp} placeholder="08xxxxxxxxxx"
+            onChange={(e) => setPenjual({ ...penjual, telp: e.target.value })} className={inp} />
+        </div>
+        <div>
+          <label className="block mb-1">Stand <span className="text-rose-500">*</span></label>
+          <select required value={penjual.tenantId}
+            onChange={(e) => setPenjual({ ...penjual, tenantId: e.target.value })} className={inp}>
+            <option value="">&mdash; Pilih stand &mdash;</option>
+            {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            <option value={STAND_BARU}>Stand saya belum terdaftar</option>
+          </select>
+        </div>
+        {standBaru && (
+          <div>
+            <label className="block mb-1">Nama stand baru <span className="text-rose-500">*</span></label>
+            <input type="text" required value={penjual.tenantBaru}
+              onChange={(e) => setPenjual({ ...penjual, tenantBaru: e.target.value })} className={inp} />
+            <p className="text-[9px] text-slate-500 mt-1">Panitia akan membuatkan standnya saat review.</p>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl border shadow-sm p-4 space-y-3">
+        <h3 className="font-bold text-sm text-slate-900">2. Produk</h3>
+        <div>
+          <label className="block mb-1">Nama produk <span className="text-rose-500">*</span></label>
+          <input type="text" required value={produk.name}
+            onChange={(e) => setProduk({ ...produk, name: e.target.value })} className={inp} />
+        </div>
+        <div>
+          <label className="block mb-1">Kategori</label>
+          <select value={produk.category}
+            onChange={(e) => setProduk({ ...produk, category: e.target.value })} className={inp}>
+            {PREDEFINED_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block mb-1">Keterangan singkat</label>
+          <input type="text" value={produk.description} placeholder="Misal: isi 5 pcs, pedas"
+            onChange={(e) => setProduk({ ...produk, description: e.target.value })} className={inp} />
+        </div>
+
+        {!adaVarian && (
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="block mb-1 text-emerald-700">Harga nett <span className="text-rose-500">*</span></label>
+              <input type="number" min="0" required={!adaVarian} value={produk.priceOwner}
+                onChange={(e) => setProduk({ ...produk, priceOwner: e.target.value })} className={inp} />
+            </div>
+            <div className="flex-1">
+              <label className="block mb-1">Jumlah (stok)</label>
+              <input type="number" min="0" value={produk.stock} placeholder="Opsional"
+                onChange={(e) => setProduk({ ...produk, stock: e.target.value })} className={inp} />
+            </div>
+          </div>
+        )}
+
+        <div className="border-t pt-3">
+          <div className="flex justify-between items-center mb-2">
+            <label className="font-bold text-slate-700">Varian (opsional)</label>
+            <button type="button"
+              onClick={() => setVarian([...varian, { name: '', priceOwner: '', stock: '' }])}
+              className="text-[10px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-2 py-1 rounded-lg flex items-center transition-colors">
+              <Plus className="w-3 h-3 mr-0.5" /> Varian
+            </button>
+          </div>
+          <p className="text-[9px] text-slate-500 mb-2 leading-snug">
+            Pakai ini kalau satu produk punya beberapa ukuran atau rasa dengan harga berbeda.
+            Kalau ada varian, harga &amp; stok di atas tidak dipakai.
+          </p>
+          {varian.map((v, i) => (
+            <div key={i} className="flex gap-2 items-start bg-slate-50 p-2.5 rounded-lg border mb-2">
+              <div className="flex-1 space-y-2">
+                <input type="text" required placeholder="Nama varian (misal: 250gr)" value={v.name}
+                  onChange={(e) => { const n = [...varian]; n[i].name = e.target.value; setVarian(n); }}
+                  className="w-full px-2 py-1.5 border border-slate-200 rounded bg-white focus:outline-none focus:border-emerald-500" />
+                <div className="flex gap-2">
+                  <input type="number" min="0" required placeholder="Harga nett" value={v.priceOwner}
+                    onChange={(e) => { const n = [...varian]; n[i].priceOwner = e.target.value; setVarian(n); }}
+                    className="w-full px-2 py-1.5 border border-slate-200 rounded bg-white text-emerald-700 font-bold focus:outline-none focus:border-emerald-500" />
+                  <input type="number" min="0" placeholder="Stok" value={v.stock}
+                    onChange={(e) => { const n = [...varian]; n[i].stock = e.target.value; setVarian(n); }}
+                    className="w-full px-2 py-1.5 border border-slate-200 rounded bg-white focus:outline-none focus:border-emerald-500" />
+                </div>
+              </div>
+              <button type="button" onClick={() => setVarian(varian.filter((_, x) => x !== i))}
+                className="p-1.5 bg-red-50 hover:bg-red-100 text-red-500 rounded transition-colors">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-t pt-3">
+          <label className="block mb-1.5">Foto produk</label>
+          {produk.imageUrl && (
+            <img src={produk.imageUrl} alt="foto produk" className="w-20 h-20 object-cover rounded-xl border mb-2" />
+          )}
+          <input type="file" accept="image/*" onChange={unggahFoto} disabled={unggahJalan}
+            className="w-full file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer text-slate-500" />
+          {unggahJalan && <p className="text-[10px] text-amber-600 font-bold mt-1.5 animate-pulse">Mengompres &amp; mengunggah foto...</p>}
+          <p className="text-[9px] text-slate-500 mt-1">Fotonya otomatis dikecilkan, jadi tidak perlu diedit dulu.</p>
+        </div>
+      </div>
+
+      {pesan && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-3 text-[11px] font-bold flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-px" /><span>{pesan}</span>
+        </div>
+      )}
+
+      <button type="submit" disabled={kirimJalan || unggahJalan}
+        className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-md text-sm transition-colors">
+        {kirimJalan ? 'Mengirim...' : 'Kirim Pendaftaran'}
+      </button>
+      <button type="button" onClick={onKembali}
+        className="w-full py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold rounded-xl text-xs transition-colors">
+        Kembali ke Menu Pembeli
+      </button>
+    </form>
+  );
+}
+
+/**
+ * Buka / tutup pendaftaran produk beserta kodenya, per batch.
+ * Kodenya hanya terlihat di sini — tabelnya tidak bisa dibaca tanpa login.
+ */
+function PengaturanPendaftaran({ batches, regSettings, onSimpan }) {
+  const [batchId, setBatchId] = useState(() =>
+    (batches.find((b) => b.isActive) || batches[0])?.id || '');
+  const aktif = regSettings.find((r) => r.batchId === batchId);
+  const [kode, setKode] = useState(aktif?.code || '');
+  // Dikunci pada batch DAN kodenya: ganti batch menampilkan kode batch itu,
+  // dan kode yang baru selesai dimuat dari server ikut muncul — tanpa ini,
+  // panel yang sudah terbuka saat data datang akan menampilkan kolom kosong.
+  const [terakhir, setTerakhir] = useState(`${batchId}|${aktif?.code || ''}`);
+  const tanda = `${batchId}|${aktif?.code || ''}`;
+
+  if (terakhir !== tanda) {
+    setTerakhir(tanda);
+    setKode(aktif?.code || '');
+  }
+
+  const buka = !!aktif?.isOpen;
+
+  return (
+    <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+      <div className="p-3 sm:p-4 bg-emerald-700 text-white">
+        <h3 className="font-bold text-sm">Pendaftaran Produk oleh Penjual</h3>
+        <p className="text-[10px] text-emerald-100 mt-1 leading-relaxed">
+          Kalau dibuka, menu pendaftaran muncul di halaman depan. Penjual harus memasukkan
+          kode di bawah ini untuk bisa mengirim. Kode dicocokkan di server, jadi tidak bisa
+          dibaca dari halaman web.
+        </p>
+      </div>
+
+      <div className="p-3 space-y-3 text-xs">
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="font-bold text-slate-600">Batch:</span>
+          <select
+            value={batchId}
+            onChange={(e) => setBatchId(e.target.value)}
+            className="p-2 border rounded-lg bg-white font-semibold focus:outline-none focus:border-emerald-500"
+          >
+            {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+          <span className={`px-2 py-1 rounded-full font-bold text-[10px] ${buka ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+            {buka ? 'Pendaftaran TERBUKA' : 'Pendaftaran tertutup'}
+          </span>
+        </div>
+
+        <div>
+          <label className="block mb-1 font-bold text-slate-600">Kode pendaftaran</label>
+          <input
+            type="text" value={kode}
+            onChange={(e) => setKode(e.target.value.toUpperCase())}
+            placeholder="Misal: DANUS2026"
+            className="w-full sm:w-56 px-3 py-2 border border-slate-200 rounded-xl font-mono font-bold tracking-wider focus:outline-none focus:border-emerald-500"
+          />
+          <p className="text-[9px] text-slate-500 mt-1 leading-snug">
+            Bagikan kode ini ke grup penjual. Minimal 4 karakter. Mengganti kode langsung
+            membuat kode lama tidak berlaku.
+          </p>
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={() => onSimpan(batchId, true, kode)}
+            disabled={!batchId}
+            className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-[11px] font-bold rounded-lg shadow-sm transition-colors"
+          >{buka ? 'Simpan Kode' : 'Buka Pendaftaran'}</button>
+          {buka && (
+            <button
+              onClick={() => onSimpan(batchId, false, kode)}
+              className="px-3 py-2 bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 text-[11px] font-bold rounded-lg transition-colors"
+            >Tutup Pendaftaran</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ModalProductForm({
   item, tenants, onClose, onSave, channel = 'online',
   sumberOnline = [], kunciOffline,
+  judul, labelSimpan, standBaru = '', catatanAtas = null,
 }) {
   const [form, setForm] = useState({
     name: item?.name || '', tenantId: item?.tenantId || tenants[0]?.id || '',
     category: item?.category || PREDEFINED_CATEGORIES[0],
     priceOwner: item?.priceOwner || '', priceOrganizer: item?.priceOrganizer || '',
-    imageUrl: item?.imageUrl || '', description: item?.description || ''
+    imageUrl: item?.imageUrl || '', description: item?.description || '',
+    stock: item?.stock === null || item?.stock === undefined ? '' : String(item.stock)
   });
-  
+
   const [isUploading, setIsUploading] = useState(false);
 
-  const [variants, setVariants] = useState(() => {
-     return normalizeVariants(item?.variants);   // FIX: tidak crash kalau JSON rusak
-  });
+  const [variants, setVariants] = useState(() =>
+     // FIX: tidak crash kalau JSON rusak. Stok dibawa sebagai teks supaya
+     // kolom yang dikosongkan tetap berarti "tidak dibatasi", bukan nol.
+     normalizeVariants(item?.variants).map((v) => ({
+       ...v,
+       stock: v.stock === null || v.stock === undefined ? '' : String(v.stock),
+     })));
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -3032,11 +3940,13 @@ function ModalProductForm({
       priceOrganizer: angkaKeInput(asal.priceOrganizer),
       imageUrl: asal.imageUrl || '',
       description: asal.description || '',
+      stock: '',   // stok offline diisi sendiri, bukan diwarisi dari produk online
     });
     setVariants(normalizeVariants(asal.variants).map((v) => ({
       name: v.name,
       priceOwner: angkaKeInput(v.priceOwner),
       priceOrganizer: angkaKeInput(v.priceOrganizer),
+      stock: '',
     })));
     setDisalinDari(asal.name);
   };
@@ -3045,7 +3955,7 @@ function ModalProductForm({
     setForm({
       name: '', tenantId: tenants[0]?.id || '',
       category: PREDEFINED_CATEGORIES[0],
-      priceOwner: '', priceOrganizer: '', imageUrl: '', description: '',
+      priceOwner: '', priceOrganizer: '', imageUrl: '', description: '', stock: '',
     });
     setVariants([]);
     setDisalinDari(null);
@@ -3055,10 +3965,12 @@ function ModalProductForm({
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm print:hidden">
       <div className="bg-white rounded-2xl w-full max-w-sm p-6 relative overflow-y-auto max-h-[90vh] shadow-xl scrollbar-none">
         <button onClick={onClose} disabled={isUploading} className="absolute top-4 right-4 p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg disabled:opacity-50 transition-colors"><X className="w-4 h-4 text-slate-500" /></button>
-        <h3 className="font-bold text-base mb-1">{item ? 'Edit Produk' : 'Tambah Produk'}</h3>
+        <h3 className="font-bold text-base mb-1">{judul || (item ? 'Edit Produk' : 'Tambah Produk')}</h3>
         <p className={`text-[10px] font-bold mb-4 px-2 py-1 rounded w-fit ${channel === 'offline' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
           {channel === 'offline' ? 'Produk Offline \u2014 hanya untuk Kasir' : 'Produk Online \u2014 tampil di halaman pembeli'}
         </p>
+
+        {catatanAtas}
 
         {bolehSalin && (
           <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium">
@@ -3134,7 +4046,19 @@ function ModalProductForm({
              </select>
           </div>
           
-          <div><label className="block mb-1">Stand / Tenant</label><select value={form.tenantId} onChange={e => setForm({...form, tenantId: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500">{tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></div>
+          <div>
+            <label className="block mb-1">Stand / Tenant</label>
+            <select value={form.tenantId} onChange={e => setForm({...form, tenantId: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500">
+              {standBaru && <option value={STAND_BARU}>{`Buat stand baru: "${standBaru}"`}</option>}
+              {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            {standBaru && form.tenantId === STAND_BARU && (
+              <p className="text-[9px] text-amber-700 bg-amber-50 px-2 py-1 rounded mt-1 leading-snug">
+                Stand <b>{standBaru}</b> akan dibuat sekarang dan langsung didaftarkan ikut
+                periode ini. Kalau standnya sebenarnya sudah ada, pilih yang sudah ada saja.
+              </p>
+            )}
+          </div>
           
           {!hasVariants && (
             <div className="flex gap-3">
@@ -3143,10 +4067,26 @@ function ModalProductForm({
             </div>
           )}
 
+          {channel === 'offline' && !hasVariants && (
+            <div>
+              <label className="block mb-1">Stok</label>
+              <input
+                type="number" min="0" step="1" placeholder="Kosongkan kalau tidak dibatasi"
+                value={form.stock}
+                onChange={e => setForm({ ...form, stock: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
+              />
+              <p className="text-[9px] text-slate-500 mt-1 leading-snug">
+                Kasir menolak penjualan kalau stok habis. <b>Dikosongkan</b> berarti tidak
+                dibatasi &mdash; kasir bebas menjual berapa pun.
+              </p>
+            </div>
+          )}
+
           <div className="border-t border-slate-200 pt-4 mt-2">
              <div className="flex justify-between items-center mb-2">
                  <label className="font-bold text-slate-700">Multi-Varian (Opsional)</label>
-                 <button type="button" onClick={() => setVariants([...variants, { name: '', priceOwner: '', priceOrganizer: '' }])} className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2 py-1 rounded-lg flex items-center transition-colors"><Plus className="w-3 h-3 mr-0.5"/> Varian</button>
+                 <button type="button" onClick={() => setVariants([...variants, { name: '', priceOwner: '', priceOrganizer: '', stock: '' }])} className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2 py-1 rounded-lg flex items-center transition-colors"><Plus className="w-3 h-3 mr-0.5"/> Varian</button>
              </div>
              
              {hasVariants && (
@@ -3159,6 +4099,9 @@ function ModalProductForm({
                                    <input type="number" placeholder="Harga Nett" value={v.priceOwner} required onChange={e => { const newV = [...variants]; newV[i].priceOwner = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white text-emerald-700 font-bold focus:outline-none focus:border-emerald-500" />
                                    <input type="number" placeholder="Margin" value={v.priceOrganizer} required onChange={e => { const newV = [...variants]; newV[i].priceOrganizer = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white text-indigo-700 font-bold focus:outline-none focus:border-indigo-500" />
                                </div>
+                               {channel === 'offline' && (
+                                 <input type="number" min="0" step="1" placeholder="Stok (kosong = tidak dibatasi)" value={v.stock ?? ''} onChange={e => { const newV = [...variants]; newV[i].stock = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white focus:outline-none focus:border-emerald-500" />
+                               )}
                            </div>
                            <button type="button" onClick={() => setVariants(variants.filter((_, idx) => idx !== i))} className="p-1.5 bg-red-50 hover:bg-red-100 text-red-500 rounded transition-colors"><Trash2 className="w-4 h-4"/></button>
                        </div>
@@ -3199,7 +4142,7 @@ function ModalProductForm({
           </div>
 
           <button type="submit" disabled={isUploading} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md mt-2 text-sm disabled:opacity-50 transition-colors">
-            {isUploading ? 'Sedang Diproses...' : 'Simpan Produk'}
+            {isUploading ? 'Sedang Diproses...' : (labelSimpan || 'Simpan Produk')}
           </button>
         </form>
       </div>
