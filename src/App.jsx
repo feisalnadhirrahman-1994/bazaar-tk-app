@@ -426,6 +426,7 @@ export default function App() {
   const [submissions, setSubmissions] = useState([]);
   const [regSettings, setRegSettings] = useState([]);
   const [reviewModal, setReviewModal] = useState({ isOpen: false, item: null });
+  const [orderDetail, setOrderDetail] = useState(null);
   const [tolakModal, setTolakModal] = useState({ isOpen: false, item: null, note: '' });
 
   const [cart, setCart] = useState([]);
@@ -507,6 +508,8 @@ export default function App() {
     channel: s.channel === 'offline' ? 'offline' : 'online',
     sellerName: s.seller_name || '', sellerPhone: s.seller_phone || '',
     tenantId: s.tenant_id || '', tenantBaru: s.tenant_baru || '',
+    bankName: s.bank_name || '', bankAccount: s.bank_account || '',
+    bankAccountName: s.bank_account_name || '',
     name: s.name || '', category: s.category || '', description: s.description || '',
     imageUrl: s.image_url || '',
     priceOwner: Number(s.price_owner) || 0,
@@ -2094,7 +2097,10 @@ export default function App() {
                         <span className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded">{filteredOrdersSummary.offline} offline &middot; {formatRupiah(filteredOrdersSummary.grossOffline)}</span>
                         <span className="bg-slate-900 text-white px-2 py-1 rounded">Total {formatRupiah(filteredOrdersSummary.gross)}</span>
                       </div>
-                      <p className="text-[10px] text-slate-400">Klik "Simpan Status" untuk memperbarui status pesanan ke cloud. Export mengikuti filter di atas.</p>
+                      <p className="text-[10px] text-slate-400">
+                        Mengganti status langsung tersimpan ke cloud. Klik barisnya untuk melihat
+                        rincian item. Export &amp; Print mengikuti filter di atas.
+                      </p>
                     </div>
 
                     {filteredOrders.length === 0 && (
@@ -2105,76 +2111,70 @@ export default function App() {
 
                     {filteredOrders.map((ord, idx) => {
                       if (!ord || typeof ord !== 'object') return null;
-                      const enrichedItems = enrichOrderItems(ord) || [];
                       const cust = ord.customer && typeof ord.customer === 'object' ? ord.customer : {};
+                      const offline = (ord.channel || 'online') === 'offline';
+                      const nItem = (enrichOrderItems(ord) || []).reduce((n, i) => n + Number(i?.qty || 0), 0);
                       return (
-                        <div key={ord.orderId || idx} className="bg-white p-4 rounded-xl border text-xs shadow-sm flex flex-col gap-3">
-                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 border-b pb-3">
-                            <div>
-                              <span className="font-black text-indigo-700 text-sm">{ord.orderId || '-'}</span>
-                              {(ord.channel || 'online') === 'offline' ? (
-                                <span className="ml-2 text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded align-middle">
+                        <div
+                          key={ord.orderId || idx}
+                          className="bg-white rounded-xl border shadow-sm px-3 py-2.5 flex flex-col sm:flex-row sm:items-center gap-2 hover:border-indigo-300 transition-colors"
+                        >
+                          {}
+                          <button
+                            onClick={() => setOrderDetail(ord)}
+                            className="flex-1 min-w-0 text-left"
+                            title="Lihat rincian pesanan"
+                          >
+                            <span className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-black text-indigo-700 text-xs">{ord.orderId || '-'}</span>
+                              {offline ? (
+                                <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">
                                   OFFLINE{ord.paymentMethod ? ` \u00b7 ${ord.paymentMethod}` : ''}
                                 </span>
                               ) : (
-                                <span className="ml-2 text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded align-middle">ONLINE</span>
+                                <span className="text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">ONLINE</span>
                               )}
-                              <span className="font-bold block mt-0.5 text-slate-800">{cust?.namaAnak || 'Unknown'} ({cust?.kelas || '-'})</span>
-                              <span className="text-[10px] text-slate-500 block">Ortu: {cust?.namaOrtu || '-'}</span>
-                            </div>
-                            <div className="flex items-center gap-2 self-end sm:self-auto">
-                              <select
-                                value={ord.status || 'Unpaid'}
-                                onChange={(e) => {
-                                  const newOrders = orders.map(o => o.orderId === ord.orderId ? { ...o, status: e.target.value } : o);
-                                  setOrders(newOrders);
-                                }}
-                                className="bg-slate-50 font-bold px-2.5 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                              >
-                                <option value="Unpaid">Unpaid</option>
-                                <option value="Paid">Paid</option>
-                                <option value="Selesai">Selesai</option>
-                                <option value="Batal">Batal</option>
-                              </select>
-                              <button 
-                                onClick={() => updateOrderStatusDirect(ord.orderId, ord.status)}
-                                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg flex items-center shadow-sm transition-colors"
-                              >
-                                <Save className="w-3.5 h-3.5 mr-1" /> Simpan
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  showConfirm(`Yakin HAPUS pesanan ${ord.orderId}? Data akan terhapus permanen.`,
-                                    () => deleteOrder(ord.orderId));
-                                }}
-                                className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition-colors"
-                                title="Hapus Pesanan"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                          <div className="space-y-1 text-slate-700 pl-1">
-                            {enrichedItems.map((i, iIdx) => {
-                              const cName = parseAndCleanItem(i?.name);
-                              const tName = tenants.find(t => t.id === i?.tenantId)?.name || 'Stand';
-                              return (
-                                <div key={iIdx} className="flex justify-between items-center text-[11px] border-b border-slate-50 pb-1">
-                                  <div>
-                                    <span className="font-bold">{cName} (x{i?.qty || 1})</span>
-                                    <span className="text-[9px] text-slate-400 ml-1">[{tName}]</span>
-                                  </div>
-                                  <span className="font-medium text-slate-600">{formatRupiah(i?.subtotal || 0)}</span>
-                                </div>
-                              )
-                            })}
-                            {cust?.catatan && cust?.catatan !== '-' && (
-                              <p className="text-[10px] text-orange-600 font-medium italic mt-1 pt-1">Catatan: {cust.catatan}</p>
-                            )}
-                            <div className="flex justify-between font-black text-slate-900 pt-2 mt-2">
-                              <span>Total Nominal Pesanan:</span>
-                              <span className="text-amber-600">{formatRupiah(ord.totalAmount || 0)}</span>
-                            </div>
+                            </span>
+                            <span className="block font-bold text-slate-800 text-xs truncate mt-0.5">
+                              {cust?.namaAnak || 'Unknown'}
+                            </span>
+                            <span className="block text-[10px] text-slate-500 truncate">
+                              {cust?.kelas || '-'}{cust?.namaOrtu && cust.namaOrtu !== '-' ? ` \u00b7 ${cust.namaOrtu}` : ''}
+                            </span>
+                          </button>
+
+                          {}
+                          <button
+                            onClick={() => setOrderDetail(ord)}
+                            className="text-left sm:text-right shrink-0 sm:w-32"
+                          >
+                            <span className="block text-[10px] text-slate-400">{nItem} item</span>
+                            <span className="block font-black text-amber-600 text-xs">{formatRupiah(ord.totalAmount || 0)}</span>
+                          </button>
+
+                          {}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <select
+                              value={ord.status || 'Unpaid'}
+                              onChange={(e) => updateOrderStatusDirect(ord.orderId, e.target.value)}
+                              className={`text-[11px] font-bold px-2 py-1.5 rounded-lg border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                                ord.status === 'Paid' ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                                : ord.status === 'Unpaid' ? 'bg-amber-50 border-amber-200 text-amber-700'
+                                : ord.status === 'Batal' ? 'bg-rose-50 border-rose-200 text-rose-700'
+                                : 'bg-slate-50 border-slate-200 text-slate-700'}`}
+                            >
+                              <option value="Unpaid">Unpaid</option>
+                              <option value="Paid">Paid</option>
+                              <option value="Selesai">Selesai</option>
+                              <option value="Batal">Batal</option>
+                            </select>
+                            <button
+                              onClick={() => setOrderDetail(ord)}
+                              className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-lg transition-colors"
+                              title="Rincian"
+                            >
+                              <List className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </div>
                       );
@@ -2358,6 +2358,12 @@ export default function App() {
                                 <p className="text-[10px] text-slate-500">
                                   {s.sellerName} &middot; {s.sellerPhone}
                                 </p>
+                                {!s.tenantId && s.bankAccount && (
+                                  <p className="text-[10px] text-slate-600 font-bold">
+                                    {s.bankName} {s.bankAccount}
+                                    {s.bankAccountName ? ` a.n. ${s.bankAccountName}` : ''}
+                                  </p>
+                                )}
                                 {s.description && <p className="text-[10px] text-slate-500 italic mt-0.5">{s.description}</p>}
 
                                 <div className="mt-1.5 flex flex-wrap gap-1.5 items-center">
@@ -2961,6 +2967,13 @@ export default function App() {
                   <p className="text-amber-800 mt-0.5">
                     Diminta untuk: <b>{LABEL_KANAL[s.channel] || s.channel}</b>
                   </p>
+                  {!s.tenantId && s.bankAccount && (
+                    <p className="text-amber-900 mt-0.5">
+                      Rekening stand baru: <b>{s.bankName} {s.bankAccount}</b>
+                      {s.bankAccountName ? ` a.n. ${s.bankAccountName}` : ''}
+                      <span className="block text-amber-700">Periksa dulu nomornya sebelum menyetujui &mdash; ini yang dipakai membayar hasil penjualannya.</span>
+                    </p>
+                  )}
                   <p className="mt-1.5 text-amber-900 font-bold">
                     Margin sudah diisi otomatis: 10% dengan harga jual dibulatkan ke atas ke
                     Rp 500. Periksa dan ubah kalau perlu.
@@ -3007,6 +3020,90 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {orderDetail && (() => {
+          // Dibaca ulang dari daftar, bukan dari salinan saat diklik: kalau
+          // statusnya diganti dari dalam popup, yang tampil harus ikut berubah.
+          const ord = orders.find((o) => o.orderId === orderDetail.orderId) || orderDetail;
+          const cust = ord.customer && typeof ord.customer === 'object' ? ord.customer : {};
+          const items = enrichOrderItems(ord) || [];
+          const offline = (ord.channel || 'online') === 'offline';
+          return (
+            <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/60 backdrop-blur-sm print:hidden">
+              <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[88vh] animate-in slide-in-from-bottom-4 sm:slide-in-from-bottom-0 sm:zoom-in-95">
+                <div className="p-4 border-b border-slate-100 shrink-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-black text-indigo-700 text-sm">{ord.orderId}</span>
+                        {offline ? (
+                          <span className="text-[9px] font-black bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">
+                            OFFLINE{ord.paymentMethod ? ` · ${ord.paymentMethod}` : ''}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-black bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">ONLINE</span>
+                        )}
+                      </span>
+                      <p className="font-bold text-slate-900 text-sm mt-1 leading-tight">{cust?.namaAnak || 'Unknown'}</p>
+                      <p className="text-[11px] text-slate-500">
+                        {cust?.kelas || '-'}{cust?.namaOrtu && cust.namaOrtu !== '-' ? ` · Ortu: ${cust.namaOrtu}` : ''}
+                      </p>
+                      {ord.date && (
+                        <p className="text-[10px] text-slate-400 mt-0.5">{formatIndoDate(String(ord.date).slice(0, 10))}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setOrderDetail(null)}
+                      className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg shrink-0 transition-colors"
+                    ><X className="w-4 h-4 text-slate-500" /></button>
+                  </div>
+                </div>
+
+                <div className="p-4 overflow-y-auto flex-1 text-xs">
+                  {items.map((i, idx) => (
+                    <div key={idx} className="flex justify-between items-start gap-3 py-1.5 border-b border-slate-50">
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-800">{parseAndCleanItem(i?.name)} (x{i?.qty || 1})</p>
+                        <p className="text-[9px] text-slate-400">{tenants.find((t) => t.id === i?.tenantId)?.name || 'Stand'}</p>
+                      </div>
+                      <span className="font-medium text-slate-600 shrink-0">{formatRupiah(i?.subtotal || 0)}</span>
+                    </div>
+                  ))}
+                  {cust?.catatan && cust.catatan !== '-' && (
+                    <p className="text-[10px] text-orange-600 font-medium italic mt-2">Catatan: {cust.catatan}</p>
+                  )}
+                  <div className="flex justify-between font-black text-slate-900 pt-3 mt-2 border-t">
+                    <span>Total Nominal Pesanan</span>
+                    <span className="text-amber-600">{formatRupiah(ord.totalAmount || 0)}</span>
+                  </div>
+                </div>
+
+                <div className="p-4 border-t border-slate-100 flex items-center gap-2 shrink-0 bg-white rounded-b-2xl">
+                  <select
+                    value={ord.status || 'Unpaid'}
+                    onChange={(e) => updateOrderStatusDirect(ord.orderId, e.target.value)}
+                    className="flex-1 text-xs font-bold px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="Unpaid">Unpaid</option>
+                    <option value="Paid">Paid</option>
+                    <option value="Selesai">Selesai</option>
+                    <option value="Batal">Batal</option>
+                  </select>
+                  <button
+                    onClick={() => {
+                      showConfirm(`Yakin HAPUS pesanan ${ord.orderId}? Data akan terhapus permanen.`, () => {
+                        setOrderDetail(null);
+                        deleteOrder(ord.orderId);
+                      });
+                    }}
+                    className="p-2.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl transition-colors"
+                    title="Hapus pesanan"
+                  ><Trash2 className="w-4 h-4" /></button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {tenantModal.isOpen && (
           <ModalTenantForm
@@ -3678,7 +3775,10 @@ const kompresGambar = (file, maxDim = 400, kualitas = 0.75) => new Promise((reso
  * dikirim disusun ulang di server supaya kolom asing dibuang.
  */
 function FormPendaftaran({ tenants, batchName, onKembali }) {
-  const [penjual, setPenjual] = useState({ kode: '', nama: '', telp: '', tenantId: '', tenantBaru: '' });
+  const [penjual, setPenjual] = useState({
+    kode: '', nama: '', telp: '', tenantId: '', tenantBaru: '',
+    bank: '', rekening: '', atasNama: '',
+  });
   const kosongProduk = { name: '', category: PREDEFINED_CATEGORIES[0], description: '', priceOwner: '', stock: '', imageUrl: '' };
   const [kanal, setKanal] = useState('online');
   const [produk, setProduk] = useState(kosongProduk);
@@ -3722,6 +3822,9 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
     if (standBaru && penjual.tenantBaru.trim() === '') {
       setPesan('Isi dulu nama stand barunya.'); return;
     }
+    if (standBaru && (penjual.bank.trim() === '' || penjual.rekening.replace(/[^0-9]/g, '').length < 6)) {
+      setPesan('Bank dan nomor rekening wajib diisi untuk stand baru.'); return;
+    }
     if (!penjual.tenantId) {
       setPesan('Pilih stand Anda dulu.'); return;
     }
@@ -3738,6 +3841,9 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
         p_seller_phone: penjual.telp,
         p_tenant_id: standBaru ? null : penjual.tenantId,
         p_tenant_baru: standBaru ? penjual.tenantBaru : null,
+        p_bank_name: standBaru ? penjual.bank : null,
+        p_bank_account: standBaru ? penjual.rekening : null,
+        p_bank_account_name: standBaru ? penjual.atasNama : null,
         p_name: produk.name,
         p_category: produk.category || null,
         p_description: produk.description || null,
@@ -3872,12 +3978,40 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
           </select>
         </div>
         {standBaru && (
-          <div>
-            <label className="block mb-1">Nama stand baru <span className="text-rose-500">*</span></label>
-            <input type="text" required value={penjual.tenantBaru}
-              onChange={(e) => setPenjual({ ...penjual, tenantBaru: e.target.value })} className={inp} />
-            <p className="text-[9px] text-slate-500 mt-1">Panitia akan membuatkan standnya saat review.</p>
-          </div>
+          <>
+            <div>
+              <label className="block mb-1">Nama stand baru <span className="text-rose-500">*</span></label>
+              <input type="text" required value={penjual.tenantBaru}
+                onChange={(e) => setPenjual({ ...penjual, tenantBaru: e.target.value })} className={inp} />
+              <p className="text-[9px] text-slate-500 mt-1">Panitia akan membuatkan standnya saat review.</p>
+            </div>
+
+            {}
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+              <p className="text-[10px] text-slate-600 leading-snug">
+                Rekening ini dipakai panitia untuk membayarkan hasil penjualan Anda, dan hanya
+                ditanyakan sekali saat stand baru dibuat.
+              </p>
+              <div className="flex gap-3">
+                <div className="w-28 shrink-0">
+                  <label className="block mb-1">Bank <span className="text-rose-500">*</span></label>
+                  <input type="text" required value={penjual.bank} placeholder="BCA"
+                    onChange={(e) => setPenjual({ ...penjual, bank: e.target.value })} className={inp} />
+                </div>
+                <div className="flex-1">
+                  <label className="block mb-1">No. rekening <span className="text-rose-500">*</span></label>
+                  <input type="text" inputMode="numeric" required value={penjual.rekening}
+                    onChange={(e) => setPenjual({ ...penjual, rekening: e.target.value })} className={inp} />
+                </div>
+              </div>
+              <div>
+                <label className="block mb-1">Atas nama</label>
+                <input type="text" value={penjual.atasNama}
+                  placeholder={penjual.nama ? `Kosongkan = ${penjual.nama}` : 'Kosongkan = nama Anda'}
+                  onChange={(e) => setPenjual({ ...penjual, atasNama: e.target.value })} className={inp} />
+              </div>
+            </div>
+          </>
         )}
       </div>
 
