@@ -307,6 +307,78 @@ const semuaMenuAdmin = () => [
 /** Nilai khusus di pilihan stand: "buat stand baru sesuai usulan penjual". */
 const STAND_BARU = '__stand_baru__';
 
+// ---------------------------------------------------------------------------
+//  Isian angka.
+//
+//  Dulu kolom harga memakai <input type="number">. Di kolom semacam itu titik
+//  dibaca sebagai koma DESIMAL, bukan pemisah ribuan: penjual mengetik "9.000"
+//  dan yang tersimpan Rp 9 — Number('9.000') memang 9. Sebagian browser malah
+//  mengirim string kosong untuk nilai yang dianggap tidak sah, jadi produknya
+//  bisa masuk dengan harga Rp 0.
+//
+//  Sekarang semua kolom angka berupa teks ber-keypad angka: setiap karakter
+//  selain angka dibuang, lalu disusun ulang. Menempel "Rp 12.500,-" pun tetap
+//  menghasilkan 12500. State menyimpan DIGIT MURNI, jadi Number() di hilir
+//  tidak berubah sama sekali.
+// ---------------------------------------------------------------------------
+const angkaSaja = (v) => String(v ?? '').replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+
+const kelompokRibuan = (v) => {
+  const d = angkaSaja(v);
+  return d === '' ? '' : d.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+};
+
+// Kelas Tailwind harus utuh sebagai teks, tidak boleh dirangkai dari variabel:
+// kalau dirangkai, kelasnya tidak ikut ter-generate dan border fokusnya hilang.
+const BORDER_FOKUS = {
+  emerald: 'focus-within:border-emerald-500',
+  indigo: 'focus-within:border-indigo-500',
+};
+
+/** Kolom rupiah: "Rp" sebagai label tetap, angkanya dikelompokkan saat diketik. */
+function InputRupiah({ value, onChange, required = false, echo = false, warna = 'emerald', ...sisa }) {
+  const tampil = kelompokRibuan(value);
+  return (
+    <>
+      <div className={`flex items-stretch border border-slate-200 rounded-xl overflow-hidden bg-white ${BORDER_FOKUS[warna] || BORDER_FOKUS.emerald}`}>
+        <span className="px-2.5 flex items-center bg-slate-100 text-slate-500 font-bold text-[11px] shrink-0">Rp</span>
+        <input
+          type="text" inputMode="numeric" autoComplete="off"
+          value={tampil}
+          required={required}
+          onChange={(e) => onChange(angkaSaja(e.target.value))}
+          className="w-full px-3 py-2 focus:outline-none bg-transparent"
+          {...sisa}
+        />
+      </div>
+      {echo && (
+        <p className="text-[10px] font-bold text-slate-500 mt-1">
+          {tampil === '' ? 'Rp 0,-' : `Rp ${tampil},-`}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** Kolom jumlah / stok: angka saja, tanpa pemisah ribuan. */
+function InputAngka({ value, onChange, ...sisa }) {
+  return (
+    <input
+      type="text" inputMode="numeric" autoComplete="off"
+      value={angkaSaja(value)}
+      onChange={(e) => onChange(angkaSaja(e.target.value))}
+      {...sisa}
+    />
+  );
+}
+
+/** Nomor WhatsApp: 08xx -> 628xx, selain angka dibuang. */
+const nomorWa = (telp) => {
+  let n = String(telp || '').replace(/[^0-9]/g, '');
+  if (n.startsWith('0')) n = '62' + n.slice(1);
+  return n.length > 7 ? n : '';
+};
+
 const KELIPATAN_BULAT = 500;
 
 /**
@@ -2312,6 +2384,36 @@ export default function App() {
                   const namaStand = (s) => s.tenantId
                     ? (tenants.find((t) => t.id === s.tenantId)?.name || s.tenantId)
                     : `${s.tenantBaru} (stand baru)`;
+
+                  /**
+                   * Nomor tujuan konfirmasi: stand yang sudah terdaftar dihubungi
+                   * lewat nomor standnya, usulan stand baru lewat nomor penjualnya.
+                   */
+                  const waTujuan = (s) => s.tenantId
+                    ? nomorWa(tenants.find((t) => t.id === s.tenantId)?.phone)
+                    : nomorWa(s.sellerPhone);
+
+                  const bukaWa = (s) => {
+                    const no = waTujuan(s);
+                    if (!no) { showToast('Nomor WhatsApp stand ini belum terisi.'); return; }
+                    const sapaan = s.tenantId
+                      ? (tenants.find((t) => t.id === s.tenantId)?.name || 'Bapak/Ibu')
+                      : (s.sellerName || 'Bapak/Ibu');
+                    const periode = batches.find((b) => b.id === s.batchId)?.name || '-';
+                    const baris = [
+                      `Halo ${sapaan},`,
+                      '',
+                      `Terkait pendaftaran produk untuk Bazaar ${periode}:`,
+                      `\u2022 Produk: ${s.name}`,
+                    ];
+                    if (s.variants.length > 0) {
+                      baris.push(`\u2022 Varian: ${s.variants.map((v) => `${v.name} ${formatRupiah(v.priceOwner)}`).join('; ')}`);
+                    } else {
+                      baris.push(`\u2022 Harga nett tercatat: ${formatRupiah(s.priceOwner)}`);
+                    }
+                    baris.push(`\u2022 Kode: ${s.code}`, '', '');
+                    window.open(`https://wa.me/${no}?text=${encodeURIComponent(baris.join('\n'))}`, '_blank');
+                  };
                   return (
                     <div className="space-y-4 animate-in fade-in duration-300">
                       <div className="bg-white p-3 rounded-xl shadow-sm border">
@@ -2398,6 +2500,14 @@ export default function App() {
                             </div>
 
                             <div className="flex gap-2 mt-3">
+                              <button
+                                onClick={() => bukaWa(s)}
+                                disabled={!waTujuan(s)}
+                                title={waTujuan(s) ? 'Konfirmasi lewat WhatsApp' : 'Nomor WhatsApp belum terisi'}
+                                className="px-3 py-2 bg-white border border-emerald-200 hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed text-emerald-700 text-[11px] font-bold rounded-lg flex items-center gap-1 transition-colors shrink-0"
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" /> WA
+                              </button>
                               {s.status === 'pending' && (
                                 <>
                                   <button
@@ -3822,6 +3932,9 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
     if (standBaru && penjual.tenantBaru.trim() === '') {
       setPesan('Isi dulu nama stand barunya.'); return;
     }
+    if (standBaru && (penjual.nama.trim() === '' || penjual.telp.replace(/[^0-9]/g, '').length < 9)) {
+      setPesan('Nama dan nomor WhatsApp wajib diisi untuk stand baru.'); return;
+    }
     if (standBaru && (penjual.bank.trim() === '' || penjual.rekening.replace(/[^0-9]/g, '').length < 6)) {
       setPesan('Bank dan nomor rekening wajib diisi untuk stand baru.'); return;
     }
@@ -3837,8 +3950,8 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
       const { data, error } = await supabase.rpc('submit_product', {
         p_code: penjual.kode,
         p_channel: kanal,
-        p_seller_name: penjual.nama,
-        p_seller_phone: penjual.telp,
+        p_seller_name: standBaru ? penjual.nama : null,
+        p_seller_phone: standBaru ? penjual.telp : null,
         p_tenant_id: standBaru ? null : penjual.tenantId,
         p_tenant_baru: standBaru ? penjual.tenantBaru : null,
         p_bank_name: standBaru ? penjual.bank : null,
@@ -3948,7 +4061,7 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
       </div>
 
       <div className="bg-white rounded-2xl border shadow-sm p-4 space-y-3">
-        <h3 className="font-bold text-sm text-slate-900">1. Data Penjual</h3>
+        <h3 className="font-bold text-sm text-slate-900">1. Stand Anda</h3>
         <div>
           <label className="block mb-1">Kode pendaftaran <span className="text-rose-500">*</span></label>
           <input
@@ -3959,31 +4072,38 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
           />
         </div>
         <div>
-          <label className="block mb-1">Nama Anda <span className="text-rose-500">*</span></label>
-          <input type="text" required value={penjual.nama}
-            onChange={(e) => setPenjual({ ...penjual, nama: e.target.value })} className={inp} />
-        </div>
-        <div>
-          <label className="block mb-1">Nomor WhatsApp <span className="text-rose-500">*</span></label>
-          <input type="tel" required value={penjual.telp} placeholder="08xxxxxxxxxx"
-            onChange={(e) => setPenjual({ ...penjual, telp: e.target.value })} className={inp} />
-        </div>
-        <div>
           <label className="block mb-1">Stand <span className="text-rose-500">*</span></label>
           <select required value={penjual.tenantId}
             onChange={(e) => setPenjual({ ...penjual, tenantId: e.target.value })} className={inp}>
             <option value="">&mdash; Pilih stand &mdash;</option>
-            {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             <option value={STAND_BARU}>Stand saya belum terdaftar</option>
+            {tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
+          {penjual.tenantId && !standBaru && (
+            <p className="text-[9px] text-slate-500 mt-1 leading-snug">
+              Data stand ini sudah tercatat di panitia, jadi tinggal lanjut mengisi produknya.
+              Kalau ada yang perlu dikonfirmasi, panitia menghubungi nomor WhatsApp stand.
+            </p>
+          )}
         </div>
         {standBaru && (
           <>
+            {}
             <div>
               <label className="block mb-1">Nama stand baru <span className="text-rose-500">*</span></label>
               <input type="text" required value={penjual.tenantBaru}
                 onChange={(e) => setPenjual({ ...penjual, tenantBaru: e.target.value })} className={inp} />
               <p className="text-[9px] text-slate-500 mt-1">Panitia akan membuatkan standnya saat review.</p>
+            </div>
+            <div>
+              <label className="block mb-1">Nama Anda <span className="text-rose-500">*</span></label>
+              <input type="text" required value={penjual.nama}
+                onChange={(e) => setPenjual({ ...penjual, nama: e.target.value })} className={inp} />
+            </div>
+            <div>
+              <label className="block mb-1">Nomor WhatsApp <span className="text-rose-500">*</span></label>
+              <input type="tel" required value={penjual.telp} placeholder="08xxxxxxxxxx"
+                onChange={(e) => setPenjual({ ...penjual, telp: e.target.value })} className={inp} />
             </div>
 
             {}
@@ -4000,8 +4120,8 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
                 </div>
                 <div className="flex-1">
                   <label className="block mb-1">No. rekening <span className="text-rose-500">*</span></label>
-                  <input type="text" inputMode="numeric" required value={penjual.rekening}
-                    onChange={(e) => setPenjual({ ...penjual, rekening: e.target.value })} className={inp} />
+                  <InputAngka value={penjual.rekening} required
+                    onChange={(v) => setPenjual({ ...penjual, rekening: v })} className={inp} />
                 </div>
               </div>
               <div>
@@ -4039,16 +4159,18 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
           <div className="flex gap-3">
             <div className="flex-1">
               <label className="block mb-1 text-emerald-700">Harga nett <span className="text-rose-500">*</span></label>
-              <input type="number" min="0" required={!adaVarian} value={produk.priceOwner}
-                onChange={(e) => setProduk({ ...produk, priceOwner: e.target.value })} className={inp} />
+              <InputRupiah value={produk.priceOwner} required={!adaVarian} echo
+                aria-label="Harga nett"
+                onChange={(v) => setProduk({ ...produk, priceOwner: v })} />
             </div>
             {/* Jumlah hanya ditanyakan untuk bazaar offline. Pesanan online
                 berjalan sebagai PO, jadi tidak ada batas yang perlu diisi. */}
             {kanal === 'offline' && (
               <div className="flex-1">
                 <label className="block mb-1">Jumlah yang dibawa</label>
-                <input type="number" min="0" value={produk.stock} placeholder="Opsional"
-                  onChange={(e) => setProduk({ ...produk, stock: e.target.value })} className={inp} />
+                <InputAngka value={produk.stock} placeholder="Opsional"
+                  aria-label="Jumlah yang dibawa"
+                  onChange={(v) => setProduk({ ...produk, stock: v })} className={inp} />
               </div>
             )}
           </div>
@@ -4074,12 +4196,13 @@ function FormPendaftaran({ tenants, batchName, onKembali }) {
                   onChange={(e) => { const n = [...varian]; n[i].name = e.target.value; setVarian(n); }}
                   className="w-full px-2 py-1.5 border border-slate-200 rounded bg-white focus:outline-none focus:border-emerald-500" />
                 <div className="flex gap-2">
-                  <input type="number" min="0" required placeholder="Harga nett" value={v.priceOwner}
-                    onChange={(e) => { const n = [...varian]; n[i].priceOwner = e.target.value; setVarian(n); }}
-                    className="w-full px-2 py-1.5 border border-slate-200 rounded bg-white text-emerald-700 font-bold focus:outline-none focus:border-emerald-500" />
+                  <div className="w-full">
+                    <InputRupiah value={v.priceOwner} required placeholder="Harga nett"
+                      onChange={(nv) => { const n = [...varian]; n[i].priceOwner = nv; setVarian(n); }} />
+                  </div>
                   {kanal === 'offline' && (
-                    <input type="number" min="0" placeholder="Jumlah" value={v.stock}
-                      onChange={(e) => { const n = [...varian]; n[i].stock = e.target.value; setVarian(n); }}
+                    <InputAngka value={v.stock} placeholder="Jumlah"
+                      onChange={(nv) => { const n = [...varian]; n[i].stock = nv; setVarian(n); }}
                       className="w-full px-2 py-1.5 border border-slate-200 rounded bg-white focus:outline-none focus:border-emerald-500" />
                   )}
                 </div>
@@ -4446,7 +4569,7 @@ function ModalProductForm({
           }} 
           className="space-y-4 text-xs font-medium"
         >
-          <div><label className="block mb-1">Nama Produk</label><input type="text" required value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
+          <div><label className="block mb-1">Nama Produk</label><input type="text" aria-label="Nama Produk" required value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
           
           <div>
              <label className="block mb-1">Kategori Produk</label>
@@ -4471,18 +4594,28 @@ function ModalProductForm({
           
           {!hasVariants && (
             <div className="flex gap-3">
-              <div className="flex-1"><label className="block mb-1 text-emerald-700">Harga Nett</label><input type="number" required={!hasVariants} value={form.priceOwner} onChange={e => setForm({...form, priceOwner: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500" /></div>
-              <div className="flex-1"><label className="block mb-1 text-indigo-700">Margin Panitia</label><input type="number" required={!hasVariants} value={form.priceOrganizer} onChange={e => setForm({...form, priceOrganizer: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
+              <div className="flex-1">
+                <label className="block mb-1 text-emerald-700">Harga Nett</label>
+                <InputRupiah value={form.priceOwner} required={!hasVariants}
+                  aria-label="Harga Nett"
+                  onChange={(v) => setForm({ ...form, priceOwner: v })} />
+              </div>
+              <div className="flex-1">
+                <label className="block mb-1 text-indigo-700">Margin Panitia</label>
+                <InputRupiah value={form.priceOrganizer} required={!hasVariants} warna="indigo"
+                  aria-label="Margin Panitia"
+                  onChange={(v) => setForm({ ...form, priceOrganizer: v })} />
+              </div>
             </div>
           )}
 
           {kanal === 'offline' && !hasVariants && (
             <div>
               <label className="block mb-1">Stok</label>
-              <input
-                type="number" min="0" step="1" placeholder="Kosongkan kalau tidak dibatasi"
+              <InputAngka
+                placeholder="Kosongkan kalau tidak dibatasi"
                 value={form.stock}
-                onChange={e => setForm({ ...form, stock: e.target.value })}
+                onChange={(v) => setForm({ ...form, stock: v })}
                 className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-emerald-500"
               />
               <p className="text-[9px] text-slate-500 mt-1 leading-snug">
@@ -4512,11 +4645,17 @@ function ModalProductForm({
                            <div className="flex-1 space-y-2">
                                <input type="text" placeholder="Nama Varian (Misal: 250gr)" value={v.name} required onChange={e => { const newV = [...variants]; newV[i].name = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white focus:outline-none focus:border-amber-400" />
                                <div className="flex gap-2">
-                                   <input type="number" placeholder="Harga Nett" value={v.priceOwner} required onChange={e => { const newV = [...variants]; newV[i].priceOwner = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white text-emerald-700 font-bold focus:outline-none focus:border-emerald-500" />
-                                   <input type="number" placeholder="Margin" value={v.priceOrganizer} required onChange={e => { const newV = [...variants]; newV[i].priceOrganizer = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white text-indigo-700 font-bold focus:outline-none focus:border-indigo-500" />
+                                   <div className="w-full">
+                                     <InputRupiah value={v.priceOwner} required placeholder="Harga Nett"
+                                       onChange={(nv) => { const newV = [...variants]; newV[i].priceOwner = nv; setVariants(newV); }} />
+                                   </div>
+                                   <div className="w-full">
+                                     <InputRupiah value={v.priceOrganizer} required placeholder="Margin" warna="indigo"
+                                       onChange={(nv) => { const newV = [...variants]; newV[i].priceOrganizer = nv; setVariants(newV); }} />
+                                   </div>
                                </div>
                                {kanal === 'offline' && (
-                                 <input type="number" min="0" step="1" placeholder="Stok (kosong = tidak dibatasi)" value={v.stock ?? ''} onChange={e => { const newV = [...variants]; newV[i].stock = e.target.value; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white focus:outline-none focus:border-emerald-500" />
+                                 <InputAngka placeholder="Stok (kosong = tidak dibatasi)" value={v.stock ?? ''} onChange={(nv) => { const newV = [...variants]; newV[i].stock = nv; setVariants(newV); }} className="w-full px-2 py-1.5 border border-slate-200 rounded bg-slate-50 focus:bg-white focus:outline-none focus:border-emerald-500" />
                                )}
                            </div>
                            <button type="button" onClick={() => setVariants(variants.filter((_, idx) => idx !== i))} className="p-1.5 bg-red-50 hover:bg-red-100 text-red-500 rounded transition-colors"><Trash2 className="w-4 h-4"/></button>
@@ -4527,7 +4666,7 @@ function ModalProductForm({
              )}
           </div>
 
-          <div><label className="block mb-1">Deskripsi Singkat (Opsional)</label><input type="text" value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
+          <div><label className="block mb-1">Deskripsi Singkat (Opsional)</label><input type="text" aria-label="Deskripsi Singkat" value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-indigo-500" /></div>
           
           <div>
             <label className="block mb-1.5">Upload Foto (Auto-Compress)</label>
